@@ -2119,8 +2119,8 @@ class MonadaDialog(tk.Toplevel):
         folders.append(os.path.join(os.path.expanduser('~'), 'Downloads'))
         for folder in folders:
             for prefix in prefixes:
-                # .zip πρώτα (χειροκίνητο κατέβασμα), μετά .csv/.xlsx (μέσω app downloader)
-                for pattern in (f'{prefix}*.zip', f'{prefix}*.csv', f'{prefix}*.xlsx'):
+                # .zip πρώτα (χειροκίνητο κατέβασμα), μετά .csv/.xlsx/.xls (μέσω app downloader)
+                for pattern in (f'{prefix}*.zip', f'{prefix}*.csv', f'{prefix}*.xlsx', f'{prefix}*.xls'):
                     matches = [f for f in _glob.glob(os.path.join(folder, pattern))
                                if not f.endswith('.tmp') and not f.endswith('.crdownload')]
                     if matches:
@@ -2153,7 +2153,7 @@ class MonadaDialog(tk.Toplevel):
         """
         import zipfile, io, pandas as pd
         lower = path.lower()
-        if lower.endswith('.xlsx'):
+        if lower.endswith('.xlsx') or lower.endswith('.xls'):
             return pd.read_excel(path, dtype=str)
         if lower.endswith('.zip'):
             with zipfile.ZipFile(path) as z:
@@ -2179,7 +2179,7 @@ class MonadaDialog(tk.Toplevel):
         # Προειδοποίηση αν λείπουν αρχεία
         missing = []
         if not self._csv_path:    missing.append('Κατάλογος Μονάδων (CSV_...zip)')
-        if not self._stat31_path: missing.append('Στατιστικό 3.1 (stat3_1...zip)')
+        if not self._stat31_path: missing.append('Στατιστικό 3.1 (stat3_1...)')
         if missing:
             tk.Label(self,
                 text=f'⚠  Δεν βρέθηκαν: {", ".join(missing)}. Κατέβασέ τα από MySchool.',
