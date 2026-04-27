@@ -6,7 +6,7 @@ Python εφαρμογή Windows για αυτοματοποιημένους ελ
 
 **Repo:** https://github.com/MichalisKat/myschool-checks  
 **Υπεύθυνος:** Μιχάλης Κατσιρντάκης  
-**Τρέχουσα έκδοση:** 0.9.5 (beta)
+**Τρέχουσα έκδοση:** 0.9.6 (beta)
 
 ---
 
@@ -29,7 +29,7 @@ myschool-checks/
 ├── MySchoolChecks_Odigos.pdf  # Οδηγός χρήστη (ReportLab, ελληνικά)
 ├── MySchoolChecks.spec      # PyInstaller spec — ΜΗΝ το διαγράψεις
 ├── build_executable.bat     # Φτιάχνει dist\MySchoolChecks.exe
-├── compile_installer.bat    # Φτιάχνει myschool-checks-0.9.5-setup.exe
+├── compile_installer.bat    # Φτιάχνει myschool-checks-0.9.6-setup.exe
 ├── myschool-checks.nsi      # NSIS script για τον installer
 ├── SECURITY.md              # Τεκμηρίωση ασφάλειας credentials
 └── CLAUDE.md                # Αυτό το αρχείο
@@ -80,7 +80,11 @@ myschool-checks/
 ### Checks
 Κάθε αρχείο στο `checks/` είναι ανεξάρτητος έλεγχος. Πρέπει να έχει:
 - `CHECK_TITLE` — τίτλος
-- `run()` — κύρια συνάρτηση που καλεί `framework.run_check()`
+- `REQUIRED_REPORTS` — list με τα απαιτούμενα στατιστικά (εμφανίζεται στο dialog όταν λείπουν αρχεία)
+- `ask_inputs()` — ζητά αρχεία/παραμέτρους, επιστρέφει context dict
+- `process(ctx)` — λογική ελέγχου, επιστρέφει DataFrame
+
+Αν `ask_inputs()` επιστρέψει `None` σε κλειδί `path`/`*_path`, το `run_check()` καλεί `_missing_file_dialog()` με τα `REQUIRED_REPORTS` και τερματίζει καθαρά.
 
 ### EidikotitaDialog (main.py)
 Εργαλείο εξαγωγής εκπαιδευτικών ανά ειδικότητα — ανεξάρτητο από το σύστημα checks.
@@ -158,7 +162,7 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 Τρέξε μόνο βήματα 3 → 4 → 5 → 6. Το `build_executable.bat` δεν χρειάζεται.
 
 ### Versioning
-- Τρέχουσα: `0.9.5` (beta)
+- Τρέχουσα: `0.9.6` (beta)
 - Stable release: `1.0.0` (μετά από testing)
 - Αλλαγή version: στο `myschool-checks.nsi` (`APP_VERSION`), στο `compile_installer.bat` **και** στο `MySchoolChecks/config.py` (`APP_VERSION`)
 
@@ -206,6 +210,30 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 - [ ] Αν χρειαστεί νέα έκδοση: αλλαγή `APP_VERSION` στο `.nsi`, `compile_installer.bat` **και** `config.py`
 - [ ] Επαλήθευση λήψης 3.1 με pre_search_labels (DevExpress checkboxes) — πρώτο run in production
 - [ ] Ενημέρωση PDF οδηγού χρήστη (χειροκίνητα με ReportLab) — να προστεθεί ενότητα Σχολικών Μονάδων
+
+## Αλλαγές ανά έκδοση
+
+### v0.9.6
+- Κωδικός email **προαιρετικός** — αποθηκεύεται αλλά δεν απαιτείται για αποθήκευση ρυθμίσεων
+- Κανονική αποστολή **απενεργοποιημένη** στο dialog αν δεν υπάρχει κωδικός (με hint για Ρυθμίσεις)
+- `forma_82.py`: **αυτόματη cutoff** — 1η (ημέρες 1-14) ή 15η (ημέρες 15-31) τρέχοντος μήνα
+- `framework.py` `get_downloaded_file()`: **διορθώθηκε path** — χρησιμοποιεί `Documents\MySchoolChecks\` (όχι LOCALAPPDATA)
+- `framework.py` `_missing_file_dialog()`: **νέα συνάρτηση** — εμφανίζει workflow hint + REQUIRED_REPORTS όταν λείπουν αρχεία
+- Κάθε check module έχει πλέον `REQUIRED_REPORTS` list
+- EidikotitaDialog + MonadaDialog: χρήση `_missing_file_dialog()` αντί για showwarning
+- Toolbar: κουμπί «⬇ Λήψη Δεδομένων» εμφανίζεται **έντονο** (πράσινο) αν δεν υπάρχουν αρχεία σήμερα
+- Status bar: hint «💡 Ξεκινήστε με ⬇ Λήψη Δεδομένων» αν δεν υπάρχουν αρχεία σήμερα
+- Version εμφανίζεται στο **status bar** (δεξιά) αντί για header
+- Διόρθωση `NameError` crash κατά την εκκίνηση (`_has_files` ορίζεται πριν τη χρήση του)
+- Διόρθωση `TclError` crash στον auto-updater progressbar (`_safe_after` + `winfo_exists`)
+- `framework.py` `send_email()`: επιστρέφει `False` αθόρυβα αν δεν υπάρχει κωδικός
+- `8ball.ico` → `app.ico` σε όλες τις αναφορές του `framework.py`
+
+### v0.9.5
+- EidikotitaDialog: εξαγωγή εκπαιδευτικών ανά ειδικότητα
+- MonadaDialog: εξαγωγή στοιχείων σχολικών μονάδων ανά Δήμο
+- DownloadDialog: checkboxes απενεργοποιημένα by default, κουμπί «Όλα»
+- downloader.py REPORTS: custom_search, custom_export, pre_search_labels
 
 ---
 
