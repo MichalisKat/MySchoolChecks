@@ -818,6 +818,9 @@ class LauncherApp:
         tk.Label(hdr, text='Δ/νση Π.Ε. Ανατολικής Θεσσαλονίκης',
                  bg=C['hdr_bg'], fg=C['hdr_sub'],
                  font=('Arial', 9)).pack()
+        tk.Label(hdr, text=f'v{config.APP_VERSION}',
+                 bg=C['hdr_bg'], fg=C['hdr_sub'],
+                 font=('Arial', 8)).pack()
 
         # Ένδειξη αν ο κωδικός λείπει
         if not password_is_set():
@@ -966,7 +969,7 @@ class LauncherApp:
                                     padx=10, pady=4)
         self.status_lbl.pack(side='left')
         tk.Label(status_bar,
-                 text=f'v{config.APP_VERSION}  •  {len(self.checks)} έλεγχοι  •  Μιχάλης Κατσιρντάκης  •  2310954145',
+                 text=f'{len(self.checks)} έλεγχοι  •  Μιχάλης Κατσιρντάκης  •  2310954145',
                  bg=C['bg2'], fg=C['footer'],
                  font=('Arial', 8), padx=10).pack(side='right')
 
@@ -2810,6 +2813,9 @@ def _show_splash(root):
     tk.Label(splash, text='Δ/νση Π.Ε. Ανατολικής Θεσσαλονίκης',
              bg=C['hdr_bg'], fg=C['hdr_sub'],
              font=('Arial', 9)).pack()
+    tk.Label(splash, text=f'v{config.APP_VERSION}',
+             bg=C['hdr_bg'], fg=C['hdr_sub'],
+             font=('Arial', 8)).pack()
 
     from tkinter import ttk as _ttk
     _style = _ttk.Style(splash)
