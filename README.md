@@ -7,7 +7,7 @@
 | **Υπεύθυνος** | Μιχάλης Κατσιρντάκης |
 | **Τηλέφωνο** | 2310 954145 |
 | **Email** | itdipea@sch.gr |
-| **Έκδοση** | v0.9.6 beta — Απρίλιος 2026 |
+| **Έκδοση** | v0.9.7 beta — Απρίλιος 2026 |
 
 ---
 
@@ -134,6 +134,8 @@
 | | |
 |---|---|
 | **Αποτελέσματα ελέγχων** | `Έγγραφα → MySchoolChecks → results_YYYYMMDD` |
+| **Εκπ/κοί ανά Ειδικότητα** | `Έγγραφα → MySchoolChecks → results_YYYYMMDD` |
+| **Σχολικές Μονάδες** | `Έγγραφα → MySchoolChecks → results_YYYYMMDD` |
 | **Στατιστικά αρχεία** | `Έγγραφα → MySchoolChecks → downloads → YYYYMMDD` |
 
 Γρήγορη πρόσβαση: **Win+R** → `%USERPROFILE%\Documents\MySchoolChecks` → Enter
