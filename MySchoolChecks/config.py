@@ -5,7 +5,7 @@
 # Ευαίσθητα credentials: Windows Credential Manager μέσω keyring (encryption.py)
 
 # ── Έκδοση εφαρμογής ──────────────────────────────────────────────────────
-APP_VERSION = '0.9.5'
+APP_VERSION = '0.9.6'
 
 # ── MySchool credentials (κενά — συμπληρώνονται από Ρυθμίσεις) ────────────
 MYSCHOOL_USER = ''

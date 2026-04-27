@@ -184,7 +184,11 @@ def save_workbook(df_sheet, title, columns, center_cols, today, output_path,
 # ═══════════════════════════════════════════════════════════════════
 
 def send_email(config, to_addr, subject, body, attachment_path):
-    """Αποστολή email με SSL/STARTTLS fallback. to_addr: str ή list."""
+    """Αποστολή email με SSL/STARTTLS fallback. to_addr: str ή list.
+    Επιστρέφει False αθόρυβα αν δεν έχει οριστεί κωδικός email."""
+    if not getattr(config, 'FROM_PASSWORD', ''):
+        print('  ⚠ Κωδικός email δεν έχει οριστεί — η αποστολή παραλείφθηκε.')
+        return False
     if isinstance(to_addr, list):
         recipients = to_addr
         to_header  = recipients[0]
@@ -319,7 +323,7 @@ def _show_results_popup(title, body_text, result_type='warn'):
     win.resizable(True, True)
     win.grab_set()
     win.attributes('-topmost', True)
-    _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '8ball.ico')
+    _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'app.ico')
     if os.path.exists(_ico):
         try: win.iconbitmap(_ico)
         except Exception: pass
@@ -388,17 +392,9 @@ def get_downloaded_file(report_id, prompt=None, required=True, csv_only=False):
     from tkinter import ttk
 
     import sys as _sys
-    if getattr(_sys, 'frozen', False):
-        _exe_dir = os.path.dirname(_sys.executable)
-        _pf   = os.environ.get('PROGRAMFILES',      r'C:\Program Files').lower()
-        _pf86 = os.environ.get('PROGRAMFILES(X86)', r'C:\Program Files (x86)').lower()
-        if _exe_dir.lower().startswith(_pf) or _exe_dir.lower().startswith(_pf86):
-            base_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'MySchoolChecks')
-            os.makedirs(base_dir, exist_ok=True)
-        else:
-            base_dir = _exe_dir
-    else:
-        base_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..'))
+    _docs = os.path.join(os.path.expanduser('~'), 'Documents')
+    base_dir = os.path.join(_docs, 'MySchoolChecks')
+    os.makedirs(base_dir, exist_ok=True)
     today = _dt.now().strftime('%Y%m%d')
     today_dir = os.path.normpath(os.path.join(base_dir, 'downloads', today))
 
@@ -462,7 +458,7 @@ def _ask_date_gui(prompt, fmt='%Y-%m-%d'):
     win.resizable(False, False)
     win.grab_set()
     win.attributes('-topmost', True)
-    _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '8ball.ico')
+    _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'app.ico')
     if os.path.exists(_ico):
         try: win.iconbitmap(_ico)
         except Exception: pass
@@ -551,7 +547,7 @@ def _ask_send_options_gui(test_only=False):
     win.resizable(False, False)
     win.grab_set()
     win.attributes('-topmost', True)
-    _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '8ball.ico')
+    _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'app.ico')
     if os.path.exists(_ico):
         try: win.iconbitmap(_ico)
         except Exception: pass
@@ -626,7 +622,7 @@ def yes_no(prompt):
     win.resizable(False, False)
     win.grab_set()
     win.attributes('-topmost', True)
-    _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '8ball.ico')
+    _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'app.ico')
     if os.path.exists(_ico):
         try: win.iconbitmap(_ico)
         except Exception: pass
@@ -739,6 +735,14 @@ def run_check(check_module, config):
 
     # Ζητά αρχεία/παραμέτρους από το module
     ctx = check_module.ask_inputs()
+
+    # Αν κάποιο αρχείο δεν βρέθηκε (None), σταματάμε καθαρά
+    missing = [k for k, v in ctx.items() if k == 'path' or k.endswith('_path') or k == 'paths']
+    for k in missing:
+        val = ctx[k]
+        if val is None or (isinstance(val, list) and None in val):
+            print(f'  ✗ Ο έλεγχος ακυρώθηκε — αρχείο δεν βρέθηκε ({k}).')
+            return
 
     today     = ctx.get('today', datetime.today().replace(hour=0, minute=0, second=0, microsecond=0))
     test_mode = False

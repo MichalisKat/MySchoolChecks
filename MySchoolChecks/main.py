@@ -408,17 +408,16 @@ class SettingsDialog(tk.Toplevel):
         sep1b = tk.Frame(tab1, bg=C['border'], height=1)
         sep1b.grid(row=7, column=0, columnspan=2, sticky='ew', pady=(16, 4))
 
-        self._section_label(tab1, 8, 'Λογαριασμός email:')
+        self._section_label(tab1, 8, 'Λογαριασμός email (προαιρετικό):')
         self._pw_var = tk.StringVar(value=self._cfg('FROM_PASSWORD'))
         self._pw_row(tab1, 9, 'Κωδικός email:', self._pw_var)
 
-        if not password_is_set():
-            warn = tk.Frame(tab1, bg='#FFF3E0',
-                            highlightbackground='#FFB74D', highlightthickness=1)
-            warn.grid(row=10, column=0, columnspan=2, sticky='ew', pady=(8, 0))
-            tk.Label(warn, text='⚠  Ο κωδικός email δεν έχει οριστεί.',
-                     bg='#FFF3E0', fg=C['warn'],
-                     font=('Arial', 8), padx=8, pady=4).pack()
+        hint = tk.Frame(tab1, bg='#E8F4FD',
+                        highlightbackground='#90CAF9', highlightthickness=1)
+        hint.grid(row=10, column=0, columnspan=2, sticky='ew', pady=(8, 0))
+        tk.Label(hint, text='ℹ  Συμπληρώστε μόνο αν επιθυμείτε αυτόματη αποστολή email.',
+                 bg='#E8F4FD', fg='#1565C0',
+                 font=('Arial', 8), padx=8, pady=4).pack(anchor='w')
 
         # ── Tab 2: Email (ταυτότητα αποστολέα) ───────────────────────────────
         self._section_label(tab2, 0, 'Στοιχεία αποστολέα:')
@@ -528,11 +527,6 @@ class SettingsDialog(tk.Toplevel):
                 'EMAIL_SIGNATURE': self._sig_text.get('1.0', tk.END).strip(),
                 'BROWSER'        : self._browser_var.get(),
             }
-
-            if not updates['FROM_PASSWORD']:
-                messagebox.showwarning('Προσοχή', 'Ο κωδικός email δεν μπορεί να είναι κενός.',
-                                       parent=self)
-                return
 
             # Αν επιλέχθηκε νέο αρχείο Αδυνατούντων
             new_ady = self._ady_new_path.get().strip()
@@ -824,9 +818,6 @@ class LauncherApp:
         tk.Label(hdr, text='Δ/νση Π.Ε. Ανατολικής Θεσσαλονίκης',
                  bg=C['hdr_bg'], fg=C['hdr_sub'],
                  font=('Arial', 9)).pack()
-        tk.Label(hdr, text=f'v{config.APP_VERSION}',
-                 bg=C['hdr_bg'], fg=C['hdr_sub'],
-                 font=('Arial', 7)).pack()
 
         # Ένδειξη αν ο κωδικός λείπει
         if not password_is_set():
@@ -947,8 +938,15 @@ class LauncherApp:
                   command=self._open_settings).place(relx=1.0, rely=0.0,
                                                       anchor='ne', x=-8, y=6)
 
-        # Status bar
-        self.status_var = tk.StringVar(value='Έτοιμο')
+        # Status bar — έλεγχος αν υπάρχουν αρχεία σήμερα
+        _today_str = __import__('datetime').date.today().strftime('%Y%m%d')
+        _dl_dir = __import__('os').path.join(
+            __import__('os').path.expanduser('~'), 'Documents', 'MySchoolChecks', 'downloads', _today_str)
+        _has_files = __import__('os').path.isdir(_dl_dir) and any(
+            True for _ in __import__('os').scandir(_dl_dir)) if __import__('os').path.isdir(_dl_dir) else False
+        _init_status = ('Έτοιμο  •  Δεδομένα σήμερα: ✓' if _has_files
+                        else '💡 Ξεκινήστε με  ⬇ Λήψη Δεδομένων  πριν εκτελέσετε ελέγχους')
+        self.status_var = tk.StringVar(value=_init_status)
         status_bar = tk.Frame(self.root, bg=C['bg2'],
                               highlightbackground=C['border'],
                               highlightthickness=1)
@@ -960,9 +958,9 @@ class LauncherApp:
                                     padx=10, pady=4)
         self.status_lbl.pack(side='left')
         tk.Label(status_bar,
-                 text=f'{len(self.checks)} έλεγχοι  •  Μιχάλης Κατσιρντάκης  •  2310954145',
+                 text=f'v{config.APP_VERSION}  •  {len(self.checks)} έλεγχοι  •  Μιχάλης Κατσιρντάκης  •  2310954145',
                  bg=C['bg2'], fg=C['footer'],
-                 font=('Arial', 7), padx=10).pack(side='right')
+                 font=('Arial', 8), padx=10).pack(side='right')
 
     def _open_settings(self):
         SettingsDialog(self.root)

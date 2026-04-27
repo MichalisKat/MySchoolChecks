@@ -6,8 +6,9 @@ checks/forma_82.py
 """
 
 import pandas as pd
+from datetime import datetime, date
 import config
-from core.framework import ask_file, get_downloaded_file, ask_date_ddmmyyyy
+from core.framework import ask_file, get_downloaded_file
 
 # ── Μεταδεδομένα ────────────────────────────────────────────────────────────
 CHECK_TITLE    = 'Επιβεβαίωση Δεδομένων Σχολείων'
@@ -40,12 +41,25 @@ EMAIL_BODY    = lambda school='': (
 )
 
 
+# ── Υπολογισμός cutoff ──────────────────────────────────────────────────────
+def _auto_cutoff():
+    """Επιστρέφει την πλησιέστερη προηγούμενη 1η ή 15η του τρέχοντος μήνα.
+    Από 2-14: επιστρέφει 1η του τρέχοντος μήνα.
+    Από 16-31: επιστρέφει 15η του τρέχοντος μήνα.
+    Την 1η και 15η: επιστρέφει την ίδια ημέρα.
+    """
+    today = date.today()
+    if today.day <= 14:
+        return datetime(today.year, today.month, 1)
+    else:
+        return datetime(today.year, today.month, 15)
+
+
 # ── Είσοδος ─────────────────────────────────────────────────────────────────
 def ask_inputs():
     path   = get_downloaded_file('8.2', 'Αρχείο 8.2 [xls / xlsx]:')
-    cutoff = ask_date_ddmmyyyy(
-        '\nΗμερομηνία cutoff (DD/MM/YYYY) — εγγραφές ΠΡΙΝ από αυτή θα εμφανιστούν:\n> '
-    )
+    cutoff = _auto_cutoff()
+    print(f'  ✓ Cutoff: {cutoff.strftime("%d/%m/%Y")} (υπολογίστηκε αυτόματα)')
     return {'path': path, 'today': cutoff, 'cutoff': cutoff}
 
 
