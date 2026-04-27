@@ -1490,6 +1490,7 @@ class EidikotitaDialog(tk.Toplevel):
         self._saved_subject = s.get('subject',       self._DEFAULT_SUBJECT)
         self._saved_body    = s.get('body',          self._DEFAULT_BODY)
         self._saved_email   = s.get('advisor_email', '')
+        self._saved_dir     = s.get('direction',     '')
 
         # Αυτόματη εύρεση αρχείων από downloads
         self._topoth_path = self._auto_find('Topothetiseis')
@@ -1555,11 +1556,23 @@ class EidikotitaDialog(tk.Toplevel):
         dir_row = tk.Frame(self, bg=C['bg'])
         dir_row.pack(fill='x', padx=18, pady=(2, 6))
 
-        self._dir_var = tk.StringVar()
+        self._dir_var = tk.StringVar(value=self._saved_dir)
         from tkinter import ttk as _ttk
-        self._dir_combo = _ttk.Combobox(dir_row, textvariable=self._dir_var,
-                                         width=46, state='readonly')
-        self._dir_combo.pack(side='left')
+
+        if self._saved_dir:
+            # Αποθηκευμένη Διεύθυνση — εμφάνιση ως label με κουμπί αλλαγής
+            self._dir_combo = None
+            tk.Label(dir_row, textvariable=self._dir_var,
+                     bg=C['bg'], fg=C['hdr_bg'],
+                     font=('Arial', 9, 'bold')).pack(side='left')
+            tk.Button(dir_row, text='Αλλαγή', bg=C['bg'], fg=C['desc'],
+                      relief='flat', font=('Arial', 8), cursor='hand2',
+                      command=self._reset_direction).pack(side='left', padx=(10, 0))
+        else:
+            # Πρώτη φορά — εμφάνιση dropdown
+            self._dir_combo = _ttk.Combobox(dir_row, textvariable=self._dir_var,
+                                             width=46, state='readonly')
+            self._dir_combo.pack(side='left')
 
         self._dir_lbl = tk.Label(dir_row, text='', bg=C['bg'],
                                   fg=C['desc'], font=('Arial', 8))
@@ -1640,6 +1653,18 @@ class EidikotitaDialog(tk.Toplevel):
 
         self.after(100, self._load_specialties)
 
+    def _reset_direction(self):
+        """Διαγράφει την αποθηκευμένη Διεύθυνση και επαναφορτώνει τη φόρμα."""
+        import json
+        s = _load_local_settings()
+        if self._SETTINGS_KEY in s:
+            s[self._SETTINGS_KEY].pop('direction', None)
+            path_s = _get_local_settings_path()
+            with open(path_s, 'w', encoding='utf-8') as f:
+                json.dump(s, f, ensure_ascii=False, indent=2)
+        self._saved_dir = ''
+        self._build_form()
+
     def _on_spec_change(self, *_):
         """Ενημερώνει το θέμα όταν αλλάζει η ειδικότητα."""
         spec = self._spec_var.get()
@@ -1667,12 +1692,20 @@ class EidikotitaDialog(tk.Toplevel):
             # Φόρτωσε Διευθύνσεις (μοναδικές, ταξινομημένες)
             dirs = sorted(df[area_col].dropna().astype(str).str.strip()
                           .replace('', pd.NA).dropna().unique())
-            self._dir_combo.config(values=dirs)
-            if dirs:
-                self._dir_var.set(dirs[0])
-            self._dir_lbl.config(text=f'{len(dirs)} διευθύνσεις', fg=C['desc'])
 
-            # Φόρτωσε ειδικότητες για την πρώτη Διεύθυνση
+            if self._dir_combo is not None:
+                # Πρώτη φορά — dropdown
+                self._dir_combo.config(values=dirs)
+                if dirs and not self._dir_var.get():
+                    self._dir_var.set(dirs[0])
+                self._dir_lbl.config(text=f'{len(dirs)} διευθύνσεις', fg=C['desc'])
+            else:
+                # Αποθηκευμένη Διεύθυνση — έλεγχος ότι υπάρχει ακόμα στο αρχείο
+                saved = self._dir_var.get()
+                if saved not in dirs and dirs:
+                    self._dir_var.set(dirs[0])
+
+            # Φόρτωσε ειδικότητες για την επιλεγμένη Διεύθυνση
             self._update_specialties()
 
             self._spec_lbl.config(
@@ -1862,8 +1895,13 @@ class EidikotitaDialog(tk.Toplevel):
 
             valid_codes = set(df_g_lu['_code'])
 
-            # ── 3. Φιλτράρισμα: μόνο σχολεία Δ/νσης + ειδικότητα ───────────
-            df_t = df_t[df_t['_code'].isin(valid_codes)].copy()
+            # ── 3. Φιλτράρισμα: ειδικότητα + (προαιρετικά) σχολεία Δ/νσης ──
+            # Το φίλτρο valid_codes εφαρμόζεται μόνο αν η Διεύθυνση είναι Π.Ε.
+            # (τα σχολεία ΔΔΕ δεν υπάρχουν στο gridResults/2.1)
+            selected_dir = self._dir_var.get().strip()
+            _is_pe = 'Π.Ε' in selected_dir or not selected_dir
+            if _is_pe:
+                df_t = df_t[df_t['_code'].isin(valid_codes)].copy()
             df_t = df_t[df_t[spec_col].astype(str) == specialty].copy()
 
             if df_t.empty:
@@ -2069,6 +2107,7 @@ class EidikotitaDialog(tk.Toplevel):
             'subject':       self._saved_subject,
             'body':          self._saved_body,
             'advisor_email': to_email,
+            'direction':     self._dir_var.get().strip(),
         }
         path_s = _get_local_settings_path()
         os.makedirs(os.path.dirname(path_s), exist_ok=True)
