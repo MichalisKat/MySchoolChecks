@@ -830,6 +830,15 @@ class LauncherApp:
                      bg='#FFF3E0', fg=C['warn'],
                      font=('Arial', 8), padx=10, pady=4).pack(side='left')
 
+        # Έλεγχος αν υπάρχουν αρχεία σήμερα (χρησιμοποιείται σε toolbar + status bar)
+        try:
+            import datetime as _dt2, os as _os2
+            _today_str = _dt2.date.today().strftime('%Y%m%d')
+            _dl_dir = _os2.path.join(_os2.path.expanduser('~'), 'Documents', 'MySchoolChecks', 'downloads', _today_str)
+            _has_files = _os2.path.isdir(_dl_dir) and bool(list(_os2.scandir(_dl_dir)))
+        except Exception:
+            _has_files = False
+
         # Toolbar
         toolbar = tk.Frame(self.root, bg=C['bg2'], pady=6)
         toolbar.pack(fill='x')
@@ -940,12 +949,7 @@ class LauncherApp:
                   command=self._open_settings).place(relx=1.0, rely=0.0,
                                                       anchor='ne', x=-8, y=6)
 
-        # Status bar — έλεγχος αν υπάρχουν αρχεία σήμερα
-        _today_str = __import__('datetime').date.today().strftime('%Y%m%d')
-        _dl_dir = __import__('os').path.join(
-            __import__('os').path.expanduser('~'), 'Documents', 'MySchoolChecks', 'downloads', _today_str)
-        _has_files = __import__('os').path.isdir(_dl_dir) and any(
-            True for _ in __import__('os').scandir(_dl_dir)) if __import__('os').path.isdir(_dl_dir) else False
+        # Status bar
         _init_status = ('Έτοιμο  •  Δεδομένα σήμερα: ✓' if _has_files
                         else '💡 Ξεκινήστε με  ⬇ Λήψη Δεδομένων  πριν εκτελέσετε ελέγχους')
         self.status_var = tk.StringVar(value=_init_status)
@@ -1565,7 +1569,7 @@ class EidikotitaDialog(tk.Toplevel):
         self._spec_var.trace_add('write', self._on_spec_change)
 
         # ── Στήλες εξόδου ────────────────────────────────────────────────────
-        tk.Label(self, text='Στήλες εξόδου:', bg=C['bg'], fg=C['hdr_bg'],
+        tk.Label(self, text='Προαιρετικές στήλες εξόδου (επιλέξτε όσες επιθυμείτε):', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(6, 2))
 
         col_frame = tk.Frame(self, bg=C['bg'])
