@@ -874,11 +874,13 @@ class LauncherApp:
         tk.Label(lbl_row, text='Επιλέξτε ένα ή περισσότερους ελέγχους:',
                  bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 10, 'bold'), anchor='w').pack(side='left')
-        tk.Button(lbl_row, text='Όλοι',
+        self._all_btn = tk.Button(lbl_row, text='Όλοι',
                   bg=C['hdr_bg'], fg='white',
                   font=('Arial', 8, 'bold'), relief='flat',
                   padx=8, pady=2, cursor='hand2',
-                  command=self._select_all).pack(side='right')
+                  command=self._toggle_all)
+        self._all_btn.pack(side='right')
+        self._all_selected = False
 
         self._check_vars = []
 
@@ -996,9 +998,11 @@ class LauncherApp:
                     pass
             ind.configure(bg=bg)
 
-    def _select_all(self):
+    def _toggle_all(self):
+        self._all_selected = not self._all_selected
         for var in self._check_vars:
-            var.set(True)
+            var.set(self._all_selected)
+        self._all_btn.config(text='Κανένας' if self._all_selected else 'Όλοι')
         self._refresh_highlights()
 
     # ── Email template editor ────────────────────────────────────────────────
