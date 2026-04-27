@@ -2777,18 +2777,17 @@ class MonadaDialog(tk.Toplevel):
 
 def _show_help(parent):
     """Ανοίγει τον οδηγό PDF με τον προεπιλεγμένο viewer των Windows."""
-    import glob
+    PDF_NAME = 'MySchoolChecks_Odigos.pdf'
     if getattr(sys, 'frozen', False):
         # Frozen exe: ψάχνε δίπλα στο .exe
         base_dir = os.path.dirname(sys.executable)
-        candidates = glob.glob(os.path.join(base_dir, '*.pdf'))
-        if not candidates:
+        pdf_path = os.path.join(base_dir, PDF_NAME)
+        if not os.path.exists(pdf_path):
             # ή μέσα στο bundle (αν συμπεριληφθεί με --add-data)
-            candidates = glob.glob(os.path.join(sys._MEIPASS, '*.pdf'))
+            pdf_path = os.path.join(sys._MEIPASS, PDF_NAME)
     else:
         base = os.path.dirname(os.path.abspath(__file__))
-        candidates = glob.glob(os.path.join(base, '..', '*.pdf'))
-    pdf_path = candidates[0] if candidates else None
+        pdf_path = os.path.normpath(os.path.join(base, '..', PDF_NAME))
 
     if pdf_path and os.path.exists(pdf_path):
         os.startfile(os.path.normpath(pdf_path))
