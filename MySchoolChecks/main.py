@@ -1548,6 +1548,23 @@ class EidikotitaDialog(tk.Toplevel):
                 wraplength=560, justify='left')
             warn.pack(fill='x', padx=18, pady=(0, 6))
 
+        # ── Διεύθυνση ────────────────────────────────────────────────────────
+        tk.Label(self, text='Διεύθυνση:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
+
+        dir_row = tk.Frame(self, bg=C['bg'])
+        dir_row.pack(fill='x', padx=18, pady=(2, 6))
+
+        self._dir_var = tk.StringVar()
+        from tkinter import ttk as _ttk
+        self._dir_combo = _ttk.Combobox(dir_row, textvariable=self._dir_var,
+                                         width=46, state='readonly')
+        self._dir_combo.pack(side='left')
+
+        self._dir_lbl = tk.Label(dir_row, text='', bg=C['bg'],
+                                  fg=C['desc'], font=('Arial', 8))
+        self._dir_lbl.pack(side='left', padx=(10, 0))
+
         # ── Ειδικότητα ───────────────────────────────────────────────────────
         tk.Label(self, text='Ειδικότητα:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
@@ -1556,7 +1573,6 @@ class EidikotitaDialog(tk.Toplevel):
         spec_row.pack(fill='x', padx=18, pady=(2, 6))
 
         self._spec_var = tk.StringVar()
-        from tkinter import ttk as _ttk
         self._spec_combo = _ttk.Combobox(spec_row, textvariable=self._spec_var,
                                           width=46, state='readonly')
         self._spec_combo.pack(side='left')
@@ -1630,32 +1646,69 @@ class EidikotitaDialog(tk.Toplevel):
         self._subj_var.set(self._saved_subject.replace('{specialty}', spec))
 
     def _load_specialties(self):
-        """Φορτώνει τις ειδικότητες από το Topothetiseis αρχείο."""
+        """Φορτώνει Διευθύνσεις και Ειδικότητες από το Topothetiseis αρχείο."""
         if not self._topoth_path:
             self._spec_lbl.config(text='Δεν βρέθηκε αρχείο Τοποθετήσεων.', fg='#CC0000')
             return
         try:
             import pandas as pd
             df = pd.read_excel(self._topoth_path, header=0)
+            # Αποθηκεύουμε ολόκληρο το df για φιλτράρισμα αργότερα
+            self._topoth_df = df
+
             spec_col = self._fc(df, 'κλάδ', 'ειδικ') or df.columns[4]
             self._topoth_spec_col = spec_col
-            specialties = sorted(df[spec_col].dropna().astype(str).unique())
-            self._spec_combo.config(values=specialties)
-            if specialties:
-                self._spec_var.set(specialties[0])
-                # Ενημέρωσε το body με την πρώτη ειδικότητα
-                if hasattr(self, '_body_txt'):
-                    from datetime import datetime as _dt
-                    self._body_txt.delete('1.0', 'end')
-                    self._body_txt.insert('1.0',
-                        self._saved_body
-                            .replace('{date}', _dt.today().strftime('%d/%m/%Y'))
-                            .replace('{specialty}', specialties[0]))
+
+            # Στήλη Περιοχή Μετάθεσης Φορέα (col19)
+            area_col = self._fc(df, 'περιοχή μετάθεσης φορέα', 'μετάθεσης φορέα') \
+                       or df.columns[19]
+            self._topoth_area_col = area_col
+
+            # Φόρτωσε Διευθύνσεις (μοναδικές, ταξινομημένες)
+            dirs = sorted(df[area_col].dropna().astype(str).str.strip()
+                          .replace('', pd.NA).dropna().unique())
+            self._dir_combo.config(values=dirs)
+            if dirs:
+                self._dir_var.set(dirs[0])
+            self._dir_lbl.config(text=f'{len(dirs)} διευθύνσεις', fg=C['desc'])
+
+            # Φόρτωσε ειδικότητες για την πρώτη Διεύθυνση
+            self._update_specialties()
+
             self._spec_lbl.config(
-                text=f'{len(specialties)} ειδικότητες | {os.path.basename(self._topoth_path)}',
-                fg=C['desc'])
+                text=f'{os.path.basename(self._topoth_path)}', fg=C['desc'])
+
+            # Όταν αλλάζει η Διεύθυνση → ανανέωσε ειδικότητες
+            self._dir_var.trace_add('write', lambda *_: self._update_specialties())
+
         except Exception as e:
             self._spec_lbl.config(text=f'Σφάλμα φόρτωσης: {e}', fg='#CC0000')
+
+    def _update_specialties(self):
+        """Ανανεώνει τη λίστα ειδικοτήτων βάσει της επιλεγμένης Διεύθυνσης."""
+        if not hasattr(self, '_topoth_df'):
+            return
+        import pandas as pd
+        df = self._topoth_df
+        selected_dir = self._dir_var.get().strip()
+        if selected_dir:
+            mask = df[self._topoth_area_col].fillna('').astype(str).str.strip() == selected_dir
+            df_filtered = df[mask]
+        else:
+            df_filtered = df
+        specialties = sorted(df_filtered[self._topoth_spec_col].dropna().astype(str).unique())
+        self._spec_combo.config(values=specialties)
+        if specialties:
+            self._spec_var.set(specialties[0])
+            if hasattr(self, '_body_txt'):
+                from datetime import datetime as _dt
+                self._body_txt.delete('1.0', 'end')
+                self._body_txt.insert('1.0',
+                    self._saved_body
+                        .replace('{date}', _dt.today().strftime('%d/%m/%Y'))
+                        .replace('{specialty}', specialties[0]))
+        self._spec_lbl.config(
+            text=f'{len(specialties)} ειδικότητες για "{selected_dir}"', fg=C['desc'])
 
     # ── Βοηθητικά ───────────────────────────────────────────────────────────
 
@@ -1759,13 +1812,16 @@ class EidikotitaDialog(tk.Toplevel):
             df_t = df_t[~df_t[org_col].fillna('').astype(str).str.strip()
                         .str.contains(_EXCLUDE_ORG_PAT, regex=True, na=False)].copy()
 
-            # 3. Κράτησε μόνο Περιοχή Μετάθεσης Φορέα = Α΄ ΘΕΣΣΑΛΟΝΙΚΗΣ (Π.Ε.)
-            area_mt_col = self._fc(df_t, 'περιοχή μετάθεσης φορέα', 'μετάθεσης φορέα') \
-                          or df_t.columns[19]
-            df_t = df_t[
-                df_t[area_mt_col].fillna('').astype(str)
-                    .str.contains(r'Α.{0,2}\s*ΘΕΣΣΑΛΟΝΙΚΗΣ.*Π\.Ε', regex=True, na=False)
-            ].copy()
+            # 3. Φιλτράρισμα βάσει επιλεγμένης Διεύθυνσης
+            area_mt_col = self._topoth_area_col \
+                          if hasattr(self, '_topoth_area_col') \
+                          else (self._fc(df_t, 'περιοχή μετάθεσης φορέα', 'μετάθεσης φορέα')
+                                or df_t.columns[19])
+            selected_dir = self._dir_var.get().strip()
+            if selected_dir:
+                df_t = df_t[
+                    df_t[area_mt_col].fillna('').astype(str).str.strip() == selected_dir
+                ].copy()
 
             # 4. Αφαίρεση συγκεκριμένων τύπων σχέσης τοποθέτησης
             # Χρήση contains γιατί οι τιμές μπορεί να έχουν παρενθέσεις
@@ -2267,16 +2323,16 @@ class MonadaDialog(tk.Toplevel):
             self._saved_body.replace('{date}', today).replace('{dimos}', dimos))
 
     def _load_dimos(self):
-        """Φορτώνει τους Δήμους από το stat3_1 zip (col7) ή fallback CSV (col6)."""
-        src_path = self._stat31_path or self._csv_path
+        """Φορτώνει τους Δήμους από το CSV/stat2_2 (col6)."""
+        src_path = self._csv_path or self._stat31_path
         if not src_path:
             self._dimos_lbl.config(text='Δεν βρέθηκε αρχείο.', fg='#CC0000')
             return
         try:
             import pandas as pd
-            use_31 = bool(self._stat31_path)
+            use_31 = not bool(self._csv_path)
             df = self._read_zip_csv(src_path, strip_trailing_sep=use_31)
-            col_idx   = 7 if use_31 else 6
+            col_idx   = 6 if not use_31 else 7
             dimos_col = df.columns[col_idx]
             dimos_list = sorted(df[dimos_col].dropna().astype(str).str.strip().unique())
             self._dimos_combo.config(values=dimos_list)
