@@ -1543,7 +1543,10 @@ class EidikotitaDialog(tk.Toplevel):
 
         tk.Label(self, text='Εκπαιδευτικοί ανά Ειδικότητα',
                  bg=C['bg'], fg=C['hdr_bg'],
-                 font=('Arial', 11, 'bold')).pack(anchor='w', padx=18, pady=(14, 4))
+                 font=('Arial', 11, 'bold')).pack(anchor='w', padx=18, pady=(14, 0))
+        tk.Label(self, text='για αποστολή στοιχείων ενδεικτικά σε Συμβούλους Εκπ/σης',
+                 bg=C['bg'], fg=C['desc'],
+                 font=('Arial', 8, 'italic')).pack(anchor='w', padx=18, pady=(0, 6))
 
         # Προειδοποίηση αν λείπουν κρίσιμα αρχεία
         missing = []
@@ -2276,7 +2279,10 @@ class MonadaDialog(tk.Toplevel):
 
         tk.Label(self, text='Στοιχεία Σχολικών Μονάδων',
                  bg=C['bg'], fg=C['hdr_bg'],
-                 font=('Arial', 11, 'bold')).pack(anchor='w', padx=18, pady=(14, 4))
+                 font=('Arial', 11, 'bold')).pack(anchor='w', padx=18, pady=(14, 0))
+        tk.Label(self, text='για αποστολή στοιχείων ενδεικτικά σε Δήμους',
+                 bg=C['bg'], fg=C['desc'],
+                 font=('Arial', 8, 'italic')).pack(anchor='w', padx=18, pady=(0, 6))
 
         # Προειδοποίηση αν λείπουν αρχεία
         missing = []
