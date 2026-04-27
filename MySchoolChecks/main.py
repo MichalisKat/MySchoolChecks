@@ -2366,16 +2366,16 @@ class MonadaDialog(tk.Toplevel):
             self._saved_body.replace('{date}', today).replace('{dimos}', dimos))
 
     def _load_dimos(self):
-        """Φορτώνει τους Δήμους από το CSV/stat2_2 (col6)."""
-        src_path = self._csv_path or self._stat31_path
+        """Φορτώνει τους Δήμους — πρώτα stat3_1 col7, fallback CSV col5."""
+        src_path = self._stat31_path or self._csv_path
         if not src_path:
             self._dimos_lbl.config(text='Δεν βρέθηκε αρχείο.', fg='#CC0000')
             return
         try:
             import pandas as pd
-            use_31 = not bool(self._csv_path)
+            use_31 = bool(self._stat31_path)
             df = self._read_zip_csv(src_path, strip_trailing_sep=use_31)
-            col_idx   = 6 if not use_31 else 7
+            col_idx   = 7 if use_31 else 5   # stat3_1 col7=Δήμος | CSV col5=Δήμος
             dimos_col = df.columns[col_idx]
             dimos_list = sorted(df[dimos_col].dropna().astype(str).str.strip().unique())
             self._dimos_combo.config(values=dimos_list)
