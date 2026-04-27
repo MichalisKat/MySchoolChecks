@@ -198,10 +198,17 @@ def build():
     story += [
         _sp(2),
         Paragraph(
-            'This project is dedicated to a colleague, Christos Niavis, whose collaboration '
-            'and support have inspired creativity, motivation, and a more meaningful way of '
-            'approaching challenges.',
+            'Αφιερώνεται στον συνάδελφο Χρήστο Νιαβή, η συνεργασία με τον οποίο αποτελεί '
+            'πηγή έμπνευσης, δημιουργικότητας και ουσιαστικής προσέγγισης στις προκλήσεις.',
             ParagraphStyle('_ded', fontName='Arial-Italic', fontSize=8.5, leading=13,
+                           textColor=DESC, alignment=TA_CENTER)),
+        _sp(0.4),
+        Paragraph(
+            'Ευχαριστίες στους κ. Δήμου Παναγιώτη (ΔΙ.Δ.Ε. Αν. Θεσ/κης), '
+            'κα Ορφανίδου Μαρία και κα Δρίνη Φωτεινή (ΔΙ.Π.Ε. Κιλκίς) '
+            'και κα Τερζή Χριστίνα (ΔΙ.Π.Ε. Δυτ. Θεσ/κης) '
+            'για τις πολύτιμες προτάσεις και παρατηρήσεις τους.',
+            ParagraphStyle('_ded2', fontName='Arial-Italic', fontSize=8.5, leading=13,
                            textColor=DESC, alignment=TA_CENTER)),
         PageBreak(),
     ]
