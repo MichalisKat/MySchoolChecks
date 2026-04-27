@@ -14,6 +14,7 @@ CHECK_TITLE    = 'Ελλιπή Στοιχεία Πράξης Ανάληψης'
 CHECK_DESCRIPTION = 'Εκπαιδευτικοί χωρίς στοιχεία πράξης ανάληψης στο myschool'
 RESULTS_FOLDER = 'elliphi_stoixeia_analipsis'
 HAS_EMAIL      = True
+REQUIRED_REPORTS = ['4.8 — Ωράριο εκπαιδευτικών']
 
 COLUMNS = [
     ('Κωδικός Σχολείου',           14),

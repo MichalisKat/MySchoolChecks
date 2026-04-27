@@ -15,6 +15,7 @@ CHECK_TITLE    = 'Διαφορές AK-AL'
 CHECK_DESCRIPTION = 'Διαφορά μεταξύ υποχρεωτικού ωραρίου και ωραρίου στους φορείς'
 RESULTS_FOLDER = 'diafores_ak_al'
 HAS_EMAIL      = True
+REQUIRED_REPORTS = ['4.9 — Παρόντες εκπαιδευτικοί']
 TEST_ONLY      = True   # Μόνο test mode — δεν αφορά σχολεία
 
 COLUMNS = [

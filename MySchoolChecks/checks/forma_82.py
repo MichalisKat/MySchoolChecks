@@ -15,6 +15,7 @@ CHECK_TITLE    = 'Επιβεβαίωση Δεδομένων Σχολείων'
 CHECK_DESCRIPTION = 'Σχολεία που δεν έχουν ολοκληρώσει επιβεβαίωση δεδομένων'
 RESULTS_FOLDER = 'epivevaiosi_dedomenon'
 HAS_EMAIL      = True
+REQUIRED_REPORTS = ['8.2 — Επιβεβαίωση δεδομένων σχολείων']
 
 EIDH        = ['Δημοτικά Σχολεία', 'Νηπιαγωγεία']
 SRC_DATE_COL = 'Τελευταία Ενημέρωση Φόρμας Επιβεβαίωση Δεδομένων'

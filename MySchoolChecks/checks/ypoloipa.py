@@ -29,6 +29,7 @@ CHECK_TITLE       = 'Υπόλοιπα Ωραρίου'
 CHECK_DESCRIPTION = 'Υπόλοιπα ωραρίου εκπαιδευτικών ανά σχολείο και ειδικότητα'
 RESULTS_FOLDER    = 'ypoloipa_wrariou'
 HAS_EMAIL         = True
+REQUIRED_REPORTS  = ['4.8 — Ωράριο εκπαιδευτικών', '4.12 — Άδειες/απουσίες', '4.11 — Εκπαιδευτικοί μονάδας']
 CUSTOM_RUN        = True   # Σημαία: το framework θα καλέσει run() αντί για run_check()
 
 EIDI_SXOLEION  = ['Δημοτικά Σχολεία', 'Νηπιαγωγεία']

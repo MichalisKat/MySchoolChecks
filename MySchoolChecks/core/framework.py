@@ -584,10 +584,23 @@ def _ask_send_options_gui(test_only=False):
                    activebackground='#EEF4F0',
                    wraplength=300, justify='left').pack(anchor='w', pady=3)
     if not test_only:
-        tk.Radiobutton(body, text='Κανονική αποστολή  (σε όλα τα σχολεία)',
+        import config as _cfg2
+        _has_pw = bool(getattr(_cfg2, 'FROM_PASSWORD', ''))
+        try:
+            import keyring as _kr
+            _has_pw = _has_pw or bool(_kr.get_password('MySchoolChecks', 'FROM_PASSWORD'))
+        except Exception:
+            pass
+        _full_rb = tk.Radiobutton(body, text='Κανονική αποστολή  (σε όλα τα σχολεία)',
                        variable=mode_var, value='full',
                        bg='#EEF4F0', font=('Arial',10),
-                       activebackground='#EEF4F0').pack(anchor='w', pady=3)
+                       activebackground='#EEF4F0',
+                       state='normal' if _has_pw else 'disabled')
+        _full_rb.pack(anchor='w', pady=3)
+        if not _has_pw:
+            tk.Label(body,
+                     text='⚠  Απαιτείται κωδικός email — ορίστε τον στις Ρυθμίσεις (⚙)',
+                     bg='#EEF4F0', fg='#E65100', font=('Arial', 8)).pack(anchor='w', padx=(24,0))
 
     def confirm():
         v = mode_var.get()
@@ -655,6 +668,60 @@ def yes_no(prompt):
 
     win.wait_window()
     return result[0]
+
+
+def _missing_file_dialog(check_title, required_reports):
+    """Εμφανίζει dialog όταν λείπει αρχείο — εξηγεί το σωστό workflow."""
+    import tkinter as tk
+    from tkinter import ttk
+
+    req_text = ''
+    if required_reports:
+        req_text = '\n\nΑπαιτούμενα στατιστικά για αυτόν τον έλεγχο:\n'
+        req_text += '\n'.join(f'  • {r}' for r in required_reports)
+
+    msg = (
+        f'Δεν βρέθηκε αρχείο για τον έλεγχο:\n«{check_title}»'
+        f'{req_text}\n\n'
+        f'Σωστή σειρά:\n'
+        f'  1.  Πατήστε  ⬇ Λήψη Δεδομένων  στη γραμμή εργαλείων\n'
+        f'  2.  Κατεβάστε τα απαιτούμενα στατιστικά\n'
+        f'  3.  Ξεκινήστε ξανά τον έλεγχο'
+    )
+
+    root = tk.Tk()
+    root.withdraw()
+    win = tk.Toplevel(root)
+    win.title('Λείπουν δεδομένα')
+    win.configure(bg='#FFF8E1')
+    win.resizable(False, False)
+    win.grab_set()
+    win.attributes('-topmost', True)
+
+    _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'app.ico')
+    if os.path.exists(_ico):
+        try: win.iconbitmap(_ico)
+        except Exception: pass
+
+    tk.Label(win, text='⚠  Λείπουν δεδομένα', bg='#FFF8E1', fg='#E65100',
+             font=('Arial', 11, 'bold'), padx=20, pady=(14)).pack()
+
+    tk.Label(win, text=msg, bg='#FFF8E1', fg='#1a1a2e',
+             font=('Arial', 9), justify='left', padx=24, pady=4).pack()
+
+    tk.Frame(win, bg='#FFB74D', height=1).pack(fill='x', padx=20, pady=(8, 0))
+
+    btn_frame = tk.Frame(win, bg='#FFF8E1')
+    btn_frame.pack(pady=12)
+    ttk.Button(btn_frame, text='Κατάλαβα', command=win.destroy).pack()
+
+    win.update_idletasks()
+    w, h = win.winfo_width(), win.winfo_height()
+    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    win.geometry(f'{w}x{h}+{(sw-w)//2}+{(sh-h)//2}')
+
+    root.wait_window(win)
+    root.destroy()
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -736,12 +803,13 @@ def run_check(check_module, config):
     # Ζητά αρχεία/παραμέτρους από το module
     ctx = check_module.ask_inputs()
 
-    # Αν κάποιο αρχείο δεν βρέθηκε (None), σταματάμε καθαρά
-    missing = [k for k, v in ctx.items() if k == 'path' or k.endswith('_path') or k == 'paths']
-    for k in missing:
+    # Αν κάποιο αρχείο δεν βρέθηκε (None), σταματάμε με χρήσιμο μήνυμα
+    missing_keys = [k for k in ctx if k == 'path' or k.endswith('_path') or k == 'paths']
+    for k in missing_keys:
         val = ctx[k]
         if val is None or (isinstance(val, list) and None in val):
-            print(f'  ✗ Ο έλεγχος ακυρώθηκε — αρχείο δεν βρέθηκε ({k}).')
+            required = getattr(check_module, 'REQUIRED_REPORTS', [])
+            _missing_file_dialog(title, required)
             return
 
     today     = ctx.get('today', datetime.today().replace(hour=0, minute=0, second=0, microsecond=0))

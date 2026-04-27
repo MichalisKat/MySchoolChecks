@@ -36,6 +36,7 @@ CHECK_TITLE       = 'Έλεγχος καταχωρήσεων διοικητικ�
 CHECK_DESCRIPTION = 'Έλεγχος Γραμματειακής Υποστήριξης 4.12 vs Αδυνατούντες'
 RESULTS_FOLDER    = 'dioikitiko_ergo'
 HAS_EMAIL         = True
+REQUIRED_REPORTS  = ['4.12 — Άδειες/απουσίες', 'Αρχείο Αδυνατούντων ανά ειδικότητα']
 CUSTOM_RUN        = True
 TEST_ONLY         = True   # Μόνο test mode — δεν αφορά σχολεία
 

@@ -13,6 +13,7 @@ CHECK_TITLE    = 'Αρνητικά Υπόλοιπα Ωραρίου'
 CHECK_DESCRIPTION = 'Εκπαιδευτικοί με αρνητικό υπόλοιπο υποχρεωτικού διδακτικού ωραρίου'
 RESULTS_FOLDER = 'arnhtika_ypoloipa'
 HAS_EMAIL      = True
+REQUIRED_REPORTS = ['4.8 — Ωράριο εκπαιδευτικών']
 
 SCHOOL_TYPES = ['Νηπιαγωγεία', 'Δημοτικά Σχολεία']
 COL_YPOLOIPO = 'Υπόλοιπο Υποχρεωτικού Διδακτικού Ωραρίου'

@@ -833,8 +833,10 @@ class LauncherApp:
         # Toolbar
         toolbar = tk.Frame(self.root, bg=C['bg2'], pady=6)
         toolbar.pack(fill='x')
+        _dl_btn_bg = C['bg2'] if _has_files else C['btn_bg']
+        _dl_btn_fg = C['hdr_bg'] if _has_files else C['btn_fg']
         tk.Button(toolbar, text='⬇  Λήψη Δεδομένων',
-                  bg=C['bg2'], fg=C['hdr_bg'],
+                  bg=_dl_btn_bg, fg=_dl_btn_fg,
                   font=('Arial', 9, 'bold'), relief='flat',
                   padx=14, pady=4, cursor='hand2',
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
@@ -1391,6 +1393,21 @@ def _do_update(parent, new_ver, dl_url):
     py = parent.winfo_y() + (parent.winfo_height() - dlg.winfo_height()) // 2
     dlg.geometry(f'+{px}+{py}')
 
+    def _dlg_alive():
+        """Ελέγχει αν το progress dialog υπάρχει ακόμα."""
+        try:
+            return dlg.winfo_exists()
+        except Exception:
+            return False
+
+    def _safe_after(fn):
+        """Εκτελεί fn στο main thread μόνο αν το dialog υπάρχει ακόμα."""
+        if _dlg_alive():
+            try:
+                dlg.after(0, fn)
+            except Exception:
+                pass
+
     def _download():
         try:
             tmp_dir  = tempfile.mkdtemp()
@@ -1402,24 +1419,24 @@ def _do_update(parent, new_ver, dl_url):
                     pct = min(100, int(count * block_size * 100 / total_size))
                     mb_done = count * block_size / 1_048_576
                     mb_total = total_size / 1_048_576
-                    dlg.after(0, lambda p=pct, d=mb_done, t=mb_total: [
+                    _safe_after(lambda p=pct, d=mb_done, t=mb_total: [
                         pb.configure(value=p),
                         status_var.set(f'{d:.1f} / {t:.1f} MB  ({p}%)')])
 
             urllib.request.urlretrieve(dl_url, tmp_path, _reporthook)
 
             # Κατεβάστηκε — εκτέλεση
-            dlg.after(0, lambda: [
+            _safe_after(lambda: [
                 status_var.set('Εκκίνηση εγκατάστασης...'),
                 dlg.update()])
             import time as _t; _t.sleep(0.8)
 
             import ctypes
             ctypes.windll.shell32.ShellExecuteW(None, 'runas', tmp_path, None, None, 1)
-            dlg.after(0, lambda: [dlg.destroy(), parent.destroy()])
+            _safe_after(lambda: [dlg.destroy(), parent.destroy()])
 
         except Exception as e:
-            dlg.after(0, lambda err=str(e): [
+            _safe_after(lambda err=str(e): [
                 dlg.destroy(),
                 messagebox.showerror('Σφάλμα λήψης',
                     f'Δεν ήταν δυνατή η λήψη:\n{err}\n\n'
@@ -1682,7 +1699,11 @@ class EidikotitaDialog(tk.Toplevel):
             messagebox.showwarning('Ειδικότητα', 'Επίλεξε ειδικότητα.', parent=self)
             return
         if not self._topoth_path or not self._grid_path:
-            messagebox.showwarning('Αρχεία', 'Δεν βρέθηκαν τα αρχεία Τοποθετήσεων / Καταλόγου.\nΚατέβασέ τα πρώτα από «Λήψη Δεδομένων».', parent=self)
+            from core.framework import _missing_file_dialog
+            _missing_file_dialog('Εκπαιδευτικοί ανά Ειδικότητα', [
+                'Τοποθετήσεις εκπαιδευτικών (gridResults / 2.1)',
+                'Στατιστικά 4.1 / 4.2 / 4.16',
+            ])
             return
 
         try:
@@ -2285,15 +2306,12 @@ class MonadaDialog(tk.Toplevel):
         if not dimos:
             messagebox.showwarning('Δήμος', 'Επίλεξε Δήμο.', parent=self)
             return
-        if not self._stat31_path:
-            messagebox.showwarning('Αρχεία',
-                'Δεν βρέθηκε το αρχείο στατιστικού 3.1.\n'
-                'Κατέβασέ το από MySchool (Στατιστικά 3.1).', parent=self)
-            return
-        if not self._csv_path:
-            messagebox.showwarning('Αρχεία',
-                'Δεν βρέθηκε το αρχείο CSV σχολικών μονάδων.\n'
-                'Κατέβασέ το από MySchool (Στατιστικά → Κατάλογος Μονάδων).', parent=self)
+        if not self._stat31_path or not self._csv_path:
+            from core.framework import _missing_file_dialog
+            _missing_file_dialog('Σχολικές Μονάδες ανά Δήμο', [
+                '3.1 — Κατανομή μαθητών ανά τάξη',
+                '2.2 — Εκτεταμένα στοιχεία σχολικών μονάδων (CSV)',
+            ])
             return
 
         try:

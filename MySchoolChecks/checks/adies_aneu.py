@@ -15,6 +15,7 @@ CHECK_TITLE       = 'Σύγκριση Αδειών Άνευ Αποδοχών & �
 CHECK_DESCRIPTION = 'Εκπαιδευτικοί σε ενεργή άδεια άνευ αποδοχών που εμφανίζονται ως παρόντες'
 RESULTS_FOLDER    = 'adies_aneu_apodoxon'
 HAS_EMAIL         = True
+REQUIRED_REPORTS  = ['4.20 — Άδειες άνευ αποδοχών', '4.9 — Παρόντες εκπαιδευτικοί']
 TEST_ONLY         = True   # Μόνο test mode — δεν αφορά σχολεία
 
 COLUMNS = [
