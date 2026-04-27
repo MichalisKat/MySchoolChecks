@@ -81,12 +81,12 @@ def _hf(canvas, doc):
         return
     w, h = A4
     # Header
-    canvas.setFillColor(HDR)
-    canvas.rect(2*cm, h - 2*cm, w - 4*cm, 0.5, fill=1, stroke=0)
     canvas.setFont('Arial-Bold', 9); canvas.setFillColor(HDR)
-    canvas.drawString(2*cm, h - 1.7*cm, 'MySchool Checks  |  Οδηγός Χρήστη')
+    canvas.drawString(2*cm, h - 1.5*cm, 'MySchool Checks  |  Οδηγός Χρήστη')
     canvas.setFont('Arial', 8); canvas.setFillColor(DESC)
-    canvas.drawString(2*cm, h - 2.1*cm, f'{ORG}  ·  {AUTHOR}  ·  {EMAIL}')
+    canvas.drawString(2*cm, h - 1.9*cm, f'{ORG}  ·  {AUTHOR}  ·  {EMAIL}')
+    canvas.setFillColor(HDR)
+    canvas.rect(2*cm, h - 2.2*cm, w - 4*cm, 0.5, fill=1, stroke=0)
     # Footer
     canvas.setFillColor(HDR)
     canvas.rect(2*cm, 2*cm, w - 4*cm, 0.5, fill=1, stroke=0)
