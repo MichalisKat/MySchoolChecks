@@ -6,7 +6,7 @@ Python εφαρμογή Windows για αυτοματοποιημένους ελ
 
 **Repo:** https://github.com/MichalisKat/myschool-checks  
 **Υπεύθυνος:** Μιχάλης Κατσιρντάκης  
-**Τρέχουσα έκδοση:** 0.9.6 (beta)
+**Τρέχουσα έκδοση:** 0.9.7 (beta)
 
 ---
 
@@ -29,7 +29,7 @@ myschool-checks/
 ├── MySchoolChecks_Odigos.pdf  # Οδηγός χρήστη (ReportLab, ελληνικά)
 ├── MySchoolChecks.spec      # PyInstaller spec — ΜΗΝ το διαγράψεις
 ├── build_executable.bat     # Φτιάχνει dist\MySchoolChecks.exe
-├── compile_installer.bat    # Φτιάχνει myschool-checks-0.9.6-setup.exe
+├── compile_installer.bat    # Φτιάχνει myschool-checks-0.9.7-setup.exe
 ├── myschool-checks.nsi      # NSIS script για τον installer
 ├── SECURITY.md              # Τεκμηρίωση ασφάλειας credentials
 └── CLAUDE.md                # Αυτό το αρχείο
@@ -116,7 +116,7 @@ myschool-checks/
 - **Ανά Μονάδα**: groupby κωδικού στο stat3_1, sum Τμήματα/Αγόρια/Κορίτσια
 - `_auto_find_zip(*prefixes)`: δέχεται πολλαπλά prefixes, ψάχνει .zip → .csv → .xlsx
 - `_read_zip_csv`: χειρίζεται .zip, plain .csv, και .xlsx
-- Δήμοι από stat3_1 col7 (fallback: CSV col6)
+- Δήμοι από stat3_1 col7 (fallback: CSV col5) — col6 στο CSV είναι Δημοτική Ενότητα
 - Email body: αυτόματη αντικατάσταση `{dimos}` στο `_on_dimos_change`
 
 ### DownloadDialog (main.py)
@@ -163,7 +163,7 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 Τρέξε μόνο βήματα 3 → 4 → 5 → 6. Το `build_executable.bat` δεν χρειάζεται.
 
 ### Versioning
-- Τρέχουσα: `0.9.6` (beta)
+- Τρέχουσα: `0.9.7` (beta)
 - Stable release: `1.0.0` (μετά από testing)
 - Αλλαγή version: στο `myschool-checks.nsi` (`APP_VERSION`), στο `compile_installer.bat` **και** στο `MySchoolChecks/config.py` (`APP_VERSION`)
 
@@ -210,9 +210,15 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 - [ ] MSIX package για Microsoft Store (αναβλήθηκε — χρειάζεται Windows SDK + Partner Center)
 - [ ] Αν χρειαστεί νέα έκδοση: αλλαγή `APP_VERSION` στο `.nsi`, `compile_installer.bat` **και** `config.py`
 - [ ] Επαλήθευση λήψης 3.1 με pre_search_labels (DevExpress checkboxes) — πρώτο run in production
-- [ ] Ενημέρωση PDF οδηγού χρήστη (χειροκίνητα με ReportLab) — να προστεθεί ενότητα Σχολικών Μονάδων
 
 ## Αλλαγές ανά έκδοση
+
+### v0.9.7
+- Version εμφανίζεται στον **τίτλο** κάτω από τη Δ/νση (αφαιρέθηκε από footer) — και στο splash screen
+- Υπότιτλος στο EidikotitaDialog: «για αποστολή στοιχείων ενδεικτικά σε Συμβούλους Εκπ/σης»
+- Υπότιτλος στο MonadaDialog: «για αποστολή στοιχείων ενδεικτικά σε Δήμους»
+- `_load_dimos`: διόρθωση — πρώτα stat3_1 col7 (Δήμος), fallback CSV col5 — έπαιρνε Δημοτική Ενότητα (col6)
+- Οδηγός PDF: ενότητα 8.1 (Διοικητικό Έργο — φύλλα + κρίσιμη οδηγία ΠΔΕ) και 8.2 (Υπόλοιπα — κατώφλι + 5 φύλλα pivot)
 
 ### v0.9.6
 - Κωδικός email **προαιρετικός** — αποθηκεύεται αλλά δεν απαιτείται για αποθήκευση ρυθμίσεων
@@ -224,7 +230,7 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 - EidikotitaDialog + MonadaDialog: χρήση `_missing_file_dialog()` αντί για showwarning
 - Toolbar: κουμπί «⬇ Λήψη Δεδομένων» εμφανίζεται **έντονο** (πράσινο) αν δεν υπάρχουν αρχεία σήμερα
 - Status bar: hint «💡 Ξεκινήστε με ⬇ Λήψη Δεδομένων» αν δεν υπάρχουν αρχεία σήμερα
-- Version εμφανίζεται στο **status bar** (δεξιά) αντί για header
+- Version εμφανίζεται στο **status bar** (δεξιά) αντί για header *(αντικαταστάθηκε στο v0.9.7)*
 - Διόρθωση `NameError` crash κατά την εκκίνηση (`_has_files` ορίζεται πριν τη χρήση του)
 - Διόρθωση `TclError` crash στον auto-updater progressbar (`_safe_after` + `winfo_exists`)
 - `framework.py` `send_email()`: επιστρέφει `False` αθόρυβα αν δεν υπάρχει κωδικός
