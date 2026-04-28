@@ -108,4 +108,10 @@ def test_body(df_out, today, schools):
             oldest = dates.min()
             newest = dates.max()
     return (
-        f'Σύνοψη ελέγχου επιβεβαίωσης δε�
+        f'Σύνοψη ελέγχου επιβεβαίωσης δεδομένων — {today.strftime("%d/%m/%Y")}\n'
+        f'{"─"*50}\n'
+        f'Βρέθηκαν: {len(df_out)} σχολεία χωρίς επιβεβαίωση\n'
+        f'Παλαιότερη: {oldest}\n'
+        f'Νεότερη: {newest}\n'
+        f'Σχολεία που εμφανίζονται ({len(schools)}): {", ".join(sorted(schools))}'
+    )

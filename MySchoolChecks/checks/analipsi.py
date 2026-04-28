@@ -103,4 +103,5 @@ def test_body(df_out, today, schools):
         f'Σύνοψη ελέγχου πράξεων ανάληψης — {today.strftime("%d/%m/%Y")}\n'
         f'{"─"*50}\n'
         f'Βρέθηκαν: {len(df_out)} εκπαιδευτικοί χωρίς στοιχεία ανάληψης\n'
-        f'Σχολεία που εμφανίζονται ({len(
+        f'Σχολεία που εμφανίζονται ({len(schools)}): {", ".join(sorted(schools))}'
+    )

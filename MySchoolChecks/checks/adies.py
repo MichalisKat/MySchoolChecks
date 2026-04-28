@@ -156,4 +156,7 @@ def test_body(df_out, today, schools):
     return (
         f'Σύνοψη ελέγχου αδειών (πλην ΑΑ) vs Παρόντων — {today.strftime("%d/%m/%Y")}\n'
         f'{"─"*50}\n'
-        f'Παρόντες ΚΑΙ σε 
+        f'Παρόντες ΚΑΙ σε άδεια: {len(df_out)}\n'
+        f'Εγκρίθηκε: {egk} | Υποβλήθηκε/Δημιουργήθηκε: {ypo}\n'
+        f'Σχολεία που εμφανίζονται ({len(schools)}): {", ".join(sorted(schools))}'
+    )

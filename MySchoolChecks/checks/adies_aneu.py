@@ -128,4 +128,8 @@ def process(ctx):
 
 def test_body(df_out, today, schools):
     return (
-        f'Σύνοψη ελέγχου αδειών ΑΑ vs Παρόντων — {today.str
+        f'Σύνοψη ελέγχου αδειών ΑΑ vs Παρόντων — {today.strftime("%d/%m/%Y")}\n'
+        f'{"─"*50}\n'
+        f'Βρέθηκαν: {len(df_out)} εκπαιδευτικοί\n'
+        f'Σχολεία που εμφανίζονται ({len(schools)}): {", ".join(sorted(schools))}'
+    )

@@ -119,4 +119,5 @@ def test_body(df_out, today, schools):
         f'Βρέθηκαν: {len(df_out)} εγγραφές με διαφορά ≠ 0\n'
         f'Θετικές διαφορές (AK > AL): {pos}\n'
         f'Αρνητικές διαφορές (AK < AL): {neg}\n'
-        f'Σχολεία που εμφανίζονται ({len(schools)}): {", ".join(sorte
+        f'Σχολεία που εμφανίζονται ({len(schools)}): {", ".join(sorted(schools))}'
+    )

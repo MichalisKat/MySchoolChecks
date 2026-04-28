@@ -144,4 +144,5 @@ def test_body(df_out, today, schools):
         f'Σύνοψη ελέγχου αρνητικών υπολοίπων ωραρίου — {today.strftime("%d/%m/%Y")}\n'
         f'{"─"*50}\n'
         f'Βρέθηκαν: {len(df_out)} εκπαιδευτικοί με αρνητικό υπόλοιπο\n'
-        f'Σχο
+        f'Σχολεία που εμφανίζονται ({len(schools)}): {", ".join(sorted(schools))}'
+    )
