@@ -29,7 +29,7 @@ pdfmetrics.registerFont(TTFont('Arial-Bold',   os.path.join(_FDIR, 'arialbd.ttf'
 pdfmetrics.registerFont(TTFont('Arial-Italic', os.path.join(_FDIR, 'ariali.ttf')))
 
 # ── Σταθερές ──────────────────────────────────────────────────────────────────
-VERSION = '0.9.7'
+VERSION = '0.9.8'
 AUTHOR  = 'Μιχάλης Κατσιρντάκης'
 EMAIL   = 'itdipea@sch.gr'
 TEL     = '2310 954145'
