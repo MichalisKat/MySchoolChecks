@@ -63,7 +63,7 @@ EMAIL_BODY    = lambda school='': (
 
 # ── Είσοδος ─────────────────────────────────────────────────────────────────
 def ask_inputs():
-    path   = get_downloaded_file('8.2', 'Αρχείο 8.2 [xls / xlsx]:')
+    path   = get_downloaded_file('8.2', 'Αρχείο 8.2 [xls / xlsx]:', silent=True)
     cutoff = _auto_cutoff()
     print(f'  ✓ Cutoff: {cutoff.strftime("%d/%m/%Y")} (υπολογίστηκε αυτόματα)')
     return {'path': path, 'today': cutoff, 'cutoff': cutoff}
@@ -108,8 +108,4 @@ def test_body(df_out, today, schools):
             oldest = dates.min()
             newest = dates.max()
     return (
-        f'Σύνοψη ελέγχου επιβεβαίωσης δεδομένων — cutoff {today.strftime("%d/%m/%Y")}\n'
-        f'{"─"*50}\n'
-        f'Σχολεία που δεν έχουν επιβεβαιώσει: {len(df_out)}\n'
-        f'Τελευταία επιβεβαίωση: από {oldest} έως {newest}\n'
-    )
+        f'Σύνοψη ελέγχου επιβεβαίωσης δε�

@@ -48,7 +48,7 @@ EMAIL_BODY    = lambda school='': (
 
 # ── Είσοδος ─────────────────────────────────────────────────────────────────
 def ask_inputs():
-    path  = get_downloaded_file('4.9', 'Αρχείο 4.9 [csv / xlsx]:')
+    path  = get_downloaded_file('4.9', 'Αρχείο 4.9 [csv / xlsx]:', silent=True)
     if path is None:
         return {'path': None, 'today': None}
     today = ask_date_yyyymmdd()
@@ -119,5 +119,4 @@ def test_body(df_out, today, schools):
         f'Βρέθηκαν: {len(df_out)} εγγραφές με διαφορά ≠ 0\n'
         f'Θετικές διαφορές (AK > AL): {pos}\n'
         f'Αρνητικές διαφορές (AK < AL): {neg}\n'
-        f'Σχολεία που εμφανίζονται ({len(schools)}): {", ".join(sorted(str(s) for s in schools))}\n'
-    )
+        f'Σχολεία που εμφανίζονται ({len(schools)}): {", ".join(sorte

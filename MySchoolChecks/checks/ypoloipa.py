@@ -643,8 +643,8 @@ def run(config):
     print('=' * 65)
 
     path_48  = get_downloaded_file('4.8',  'Αρχείο 4.8 [csv]:',  csv_only=True)
-    path_412 = get_downloaded_file('4.12', 'Αρχείο 4.12 [csv]:', csv_only=True)
-    path_411 = get_downloaded_file('4.11', 'Αρχείο 4.11 [csv]:', csv_only=True)
+    path_412 = get_downloaded_file('4.12', 'Αρχείο 4.12 [csv]:', csv_only=True, silent=True)
+    path_411 = get_downloaded_file('4.11', 'Αρχείο 4.11 [csv]:', csv_only=True, silent=True)
 
     # Έλεγχος αρχείων πριν ζητηθούν παράμετροι
     if path_48 is None or path_412 is None or path_411 is None:
@@ -789,11 +789,4 @@ def run(config):
 
     popup_text = summary_body + (
         f'\n\n{"─"*40}\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}\n\n'
-        f'📋 Για περισσότερες πληροφορίες δες τα αρχεία\nστο φάκελο αποτελεσμάτων.'
-    )
-    _show_results_popup(CHECK_TITLE, popup_text, result_type='warn')
-
-    print('─' * 65)
-    print(f'\n✓ Ολοκληρώθηκε!  {2 + len(school_codes)} αρχεία στο φάκελο:')
-    print(f'  {out_dir}')
-
+        f'📋 Για περισσότερες πληροφορίες δες τα αρχεία\

@@ -52,7 +52,7 @@ EMAIL_BODY    = lambda school='': (
 
 # ── Είσοδος ─────────────────────────────────────────────────────────────────
 def ask_inputs():
-    path  = get_downloaded_file('4.8', 'Αρχείο 4.8 [csv / xlsx]:')
+    path  = get_downloaded_file('4.8', 'Αρχείο 4.8 [csv / xlsx]:', silent=True)
     if path is None:
         return {'path': None, 'today': None}
     today = ask_date_yyyymmdd()
@@ -103,5 +103,4 @@ def test_body(df_out, today, schools):
         f'Σύνοψη ελέγχου πράξεων ανάληψης — {today.strftime("%d/%m/%Y")}\n'
         f'{"─"*50}\n'
         f'Βρέθηκαν: {len(df_out)} εκπαιδευτικοί χωρίς στοιχεία ανάληψης\n'
-        f'Σχολεία που εμφανίζονται ({len(schools)}): {", ".join(sorted(str(s) for s in schools))}\n'
-    )
+        f'Σχολεία που εμφανίζονται ({len(

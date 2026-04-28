@@ -381,17 +381,14 @@ def get_ady_xoris_egkrisi(prompt='Αρχείο Αδυνατούντων (υπό 
     return None
 
 
-def get_downloaded_file(report_id, prompt=None, required=True, csv_only=False):
+def get_downloaded_file(report_id, prompt=None, required=True, csv_only=False, silent=False):
     """
     Βρίσκει αυτόματα το κατεβασμένο αρχείο για το report_id (π.χ. '4.8', '8.2')
     από τον φάκελο downloads της σημερινής μέρας.
-    Αν δεν βρεθεί, εμφανίζει ενημερωτικό μήνυμα και επιστρέφει None.
+    Αν δεν βρεθεί, επιστρέφει None (αθόρυβα αν silent=True).
     """
     from datetime import datetime as _dt
-    import tkinter as tk
-    from tkinter import ttk
 
-    import sys as _sys
     _docs = os.path.join(os.path.expanduser('~'), 'Documents')
     base_dir = os.path.join(_docs, 'MySchoolChecks')
     os.makedirs(base_dir, exist_ok=True)
@@ -414,6 +411,12 @@ def get_downloaded_file(report_id, prompt=None, required=True, csv_only=False):
 
     print(f'  ⚠ Το αρχείο "{filename}" δεν βρέθηκε στον φάκελο "{today_dir}".')
 
+    # Αν silent=True επιστρέφουμε None αθόρυβα — το _missing_file_dialog αναλαμβάνει
+    if silent:
+        return None
+
+    import tkinter as tk
+    from tkinter import ttk
     root = tk.Tk()
     root.withdraw()
     win = tk.Toplevel(root)

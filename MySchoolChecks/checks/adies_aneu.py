@@ -50,8 +50,8 @@ MIN_DAYS = 10
 
 # ── Είσοδος ─────────────────────────────────────────────────────────────────
 def ask_inputs():
-    path_420 = get_downloaded_file('4.20', 'Αρχείο 4.20 (Άδειες Άνευ Αποδοχών) [.csv]:', csv_only=True)
-    path_49  = get_downloaded_file('4.9',  'Αρχείο 4.9 (Παρόντες) [.csv]:', csv_only=True)
+    path_420 = get_downloaded_file('4.20', 'Αρχείο 4.20 (Άδειες Άνευ Αποδοχών) [.csv]:', csv_only=True, silent=True)
+    path_49  = get_downloaded_file('4.9',  'Αρχείο 4.9 (Παρόντες) [.csv]:', csv_only=True, silent=True)
     if path_420 is None or path_49 is None:
         return {'path_420': path_420, 'path_49': path_49, 'today': None}
     today    = ask_date_yyyymmdd()
@@ -128,8 +128,4 @@ def process(ctx):
 
 def test_body(df_out, today, schools):
     return (
-        f'Σύνοψη ελέγχου αδειών ΑΑ vs Παρόντων — {today.strftime("%d/%m/%Y")}\n'
-        f'{"─"*50}\n'
-        f'Παρόντες ΚΑΙ σε άδεια άνευ αποδοχών: {len(df_out)} εκπαιδευτικοί σε {len(schools)} σχολεία\n'
-        f'Σχολεία: {", ".join(sorted(str(s) for s in schools))}\n'
-    )
+        f'Σύνοψη ελέγχου αδειών ΑΑ vs Παρόντων — {today.str

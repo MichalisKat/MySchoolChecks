@@ -444,7 +444,7 @@ def run(config):
     print(f'  {CHECK_TITLE}')
     print('=' * 65)
 
-    path_412 = get_downloaded_file('4.12', 'Αρχείο 4.12 [csv]:', csv_only=True)
+    path_412 = get_downloaded_file('4.12', 'Αρχείο 4.12 [csv]:', csv_only=True, silent=True)
     path_ady = get_downloaded_file('ady', 'Αρχείο Αδυνατούντων ανά ειδικότητα [csv / xlsx]:')
 
     # Έλεγχος αρχείων πριν ζητηθούν παράμετροι
@@ -510,10 +510,4 @@ def run(config):
 
     popup_body = body + (
         f'\n\n{"─"*40}\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}\n\n'
-        f'📋 Για περισσότερες πληροφορίες δες τα αρχεία\nστο φάκελο αποτελεσμάτων.'
-    )
-    _show_results_popup(CHECK_TITLE, popup_body, result_type='warn')
-
-    print('─' * 65)
-    print(f'\n✓ Ολοκληρώθηκε! Αρχείο στο φάκελο:\n  {out_dir}')
-
+        f'📋 Για περισσότερες πληροφορίες δες

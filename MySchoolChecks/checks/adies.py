@@ -59,8 +59,8 @@ MIN_DAYS        = 10
 
 # ── Είσοδος ─────────────────────────────────────────────────────────────────
 def ask_inputs():
-    path_421 = get_downloaded_file('4.21', 'Αρχείο 4.21 (Άδειες) [.csv]:', csv_only=True)
-    path_49  = get_downloaded_file('4.9',  'Αρχείο 4.9 (Παρόντες) [.csv]:', csv_only=True)
+    path_421 = get_downloaded_file('4.21', 'Αρχείο 4.21 (Άδειες) [.csv]:', csv_only=True, silent=True)
+    path_49  = get_downloaded_file('4.9',  'Αρχείο 4.9 (Παρόντες) [.csv]:', csv_only=True, silent=True)
     if path_421 is None or path_49 is None:
         return {'path_421': path_421, 'path_49': path_49, 'today': None}
     today    = ask_date_yyyymmdd()
@@ -156,8 +156,4 @@ def test_body(df_out, today, schools):
     return (
         f'Σύνοψη ελέγχου αδειών (πλην ΑΑ) vs Παρόντων — {today.strftime("%d/%m/%Y")}\n'
         f'{"─"*50}\n'
-        f'Παρόντες ΚΑΙ σε άδεια: {len(df_out)} εκπαιδευτικοί σε {len(schools)} σχολεία\n'
-        f'  Εγκρίθηκε: {egk}\n'
-        f'  Υποβλήθηκε/Δημιουργήθηκε: {ypo}\n'
-        f'Σχολεία: {", ".join(sorted(str(s) for s in schools))}\n'
-    )
+        f'Παρόντες ΚΑΙ σε 
