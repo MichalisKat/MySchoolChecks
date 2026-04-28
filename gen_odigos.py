@@ -17,7 +17,7 @@ from reportlab.lib.units import cm
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
 from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
-                                 TableStyle, PageBreak, HRFlowable)
+                                 TableStyle, PageBreak, HRFlowable, KeepTogether)
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import os
@@ -195,22 +195,7 @@ def build():
     ]))
     story.append(Table([[info]], colWidths=[15*cm],
                         style=[('ALIGN',(0,0),(-1,-1),'CENTER')]))
-    story += [
-        _sp(2),
-        Paragraph(
-            'Αφιερώνεται στον συνάδελφο Χρήστο Νιαβή, σε ένδειξη εκτίμησης για τη δημιουργική μας συνεργασία.',
-            ParagraphStyle('_ded', fontName='Arial-Italic', fontSize=8.5, leading=13,
-                           textColor=DESC, alignment=TA_CENTER)),
-        _sp(0.4),
-        Paragraph(
-            'Ευχαριστίες στους κ. Δήμου Παναγιώτη (ΔΙ.Δ.Ε. Αν. Θεσ/κης), '
-            'κα Ορφανίδου Μαρία και κα Δρίνη Φωτεινή (ΔΙ.Π.Ε. Κιλκίς) '
-            'και κα Τερζή Χριστίνα (ΔΙ.Π.Ε. Δυτ. Θεσ/κης) '
-            'για τις πολύτιμες προτάσεις και παρατηρήσεις τους.',
-            ParagraphStyle('_ded2', fontName='Arial-Italic', fontSize=8.5, leading=13,
-                           textColor=DESC, alignment=TA_CENTER)),
-        PageBreak(),
-    ]
+    story.append(PageBreak())
 
     # ── Πίνακας Περιεχομένων ──────────────────────────────────────────────────
     story += [Paragraph('Πίνακας Περιεχομένων', S['h1']), _hr()]
@@ -239,11 +224,11 @@ def build():
     story += [
         Paragraph('1. Τι είναι το MySchool Checks', S['h1']),
         Paragraph(
-            'Το MySchool Checks είναι πρόγραμμα για Windows που αυτοματοποιεί ελέγχους δεδομένων '
+            'Το MySchool Checks είναι εφαρμογή για Windows που αυτοματοποιεί ελέγχους δεδομένων '
             'εκπαιδευτικών στο MySchool. Συνδέεται στο Πληροφοριακό Σύστημα, κατεβάζει τα στατιστικά '
-            'αρχεία, τα επεξεργάζεται και παράγει αναφορές Excel με δυνατότητα αυτόματης αποστολής '
+            'αρχεία, τα επεξεργάζεται και παράγει αναφορές Excel με δυνατότητα αυτόματης αποστολής email '
             'στα σχολεία.', S['body']),
-        Paragraph('<b>Δεν χρειάζεται καμία γνώση προγραμματισμού.</b>', S['body']),
+        Paragraph('<b>Δε χρειάζεται καμία γνώση προγραμματισμού.</b>', S['body']),
         _sp(0.3),
         _ftable([
             ('Έλεγχοι',         '8 αυτοματοποιημένοι έλεγχοι δεδομένων MySchool'),
@@ -258,7 +243,7 @@ def build():
     ]
 
     # ── 2. Εγκατάσταση ────────────────────────────────────────────────────────
-    story += [
+    _sec2 = [
         Paragraph('2. Εγκατάσταση', S['h1']),
         Paragraph('2.1 Κατέβασμα και εκτέλεση setup', S['h2']),
         _steps([
@@ -282,10 +267,11 @@ def build():
              'Εδώ επιλέγετε ελέγχους, κατεβάζετε στατιστικά και ξεκινάτε τους ελέγχους.'),
         ]),
         _sp(0.3),
-        _tip('Την πρώτη φορά που χρησιμοποιείτε αυτόματη λήψη, το πρόγραμμα κατεβάζει αυτόματα '
+        _tip('Την πρώτη φορά που χρησιμοποιείτε αυτόματη λήψη, η εφαρμογή κατεβάζει αυτόματα '
              'τον κατάλληλο driver για τον browser σας. Απαιτείται σύνδεση στο internet.'),
-        PageBreak(),
     ]
+    story.append(KeepTogether(_sec2))
+    story.append(PageBreak())
 
     # ── 3. Ρυθμίσεις ──────────────────────────────────────────────────────────
     story += [
@@ -423,7 +409,7 @@ def build():
             ('2', 'Επιλέξτε έναν ή περισσότερους ελέγχους',
              'Κάντε κλικ στα checkboxes δίπλα στους ελέγχους. Το κουμπί "Όλοι" επιλέγει όλους.'),
             ('3', 'Πατήστε Εκκίνηση ελέγχου',
-             'Το πρόγραμμα εκτελεί τους ελέγχους διαδοχικά.'),
+             'Το εφαρμογή εκτελεί τους ελέγχους διαδοχικά.'),
             ('4', 'Επιλέξτε τρόπο αποστολής',
              'Κάθε έλεγχος ρωτά αν θέλετε να στείλετε email ή όχι (δείτε παρακάτω).'),
             ('5', 'Δείτε τα αποτελέσματα',
@@ -485,8 +471,8 @@ def build():
         ('INNERGRID', (0,0), (-1,-1), 0.3, BORDER),
     ]))
     story.append(ct)
+    story.append(PageBreak())
     story += [
-        _sp(0.5),
         Paragraph('8.1 Έλεγχος Διοικητικού Έργου — Ανάλυση αποτελεσμάτων', S['h2']),
         _ftable([
             ('Φύλλο 1\n«ΠΔΕ vs Αδυνατούντες»',
@@ -570,6 +556,29 @@ def build():
         Paragraph(f'{ORG}  ·  {AUTHOR}  ·  {TEL}  ·  {EMAIL}',
             ParagraphStyle('_fc', fontName='Arial', fontSize=9,
                            textColor=DESC, alignment=TA_CENTER)),
+        PageBreak(),
+    ]
+
+    # ── Ευχαριστήριες ─────────────────────────────────────────────────────────
+    story += [
+        _sp(4),
+        Paragraph('Ευχαριστίες', ParagraphStyle('_ht', fontName='Arial-Bold',
+            fontSize=22, leading=28, textColor=HDR, alignment=TA_CENTER)),
+        _sp(0.4),
+        HRFlowable(width='40%', color=ACCENT, thickness=2, spaceAfter=20),
+        _sp(1),
+        Paragraph(
+            'Αφιερώνεται στον συνάδελφο Χρήστο Νιαβή, σε ένδειξη εκτίμησης για τη δημιουργική μας συνεργασία.',
+            ParagraphStyle('_ded', fontName='Arial-Italic', fontSize=11, leading=17,
+                           textColor=TEXT, alignment=TA_CENTER)),
+        _sp(1.5),
+        Paragraph(
+            'Ευχαριστίες στους κ. Δήμου Παναγιώτη (ΔΙ.Δ.Ε. Αν. Θεσ/κης), '
+            'κα Ορφανίδου Μαρία και κα Δρίνη Φωτεινή (ΔΙ.Π.Ε. Κιλκίς) '
+            'και κα Τερζή Χριστίνα (ΔΙ.Π.Ε. Δυτ. Θεσ/κης) '
+            'για τις πολύτιμες προτάσεις και παρατηρήσεις τους.',
+            ParagraphStyle('_ded2', fontName='Arial-Italic', fontSize=11, leading=17,
+                           textColor=TEXT, alignment=TA_CENTER)),
     ]
 
     doc.build(story, onFirstPage=_hf, onLaterPages=_hf)
