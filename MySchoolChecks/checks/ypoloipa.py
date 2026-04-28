@@ -645,6 +645,13 @@ def run(config):
     path_48  = get_downloaded_file('4.8',  'Αρχείο 4.8 [csv]:',  csv_only=True)
     path_412 = get_downloaded_file('4.12', 'Αρχείο 4.12 [csv]:', csv_only=True)
     path_411 = get_downloaded_file('4.11', 'Αρχείο 4.11 [csv]:', csv_only=True)
+
+    # Έλεγχος αρχείων πριν ζητηθούν παράμετροι
+    if path_48 is None or path_412 is None or path_411 is None:
+        from core.framework import _missing_file_dialog
+        _missing_file_dialog(CHECK_TITLE, REQUIRED_REPORTS)
+        return
+
     path_ady = get_ady_xoris_egkrisi('Αρχείο Αδυνατούντων (υπό έγκριση) [csv / xlsx]:')
     today    = ask_date_yyyymmdd()
     threshold= _ask_threshold()

@@ -53,6 +53,8 @@ EMAIL_BODY    = lambda school='': (
 # ── Είσοδος ─────────────────────────────────────────────────────────────────
 def ask_inputs():
     path  = get_downloaded_file('4.8', 'Αρχείο 4.8 [csv / xlsx]:')
+    if path is None:
+        return {'path': None, 'today': None}
     today = ask_date_yyyymmdd()
     return {'path': path, 'today': today}
 

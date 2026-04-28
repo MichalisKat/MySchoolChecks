@@ -639,12 +639,12 @@ class DownloadDialog(tk.Toplevel):
         tk.Label(hdr_row, text='Επιλέξτε αρχεία για λήψη:',
                  bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold')).pack(side='left')
-        tk.Button(hdr_row, text='Όλα',
+        self._dl_all_selected = False
+        self._dl_all_btn = tk.Button(hdr_row, text='Όλα',
                   bg=C['bg2'], fg=C['hdr_bg'],
                   font=('Arial', 8), relief='flat', padx=6, pady=1,
-                  cursor='hand2',
-                  command=lambda: [v.set(True) for v in self._report_vars.values()]
-                  ).pack(side='left', padx=(10,0))
+                  cursor='hand2', command=self._toggle_dl_all)
+        self._dl_all_btn.pack(side='left', padx=(10,0))
 
         self._report_vars = {}
         grid = tk.Frame(body, bg=C['bg'])
@@ -655,7 +655,7 @@ class DownloadDialog(tk.Toplevel):
             var = tk.BooleanVar(value=False)
             self._report_vars[rid] = var
             row, col = divmod(i, 2)
-            prefix   = '' if rid == 'ady' else f'{rid} — '
+            prefix   = '' if rid in ('ady', 'topoth') else f'{rid} — '
             lbl_text = f'✓ {prefix}{label}' if exists else f'{prefix}{label}'
             lbl_fg   = C['status_ok'] if exists else C['fg'] if 'fg' in C else '#000000'
             tk.Checkbutton(grid, text=lbl_text,
@@ -689,6 +689,12 @@ class DownloadDialog(tk.Toplevel):
                   relief='flat', padx=12, pady=6,
                   cursor='hand2',
                   command=self.destroy).pack(side='right', padx=4)
+
+    def _toggle_dl_all(self):
+        self._dl_all_selected = not self._dl_all_selected
+        for v in self._report_vars.values():
+            v.set(self._dl_all_selected)
+        self._dl_all_btn.config(text='Κανένα' if self._dl_all_selected else 'Όλα')
 
     def _start(self):
         from core.downloader import (MySchoolDownloader,
@@ -1465,8 +1471,8 @@ class EidikotitaDialog(tk.Toplevel):
     _DEFAULT_BODY   = (
         'Αποτύπωση Myschool {date}.\n\n'
         'Καλημέρα σας,\n\n'
-        'Επισυνάπτω πίνακα excel με τους εκπαιδευτικούς ειδικότητας {specialty} '
-        'που υπηρετούν στην Δ/νση Α/θμιας Αν. Θεσ/κης σύμφωνα με τα καταχωρημένα '
+        'Επισυνάπτεται πίνακας excel με τους εκπαιδευτικούς ειδικότητας {specialty} '
+        'που υπηρετούν στη Δ/νση μας σύμφωνα με τα καταχωρημένα '
         'στοιχεία στο myschool.\n\n\n'
         'Στη διάθεσή σας για οποιαδήποτε πληροφορία'
     )
@@ -1488,7 +1494,7 @@ class EidikotitaDialog(tk.Toplevel):
         super().__init__(parent)
         self.title('Εκπ/κοί ανά Ειδικότητα')
         self.configure(bg=C['bg'])
-        self.resizable(True, True)
+        self.resizable(False, False)
         self.grab_set()
         self.transient(parent)
         self._parent = parent
@@ -2170,9 +2176,10 @@ class MonadaDialog(tk.Toplevel):
     _DEFAULT_BODY   = (
         'Αποτύπωση Myschool {date}.\n\n'
         'Καλημέρα σας,\n\n'
-        'Επισυνάπτω πίνακα excel με τα στοιχεία των σχολικών μονάδων '
+        'Επισυνάπτεται πίνακας excel με τα στοιχεία των σχολικών μονάδων '
         'Δήμου {dimos} σύμφωνα με τα καταχωρημένα στοιχεία στο myschool.\n\n\n'
-        'Στη διάθεσή σας για οποιαδήποτε πληροφορία'
+        'Στη διάθεσή σας για οποιαδήποτε πληροφορία\n\n'
+        'Σήμερα, {day} {date}'
     )
     _DEFAULT_SUBJECT = 'Στοιχεία σχολικών μονάδων Δήμου {dimos}'
 
@@ -2183,7 +2190,7 @@ class MonadaDialog(tk.Toplevel):
         super().__init__(parent)
         self.title('Στοιχεία Σχολικών Μονάδων')
         self.configure(bg=C['bg'])
-        self.resizable(True, True)
+        self.resizable(False, False)
         self.grab_set()
         self.transient(parent)
         self._parent = parent
@@ -2347,8 +2354,10 @@ class MonadaDialog(tk.Toplevel):
                                   wrap='word', relief='solid', bd=1)
         self._body_txt.pack(fill='x', padx=18, pady=(0, 6))
         from datetime import datetime as _dt
+        _DAYS_GR = ['Δευτέρα','Τρίτη','Τετάρτη','Πέμπτη','Παρασκευή','Σάββατο','Κυριακή']
         self._body_txt.insert('1.0',
             self._saved_body.replace('{date}', _dt.today().strftime('%d/%m/%Y'))
+                             .replace('{day}',  _DAYS_GR[_dt.today().weekday()])
                              .replace('{dimos}', self._dimos_var.get()))
 
         btn_row = tk.Frame(self, bg=C['bg'])
@@ -2370,9 +2379,12 @@ class MonadaDialog(tk.Toplevel):
         # Ενημέρωση body: αντικατάσταση παλιού δήμου με νέο
         from datetime import datetime as _dt
         today = _dt.today().strftime('%d/%m/%Y')
+        _DAYS_GR = ['Δευτέρα','Τρίτη','Τετάρτη','Πέμπτη','Παρασκευή','Σάββατο','Κυριακή']
         self._body_txt.delete('1.0', 'end')
         self._body_txt.insert('1.0',
-            self._saved_body.replace('{date}', today).replace('{dimos}', dimos))
+            self._saved_body.replace('{date}', today)
+                             .replace('{day}',  _DAYS_GR[_dt.today().weekday()])
+                             .replace('{dimos}', dimos))
 
     def _load_dimos(self):
         """Φορτώνει τους Δήμους — πρώτα stat3_1 col7, fallback CSV col5."""

@@ -39,6 +39,7 @@ EMAIL_BODY    = lambda school='': (
     'Καλημέρα,\n\n'
     'Εντοπίστηκαν εκπαιδευτικοί στο σχολείο σας που εμφανίζονται ως παρόντες '
     'ενώ βρίσκονται σε μακροχρόνια άδεια (επισυνάπτεται αρχείο).\n\n'
+    'Να καταχωρηθεί η σχετική άδεια και ως απουσία στην τοποθέτηση (κοκκίνισμα ονόματος).\n\n'
     'Παρακαλούμε για τις ενέργειές σας.\n\n'
     + config.email_signature()
 )
@@ -60,6 +61,8 @@ MIN_DAYS        = 10
 def ask_inputs():
     path_421 = get_downloaded_file('4.21', 'Αρχείο 4.21 (Άδειες) [.csv]:', csv_only=True)
     path_49  = get_downloaded_file('4.9',  'Αρχείο 4.9 (Παρόντες) [.csv]:', csv_only=True)
+    if path_421 is None or path_49 is None:
+        return {'path_421': path_421, 'path_49': path_49, 'today': None}
     today    = ask_date_yyyymmdd()
     return {'path_421': path_421, 'path_49': path_49, 'today': today}
 

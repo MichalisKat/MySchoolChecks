@@ -446,6 +446,13 @@ def run(config):
 
     path_412 = get_downloaded_file('4.12', 'Αρχείο 4.12 [csv]:', csv_only=True)
     path_ady = get_downloaded_file('ady', 'Αρχείο Αδυνατούντων ανά ειδικότητα [csv / xlsx]:')
+
+    # Έλεγχος αρχείων πριν ζητηθούν παράμετροι
+    if path_412 is None or path_ady is None:
+        from core.framework import _missing_file_dialog
+        _missing_file_dialog(CHECK_TITLE, REQUIRED_REPORTS)
+        return
+
     today    = ask_date_yyyymmdd()
     from core.framework import _ask_send_options_gui
     test_mode, do_send = _ask_send_options_gui(test_only=True)

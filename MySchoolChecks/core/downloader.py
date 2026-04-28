@@ -33,7 +33,7 @@ from pathlib import Path
 # (report_id, label, url_path, fname_base, wait_search, wait_dl, direct_export)
 # direct_export=True → σελίδα χωρίς αναζήτηση/grid, απευθείας εξαγωγή
 REPORTS = [
-    ('topoth', 'Τοποθετήσεις εκπαιδευτικών',   '/Worker.list.myEmplUnit.aspx',                                               'Topothetiseis',       30, 90, False, 'a.hint_search', '#ctl00_ContentData_gridResults_StatusBar_btnExport'),
+    ('topoth', 'Τοποθετήσεις εκπαιδευτικών',    '/Worker.list.myEmplUnit.aspx',                                               'Topothetiseis',       30, 90, False, 'a.hint_search', '#ctl00_ContentData_gridResults_StatusBar_btnExport'),
     ('2.1',    'Κατάλογος σχολείων',             '/Statistics/Management.stat.infoUnits.aspx?parentId=3',                     'gridResults',         30, 60, False),
     ('2.2',    'Εκτεταμένα Στοιχεία Σχολ. Μον.', '/Statistics/Management.stat.infoAdvUnits.aspx?parentId=3',                  'stat2_2',             30, 90, False),
     # 3.1: Πριν την αναζήτηση πρέπει να τσεκαριστούν τα checkboxes ομαδοποίησης
@@ -49,7 +49,7 @@ REPORTS = [
     ('4.20', 'Άδειες Άνευ Αποδοχών',           '/Statistics/Management.stat.NoCalcSrvLeaveStats.aspx?parentId=5',            '4.20_Adeies_AA',      30, 40, False),
     ('4.21', 'Άδειες (πλην ΑΑ)',               '/Statistics/Management.stat.LeavesPerPFU.aspx?parentId=5',                   '4.21_Adeies',         30, 40, False),
     ('8.2',  'Επιβεβαίωση δεδομένων',          '/Statistics/Management.stat.LastConfirmDateUnits.aspx?parentId=9',           '8.2_Epivevaiwsi',     30, 60, False),
-    ('ady',  'Αδυνατούντες ανά ειδικότητα',    '/Worker.add.incapable.aspx',                                                  'Adynatountes',        10, 40, True),
+    ('ady',  'Πλήθος αδυνατούντων/ειδικότητα',  '/Worker.add.incapable.aspx',                                                  'Adynatountes',        10, 40, True),
 ]
 
 # Mapping: report_id → prefix ονόματος αποθηκευμένου αρχείου

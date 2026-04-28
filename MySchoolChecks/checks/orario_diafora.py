@@ -39,7 +39,6 @@ CENTER_COLS   = {'ΑΜ', 'ΑΦΜ', 'Κωδικός Σχολείου', 'Κωδ. �
 
 EMAIL_SUBJECT = 'Διαφορες AK-AL - 4.9'
 EMAIL_BODY    = lambda school='': (
-    'Καλημέρα,\n\n'
     'Επισυνάπτεται αρχείο με εκπαιδευτικούς για τους οποίους '
     'υπάρχει διαφορά μεταξύ υποχρεωτικού ωραρίου (AK) '
     'και ωραρίου στους φορείς (AL).\n\n'
@@ -50,6 +49,8 @@ EMAIL_BODY    = lambda school='': (
 # ── Είσοδος ─────────────────────────────────────────────────────────────────
 def ask_inputs():
     path  = get_downloaded_file('4.9', 'Αρχείο 4.9 [csv / xlsx]:')
+    if path is None:
+        return {'path': None, 'today': None}
     today = ask_date_yyyymmdd()
     return {'path': path, 'today': today}
 
