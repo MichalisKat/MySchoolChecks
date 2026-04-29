@@ -2127,9 +2127,14 @@ class EidikotitaDialog(tk.Toplevel):
 
         # ── 8. Αποθήκευση ρυθμίσεων ──────────────────────────────────────────
         s = _load_local_settings()
+        # Αποθήκευση με placeholder {specialty} ώστε να αντικαθίσταται σωστά την επόμενη φορά
+        body_to_save    = body_text.replace(specialty, '{specialty}') if specialty else body_text
+        subject_to_save = subject.replace(specialty, '{specialty}')   if specialty else subject
+        self._saved_body    = body_to_save
+        self._saved_subject = subject_to_save
         s[self._SETTINGS_KEY] = {
-            'subject':       self._saved_subject,
-            'body':          self._saved_body,
+            'subject':       subject_to_save,
+            'body':          body_to_save,
             'advisor_email': to_email,
             'direction':     self._dir_var.get().strip(),
         }

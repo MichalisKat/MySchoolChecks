@@ -92,8 +92,8 @@ CENTER_COLS = {
 EMAIL_SUBJECT = 'Υπόλοιπα ωραρίου-Αναθέσεις στο Myschool'
 EMAIL_BODY    = lambda school='': (
     'Καλημέρα,\n\n'
-    'Επισυνάπτονται σε αρχείο excel τα υπόλοιπα ωρών στο Myschool.\n'
-    'Παρακαλούμε για άμεσες ενέργειες (αναθέσεις) !\n\n'
+    'Επισυνάπτεται αρχείο excel με τα υπόλοιπα ωρών στο Myschool.\n'
+    'Παρακαλούμε για άμεσες ενέργειες (αναθέσεις - απουσίες) !\n\n'
     + config.email_signature()
 )
 
@@ -791,4 +791,4 @@ def run(config):
     popup_text = summary_body + (
         f'\n\n{"─"*40}\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
     )
-    _show_results_popup('Υπ
+    _show_results_popup('Υπόλοιπα Ωραρίου', popup_text)
