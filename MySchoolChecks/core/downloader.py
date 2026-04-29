@@ -47,7 +47,9 @@ REPORTS = [
     ('4.12', 'Συμπλήρωση ωραρίου',             '/Statistics/Management.stat.SymplirwseisCatalogue.aspx?parentId=5',          '4.12_Symplirwseis',   30, 40, False),
     ('4.16', 'Αιτιολόγηση απουσίας',           '/Statistics/Management.stat.wrkAbsenteesFromUnitCatalogue.aspx?parentId=5', 'stat4_16',            60, 60, False),
     ('4.20', 'Άδειες Άνευ Αποδοχών',           '/Statistics/Management.stat.NoCalcSrvLeaveStats.aspx?parentId=5',            '4.20_Adeies_AA',      30, 40, False),
-    ('4.21', 'Άδειες (πλην ΑΑ)',               '/Statistics/Management.stat.LeavesPerPFU.aspx?parentId=5',                   '4.21_Adeies',         30, 40, False),
+    ('4.21', 'Άδειες (πλην ΑΑ)',               '/Statistics/Management.stat.LeavesPerPFU.aspx?parentId=5',                   '4.21_Adeies',         30, 40, False, None, None, None,
+             ['ctl00_cntStats_cbpSearch_sus_cbmPanel_cmbCalendarYear_LBI1T1',
+              'ctl00_cntStats_cbpSearch_sus_cbmPanel_cmbCalendarYear_LBI2T1']),
     ('8.2',  'Επιβεβαίωση δεδομένων',          '/Statistics/Management.stat.LastConfirmDateUnits.aspx?parentId=9',           '8.2_Epivevaiwsi',     30, 60, False),
     ('ady',  'Πλήθος αδυνατούντων/ειδικότητα',  '/Worker.add.incapable.aspx',                                                  'Adynatountes',        10, 40, True),
 ]
@@ -284,7 +286,8 @@ class MySchoolDownloader:
                 direct_export      = report_entry[6] if len(report_entry) > 6 else False
                 custom_search      = report_entry[7] if len(report_entry) > 7 else None
                 custom_export      = report_entry[8] if len(report_entry) > 8 else None
-                pre_search_labels  = report_entry[9] if len(report_entry) > 9 else None
+                pre_search_labels  = report_entry[9]  if len(report_entry) > 9  else None
+                pre_search_js      = report_entry[10] if len(report_entry) > 10 else None
 
                 self._log(f'[{rid}] {label}...')
                 try:
@@ -370,6 +373,20 @@ class MySchoolDownloader:
                                     self._log(f'  [{rid}]   ✓ "{lbl_text}"')
                                 except Exception as _ck_err:
                                     self._log(f'  [{rid}]   ⚠ "{lbl_text}" δεν βρέθηκε: {_ck_err}')
+
+                        # JS clicks (π.χ. DevExpress ListBox items — επιλογή ετών)
+                        if pre_search_js:
+                            self._log(f'  [{rid}] JS pre-search clicks...')
+                            for element_id in pre_search_js:
+                                try:
+                                    el = WebDriverWait(driver, 10).until(
+                                        EC.presence_of_element_located((By.ID, element_id))
+                                    )
+                                    driver.execute_script('arguments[0].click();', el)
+                                    time.sleep(0.3)
+                                    self._log(f'  [{rid}]   ✓ clicked #{element_id}')
+                                except Exception as _js_err:
+                                    self._log(f'  [{rid}]   ⚠ #{element_id}: {_js_err}')
 
                         # Κουμπί Αναζήτησης
                         search_clicked = False
@@ -655,7 +672,7 @@ def find_latest_downloads(base_dir):
     for rid, prefix in FILE_PREFIX_MAP.items():
         matches = glob.glob(os.path.join(today_dir, f'{prefix}*'))
         if matches:
-            result[rid] = matches[0]
+            result[rid] = max(matches, key=os.path.getmtime)
 
     return result
 
