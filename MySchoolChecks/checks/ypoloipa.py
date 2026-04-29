@@ -697,8 +697,9 @@ def run(config):
         )
         return
 
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    out_dir  = os.path.join(base_dir, f'results_{today.strftime("%Y%m%d")}', 'ypoloipa')
+    _docs = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks')
+    os.makedirs(_docs, exist_ok=True)
+    out_dir  = os.path.join(_docs, f'results_{today.strftime("%Y%m%d")}', 'ypoloipa')
     os.makedirs(out_dir, exist_ok=True)
     print(f'\nΑποθήκευση → {out_dir}')
     print('-' * 65)
@@ -790,4 +791,4 @@ def run(config):
     popup_text = summary_body + (
         f'\n\n{"─"*40}\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
     )
-    _show_results_popup('Υπόλοιπα Ωραρίου', popup_text)
+    _show_results_popup('Υπ

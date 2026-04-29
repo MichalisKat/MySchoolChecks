@@ -476,8 +476,9 @@ def run(config):
     print(f'  ✓ Φύλλο 2 (χωρίς απόφαση) : {len(df_p2)} εγγραφές')
 
     # Αποθήκευση
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    out_dir  = os.path.join(base_dir, f'results_{today.strftime("%Y%m%d")}', 'dioikitiko')
+    _docs = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks')
+    os.makedirs(_docs, exist_ok=True)
+    out_dir  = os.path.join(_docs, f'results_{today.strftime("%Y%m%d")}', 'dioikitiko')
     os.makedirs(out_dir, exist_ok=True)
 
     out_path = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_DIOIKITIKO.xlsx')
@@ -511,4 +512,4 @@ def run(config):
     popup_body = body + (
         f'\n\n{"─"*40}\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
     )
-    _show_results_popup('Διοικητικό Έργο', popup_body)
+    _show_results_popup('Δ
