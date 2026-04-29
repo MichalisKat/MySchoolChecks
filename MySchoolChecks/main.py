@@ -182,6 +182,13 @@ def load_checks():
             title = getattr(mod, 'CHECK_TITLE', None)
             if title:
                 desc = getattr(mod, 'CHECK_DESCRIPTION', '')
+                req  = getattr(mod, 'REQUIRED_REPORTS', [])
+                if req:
+                    import re as _re
+                    nums = [m.group() for r in req
+                            for m in [_re.match(r'[\d.]+', r.strip())] if m]
+                    if nums:
+                        desc = f'{desc} (Απαιτούνται: {", ".join(nums)})'
                 checks.append((title, desc, mod))
         except Exception as e:
             import traceback as _tb
@@ -800,7 +807,7 @@ class LauncherApp:
 
     def _build_ui(self):
         # Header
-        hdr = tk.Frame(self.root, bg=C['hdr_bg'], pady=14)
+        hdr = tk.Frame(self.root, bg=C['hdr_bg'], pady=8)
         hdr.pack(fill='x')
 
         # Μόνο ⚙ στο header
@@ -875,11 +882,11 @@ class LauncherApp:
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
                   command=self._open_monada_tool).pack(side='left', padx=(0, 0))
 
-        # Body
-        body = tk.Frame(self.root, bg=C['bg'], padx=18, pady=14)
-        body.pack(fill='both')
+        # Body — label row (σταθερό)
+        body_top = tk.Frame(self.root, bg=C['bg'], padx=18, pady=8)
+        body_top.pack(fill='x')
 
-        lbl_row = tk.Frame(body, bg=C['bg'])
+        lbl_row = tk.Frame(body_top, bg=C['bg'])
         lbl_row.pack(fill='x', pady=(0, 4))
         tk.Label(lbl_row, text='Επιλέξτε ένα ή περισσότερους ελέγχους:',
                  bg=C['bg'], fg=C['hdr_bg'],
@@ -892,13 +899,46 @@ class LauncherApp:
         self._all_btn.pack(side='right')
         self._all_selected = False
 
+        # Scrollable περιοχή ελέγχων
+        _screen_h   = self.root.winfo_screenheight()
+        _canvas_h   = min(_screen_h - 280, len(self.checks) * 54 + 10)
+
+        scroll_outer = tk.Frame(self.root, bg=C['bg'], padx=18)
+        scroll_outer.pack(fill='x')
+
+        _canvas = tk.Canvas(scroll_outer, bg=C['bg'],
+                            height=_canvas_h, highlightthickness=0)
+        _vsb    = tk.Scrollbar(scroll_outer, orient='vertical',
+                               command=_canvas.yview)
+        _canvas.configure(yscrollcommand=_vsb.set)
+        _vsb.pack(side='right', fill='y')
+        _canvas.pack(side='left', fill='x', expand=True)
+
+        checks_inner = tk.Frame(_canvas, bg=C['bg'])
+        _canvas_win  = _canvas.create_window((0, 0), window=checks_inner,
+                                              anchor='nw')
+
+        def _on_inner_configure(e):
+            _canvas.configure(scrollregion=_canvas.bbox('all'))
+
+        def _on_canvas_configure(e):
+            _canvas.itemconfig(_canvas_win, width=e.width)
+
+        checks_inner.bind('<Configure>', _on_inner_configure)
+        _canvas.bind('<Configure>', _on_canvas_configure)
+
+        def _on_mousewheel(e):
+            _canvas.yview_scroll(int(-1 * (e.delta / 120)), 'units')
+
+        _canvas.bind_all('<MouseWheel>', _on_mousewheel)
+
         self._check_vars = []
 
         for i, (title, desc, mod) in enumerate(self.checks):
             var = tk.BooleanVar(value=(i == 0))
             self._check_vars.append(var)
 
-            f = tk.Frame(body, bg=C['norm_bg'],
+            f = tk.Frame(checks_inner, bg=C['norm_bg'],
                          highlightbackground=C['norm_bd'],
                          highlightthickness=1,
                          pady=6, padx=10)
@@ -1551,7 +1591,7 @@ class EidikotitaDialog(tk.Toplevel):
         tk.Label(self, text='Εκπαιδευτικοί ανά Ειδικότητα',
                  bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 11, 'bold')).pack(anchor='w', padx=18, pady=(14, 0))
-        tk.Label(self, text='για αποστολή στοιχείων ενδεικτικά σε Συμβούλους Εκπ/σης',
+        tk.Label(self, text='για αποστολή στοιχείων ενδεικτικά σε Συμβούλους Εκπ/σης  (Απαιτούνται: Τοποθετήσεις, 2.1, 4.1, 4.2, 4.16)',
                  bg=C['bg'], fg=C['desc'],
                  font=('Arial', 8, 'italic')).pack(anchor='w', padx=18, pady=(0, 6))
 
@@ -2299,7 +2339,7 @@ class MonadaDialog(tk.Toplevel):
         tk.Label(self, text='Στοιχεία Σχολικών Μονάδων',
                  bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 11, 'bold')).pack(anchor='w', padx=18, pady=(14, 0))
-        tk.Label(self, text='για αποστολή στοιχείων ενδεικτικά σε Δήμους',
+        tk.Label(self, text='για αποστολή στοιχείων ενδεικτικά σε Δήμους  (Απαιτούνται: 3.1, 2.2)',
                  bg=C['bg'], fg=C['desc'],
                  font=('Arial', 8, 'italic')).pack(anchor='w', padx=18, pady=(0, 6))
 

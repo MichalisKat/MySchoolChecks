@@ -6,7 +6,7 @@ Python εφαρμογή Windows για αυτοματοποιημένους ελ
 
 **Repo:** https://github.com/MichalisKat/myschool-checks  
 **Υπεύθυνος:** Μιχάλης Κατσιρντάκης  
-**Τρέχουσα έκδοση:** 0.9.7 (beta)
+**Τρέχουσα έκδοση:** 1.0.0
 
 ---
 
@@ -163,8 +163,8 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 Τρέξε μόνο βήματα 3 → 4 → 5 → 6. Το `build_executable.bat` δεν χρειάζεται.
 
 ### Versioning
-- Τρέχουσα: `0.9.7` (beta)
-- Stable release: `1.0.0` (μετά από testing)
+- Τρέχουσα: `1.0.0`
+- Επόμενη: `1.0.1` (bugfixes) ή `1.1.0` (νέα features)
 - Αλλαγή version: στο `myschool-checks.nsi` (`APP_VERSION`), στο `compile_installer.bat` **και** στο `MySchoolChecks/config.py` (`APP_VERSION`)
 
 ### Backup credentials
@@ -212,6 +212,14 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 - [ ] Επαλήθευση λήψης 3.1 με pre_search_labels (DevExpress checkboxes) — πρώτο run in production
 
 ## Αλλαγές ανά έκδοση
+
+### v1.0.0
+- **Νέος έλεγχος `adies_missing_421.py`**: εντοπίζει εκπαιδευτικούς με ΜΑΚΡΟΧΡΟΝΙΑ ΑΔΕΙΑ στο 4.16 χωρίς αντίστοιχη ενεργή άδεια στο 4.21 (εξαιρεί ΑΑ, ΣΔΕΥ, Ιδιωτικά) — αλγόριθμος: τύπος άδειας 4.21 ⊆ Εξειδ.Αιτιολόγησης 4.16 + σήμερα εντός και των δύο διαστημάτων
+- GUI: **scrollable λίστα ελέγχων** (Canvas + Scrollbar) για 15.6" οθόνες
+- GUI: header pady 14→8 για καλύτερη χωροθέτηση κατακόρυφα
+- GUI: κάθε check εμφανίζει αυτόματα `(Απαιτούνται: X.Y, ...)` στην περιγραφή — από `REQUIRED_REPORTS`
+- EidikotitaDialog/MonadaDialog: υπότιτλος εμφανίζει τα απαιτούμενα δεδομένα
+- Stable release (έξοδος από beta)
 
 ### v0.9.7
 - Version εμφανίζεται στον **τίτλο** κάτω από τη Δ/νση (αφαιρέθηκε από footer) — και στο splash screen
