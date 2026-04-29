@@ -1683,9 +1683,16 @@ class EidikotitaDialog(tk.Toplevel):
         self._build_form()
 
     def _on_spec_change(self, *_):
-        """Ενημερώνει το θέμα όταν αλλάζει η ειδικότητα."""
+        """Ενημερώνει το θέμα και το body όταν αλλάζει η ειδικότητα."""
         spec = self._spec_var.get()
         self._subj_var.set(self._saved_subject.replace('{specialty}', spec))
+        if hasattr(self, '_body_txt'):
+            from datetime import datetime as _dt
+            self._body_txt.delete('1.0', 'end')
+            self._body_txt.insert('1.0',
+                self._saved_body
+                    .replace('{date}', _dt.today().strftime('%d/%m/%Y'))
+                    .replace('{specialty}', spec))
 
     def _load_specialties(self):
         """Φορτώνει Διευθύνσεις και Ειδικότητες από το Topothetiseis αρχείο."""
