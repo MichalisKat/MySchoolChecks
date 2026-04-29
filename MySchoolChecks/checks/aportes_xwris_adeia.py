@@ -1,7 +1,7 @@
 """
 checks/aportes_xwris_adeia.py
 ══════════════════════════════
-Απόντες χωρίς Άδεια (4.16 + 4.21).
+Απουσία στην Τοποθέτηση χωρίς Δήλωση Άδειας (4.16 + 4.21).
 Εντοπίζει εκπαιδευτικούς που έχουν καταχωρηθεί ως Μακροχρόνια Απόντες
 στο 4.16 (εξαιρουμένων Άνευ Αποδοχών) χωρίς ενεργή άδεια στο 4.21.
 """
@@ -13,7 +13,7 @@ from dateutil.relativedelta import relativedelta
 from core.framework import get_downloaded_file, ask_date_yyyymmdd, read_csv_fixed, clean_field
 
 # ── Μεταδεδομένα ────────────────────────────────────────────────────────────
-CHECK_TITLE       = 'Απόντες χωρίς Άδεια'
+CHECK_TITLE       = 'Απουσία χωρίς Δήλωση Άδειας'
 CHECK_DESCRIPTION = 'Εκπαιδευτικοί με Μακροχρόνια Απουσία χωρίς ενεργή άδεια στο myschool'
 RESULTS_FOLDER    = 'aportes_xwris_adeia'
 HAS_EMAIL         = True
@@ -29,7 +29,7 @@ COLUMNS = [
     ('Επώνυμο',                    18),
     ('Όνομα',                      16),
     ('Κωδικός Κύριας Ειδικότητας', 14),
-    ('Αιτιολόγηση Απουσίας',       30),
+    ('Εξειδ. Αιτιολόγησης',        40),
 ]
 
 SCHOOL_COLUMN = 'Ονομασία Σχολείου'
@@ -51,15 +51,14 @@ EMAIL_BODY    = lambda school='': (
     + config.email_signature()
 )
 
-EXCLUDED_STATUS = {'5-Ανακλήθηκε', '4-Απορρίφθηκε'}
-
-# Ειδικότητες που εξαιρούνται
+EXCLUDED_STATUS      = {'5-Ανακλήθηκε', '4-Απορρίφθηκε'}
 EXCLUDED_SPECIALTIES = {'ΠΕ23-ΣΔΕΥ', 'ΠΕ30-ΣΔΕΥ'}
+PERIOCHI             = 'Α΄ ΘΕΣΣΑΛΟΝΙΚΗΣ (Π.Ε.) 2018'
 
 
 # ── Είσοδος ─────────────────────────────────────────────────────────────────
 def ask_inputs():
-    path_416 = get_downloaded_file('4.16', 'Αρχείο 4.16 (Αναλυτικές Απουσίες) [.csv]:', csv_only=True, silent=True)
+    path_416 = get_downloaded_file('4.16', 'Αρχείο 4.16 (Αιτιολόγηση Απουσίας) [.csv]:', csv_only=True, silent=True)
     path_421 = get_downloaded_file('4.21', 'Αρχείο 4.21 (Άδειες) [.csv]:', csv_only=True, silent=True)
     if path_416 is None or path_421 is None:
         return {'path_416': path_416, 'path_421': path_421, 'today': None}
@@ -91,60 +90,66 @@ def _calc_end(row):
 
 # ── Λογική ──────────────────────────────────────────────────────────────────
 def process(ctx):
-    today    = ctx['today']
-    df16     = read_csv_fixed(ctx['path_416'])
-    df21     = read_csv_fixed(ctx['path_421'])
+    today = ctx['today']
+    df16  = read_csv_fixed(ctx['path_416'])
+    df21  = read_csv_fixed(ctx['path_421'])
 
     df16.columns = [c.strip() for c in df16.columns]
     df21.columns = [c.strip() for c in df21.columns]
 
-    # ── Φίλτρο 4.16: Μακροχρόνιες απουσίες ──────────────────────────────────
-    ait_col = next((c for c in df16.columns if 'Αιτιολόγηση Απουσίας' in c or 'Αιτιολογηση' in c), None)
+    ait_col   = next((c for c in df16.columns if 'Αιτιολόγηση Απουσίας' in c), None)
     exeid_col = next((c for c in df16.columns if 'Εξειδ' in c), None)
+    sxol_col  = next((c for c in df16.columns if 'Ονομασία Σχολείου' in c), None)
+    kod_col   = next((c for c in df16.columns if 'Κωδικός Σχολείου' in c or 'Kωδικός Σχολείου' in c), None)
+    eid_col   = next((c for c in df16.columns if 'Κωδικός Κύριας Ειδικότητας' in c), None)
+    per_col   = next((c for c in df16.columns if 'Περιοχή Μετάθεσης Εκπαιδευτικού' in c), None)
+    afm16_col = next((c for c in df16.columns if c.strip() in ('Α.Φ.Μ.', 'ΑΦΜ')), None)
+    am_col    = next((c for c in df16.columns if c.strip() in ('Α.Μ.', 'ΑΜ')), None)
+    tel_col   = next((c for c in df16.columns if c.strip() == 'Τηλέφωνο'), None)
+    email_col = next((c for c in df16.columns if c.strip() == 'Email'), None)
+    epwn_col  = next((c for c in df16.columns if 'Επώνυμο' in c), None)
+    onoma_col = next((c for c in df16.columns if c.strip() == 'Όνομα'), None)
 
-    if ait_col is None:
-        print('  ✗ Δεν βρέθηκε στήλη Αιτιολόγησης Απουσίας στο 4.16')
+    if ait_col is None or afm16_col is None:
+        print('  ✗ Δεν βρέθηκαν απαραίτητες στήλες στο 4.16')
         return pd.DataFrame()
 
-    # Κρατάμε μόνο ΜΑΚΡΟΧΡΟΝΙΑ ΑΔΕΙΑ
+    # Μακροχρόνιες
     df16 = df16[df16[ait_col].astype(str).str.contains('ΜΑΚΡΟΧΡΟΝ', case=False, na=False)].copy()
     print(f'  → {len(df16)} μακροχρόνιες απουσίες (4.16)')
 
-    # Εξαιρούμε Άνευ Αποδοχών
+    # Εξαίρεση Άνευ Αποδοχών
     if exeid_col:
         df16 = df16[~df16[exeid_col].astype(str).str.contains('νευ', case=False, na=False)].copy()
     print(f'  → {len(df16)} μετά εξαίρεση Άνευ Αποδοχών')
 
-    # Εξαιρούμε Ιδιωτικά σχολεία
-    sxol_col = next((c for c in df16.columns if 'Ονομασία Σχολείου' in c or 'Ονομασια Σχολειου' in c
-                     or 'Ονομασία' in c), None)
+    # Εξαίρεση Ιδιωτικών (κωδικός αρχίζει με 9)
     if sxol_col:
         df16 = df16[~df16[sxol_col].astype(str).str.contains('ΙΔΙΩΤ', case=False, na=False)].copy()
+    if kod_col:
+        df16['_kod'] = df16[kod_col].astype(str).str.replace('="', '').str.replace('"', '').str.strip()
+        df16 = df16[df16['_kod'].str.startswith('9')].copy()
     print(f'  → {len(df16)} μετά εξαίρεση Ιδιωτικών')
 
-    # Εξαιρούμε ΠΕ23-ΣΔΕΥ και ΠΕ30-ΣΔΕΥ
-    eid_col = next((c for c in df16.columns if 'Κωδ' in c and ('Ειδικ' in c or 'ειδικ' in c)), None)
+    # Εξαίρεση ΣΔΕΥ
     if eid_col:
         df16 = df16[~df16[eid_col].astype(str).str.strip().isin(EXCLUDED_SPECIALTIES)].copy()
-    print(f'  → {len(df16)} μετά εξαίρεση ΣΔΕΥ ειδικοτήτων')
+    print(f'  → {len(df16)} μετά εξαίρεση ΣΔΕΥ')
+
+    # Φίλτρο περιοχής μετάθεσης εκπαιδευτικού
+    if per_col:
+        df16 = df16[df16[per_col].astype(str).str.strip() == PERIOCHI].copy()
+    print(f'  → {len(df16)} μετά φίλτρο Περιοχής Μετάθεσης')
 
     if df16.empty:
         return pd.DataFrame()
 
-    # ΑΦΜ από 4.16
-    afm16_col = next((c for c in df16.columns if c.strip() in ('Α.Φ.Μ.', 'ΑΦΜ', 'Α.Φ.Μ')), None)
-    if afm16_col is None:
-        print('  ✗ Δεν βρέθηκε στήλη ΑΦΜ στο 4.16')
-        return pd.DataFrame()
-
     df16['ΑΦΜ_clean'] = _clean(df16[afm16_col])
-
-    # Deduplicate: κρατάμε μία εγγραφή ανά ΑΦΜ (πρώτη εμφάνιση)
     df16_uniq = df16.drop_duplicates(subset='ΑΦΜ_clean', keep='first').copy()
-    print(f'  → {len(df16_uniq)} μοναδικά ΑΦΜ με μακροχρόνια απουσία')
+    print(f'  → {len(df16_uniq)} μοναδικά ΑΦΜ')
 
-    # ── Φίλτρο 4.21: ενεργές άδειες ─────────────────────────────────────────
-    afm21_col = next((c for c in df21.columns if c.strip() in ('ΑΦΜ', 'Α.Φ.Μ.', 'Α.Φ.Μ')), None)
+    # ── 4.21: ενεργές άδειες ────────────────────────────────────────────────
+    afm21_col = next((c for c in df21.columns if c.strip() in ('ΑΦΜ', 'Α.Φ.Μ.')), None)
     if afm21_col is None:
         print('  ✗ Δεν βρέθηκε στήλη ΑΦΜ στο 4.21')
         return pd.DataFrame()
@@ -152,7 +157,6 @@ def process(ctx):
     df21['ΑΦΜ_clean'] = _clean(df21[afm21_col])
     df21['Από_dt']    = _parse_date(df21['Από'])
     df21['Έως_dt']    = df21.apply(_calc_end, axis=1)
-    df21['Διάρκεια']  = (df21['Έως_dt'] - df21['Από_dt']).dt.days + 1
 
     mask_active = (
         (df21['Από_dt'] <= today) &
@@ -162,20 +166,11 @@ def process(ctx):
     set_adeia = set(df21[mask_active]['ΑΦΜ_clean'])
     print(f'  → {len(set_adeia)} ΑΦΜ με ενεργή άδεια (4.21)')
 
-    # Απόντες χωρίς ενεργή άδεια
     result = df16_uniq[~df16_uniq['ΑΦΜ_clean'].isin(set_adeia)].copy()
     print(f'  → {len(result)} απόντες ΧΩΡΙΣ ενεργή άδεια')
 
     if result.empty:
         return pd.DataFrame()
-
-    # Ανάκτηση στηλών για έξοδο
-    kod_col   = next((c for c in result.columns if 'Κωδικός Σχολείου' in c or 'Κωδ. Σχολείου' in c), None)
-    tel_col   = next((c for c in result.columns if 'Τηλέφωνο' in c), None)
-    email_col = next((c for c in result.columns if c.strip() == 'Email'), None)
-    am_col    = next((c for c in result.columns if c.strip() in ('Α.Μ.', 'ΑΜ')), None)
-    epwn_col  = next((c for c in result.columns if 'Επώνυμο' in c), None)
-    onoma_col = next((c for c in result.columns if c.strip() == 'Όνομα'), None)
 
     def _g(col):
         if col is None or col not in result.columns:
@@ -193,7 +188,7 @@ def process(ctx):
         'Επώνυμο':                    _g(epwn_col),
         'Όνομα':                      _g(onoma_col),
         'Κωδικός Κύριας Ειδικότητας': _g(eid_col),
-        'Αιτιολόγηση Απουσίας':       _g(ait_col),
+        'Εξειδ. Αιτιολόγησης':        _g(exeid_col),
     })
 
     return out.sort_values([SCHOOL_COLUMN, 'Επώνυμο', 'Όνομα']).reset_index(drop=True)
@@ -201,7 +196,7 @@ def process(ctx):
 
 def test_body(df_out, today, schools):
     return (
-        f'Σύνοψη ελέγχου απόντων χωρίς άδεια — {today.strftime("%d/%m/%Y")}\n'
+        f'Σύνοψη ελέγχου απουσίας χωρίς δήλωση άδειας — {today.strftime("%d/%m/%Y")}\n'
         f'{"─"*50}\n'
         f'Βρέθηκαν: {len(df_out)} εκπαιδευτικοί με μακροχρόνια απουσία χωρίς ενεργή άδεια\n'
         f'Σχολεία που εμφανίζονται ({len(schools)}): {", ".join(sorted(schools))}'

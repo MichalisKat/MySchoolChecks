@@ -135,6 +135,7 @@ CHECK_ORDER = [
     'arnhtika_ypoloipa',
     'adies_aneu',
     'adies',
+    'aportes_xwris_adeia',
     'analipsi',
     'dioikitiko_ergo',
     'ypoloipa',
@@ -154,7 +155,7 @@ def load_checks():
         # Δεν χρειαζόμαστε os.listdir() — απευθείας import.
         all_known = list(CHECK_ORDER) + [
             'forma_82', 'orario_diafora', 'arnhtika_ypoloipa',
-            'adies_aneu', 'adies', 'analipsi', 'dioikitiko_ergo', 'ypoloipa',
+            'adies_aneu', 'adies', 'aportes_xwris_adeia', 'analipsi', 'dioikitiko_ergo', 'ypoloipa',
         ]
         seen = set()
         ordered = []
