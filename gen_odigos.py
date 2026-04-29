@@ -29,7 +29,7 @@ pdfmetrics.registerFont(TTFont('Arial-Bold',   os.path.join(_FDIR, 'arialbd.ttf'
 pdfmetrics.registerFont(TTFont('Arial-Italic', os.path.join(_FDIR, 'ariali.ttf')))
 
 # ── Σταθερές ──────────────────────────────────────────────────────────────────
-VERSION = '0.9.8'
+VERSION = '0.9.9'
 AUTHOR  = 'Μιχάλης Κατσιρντάκης'
 EMAIL   = 'itdipea@sch.gr'
 TEL     = '2310 954145'
@@ -231,7 +231,7 @@ def build():
         Paragraph('<b>Δε χρειάζεται καμία γνώση προγραμματισμού.</b>', S['body']),
         _sp(0.3),
         _ftable([
-            ('Έλεγχοι',         '8 αυτοματοποιημένοι έλεγχοι δεδομένων MySchool'),
+            ('Έλεγχοι',         '9 αυτοματοποιημένοι έλεγχοι δεδομένων MySchool'),
             ('Ειδικότητες',     'Εξαγωγή λίστας εκπαιδευτικών ανά ειδικότητα σε Excel'),
             ('Σχολικές Μονάδες','Εξαγωγή στοιχείων σχολείων ανά Δήμο σε Excel'),
             ('Στατιστικά',      'Αυτόματο κατέβασμα αρχείων από το MySchool'),
@@ -450,13 +450,16 @@ def build():
         [Paragraph('5 · Άδειες &\nΠαρόντες', S['small_hdr']),
          Paragraph('Εκπαιδευτικοί παρόντες ενώ βρίσκονται σε μακροχρόνια άδεια.', S['cell']),
          Paragraph('4.21 + 4.9', S['cell']), Paragraph('Ένα ανά σχολείο', S['cell'])],
-        [Paragraph('6 · Ελλιπή\nΑνάληψη', S['small_hdr']),
+        [Paragraph('6 · Απουσία χωρίς\nΔήλωση Άδειας', S['small_hdr']),
+         Paragraph('Εκπαιδευτικοί με Μακροχρόνια Απουσία χωρίς ενεργή άδεια (εξαιρούνται ΑΑ, Ιδιωτικά, ΣΔΕΥ).', S['cell']),
+         Paragraph('4.16 + 4.21', S['cell']), Paragraph('Ένα ανά σχολείο', S['cell'])],
+        [Paragraph('7 · Ελλιπή\nΑνάληψη', S['small_hdr']),
          Paragraph('Εκπαιδευτικοί χωρίς Ημερομηνία Ανάληψης σε ενεργή τοποθέτηση.', S['cell']),
          Paragraph('4.8', S['cell']), Paragraph('Ένα ανά σχολείο', S['cell'])],
-        [Paragraph('7 · Διοικητικό\nΈργο', S['small_hdr']),
+        [Paragraph('8 · Διοικητικό\nΈργο', S['small_hdr']),
          Paragraph('Γραμματειακή Υποστήριξη στο 4.12 — σύγκριση με ΠΔΕ απόφαση και Αδυνατούντες.', S['cell']),
          Paragraph('4.12 + Αδυν.', S['cell']), Paragraph('Test mode', S['cell'])],
-        [Paragraph('8 · Υπόλοιπα\nΩραρίου', S['small_hdr']),
+        [Paragraph('9 · Υπόλοιπα\nΩραρίου', S['small_hdr']),
          Paragraph('Υπόλοιπα ωραρίου εκπαιδευτικών. Παράγει συνολικό αρχείο + pivot αναφορά (5 φύλλα).', S['cell']),
          Paragraph('4.8+4.12\n+4.11+Αδυν.', S['cell']), Paragraph('Ένα ανά σχολείο', S['cell'])],
     ]
