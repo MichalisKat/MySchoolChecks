@@ -935,7 +935,7 @@ class LauncherApp:
         self._check_vars = []
 
         for i, (title, desc, mod) in enumerate(self.checks):
-            var = tk.BooleanVar(value=(i == 0))
+            var = tk.BooleanVar(value=False)
             self._check_vars.append(var)
 
             f = tk.Frame(checks_inner, bg=C['norm_bg'],
@@ -1747,6 +1747,16 @@ class EidikotitaDialog(tk.Toplevel):
         try:
             import pandas as pd
             df = pd.read_excel(self._topoth_path, header=0)
+
+            # Έλεγχος εγκυρότητας — το Topothetiseis πρέπει να έχει τουλάχιστον 10 γραμμές
+            if len(df) < 10:
+                self._spec_lbl.config(
+                    text=f'⚠ Το αρχείο Τοποθετήσεων φαίνεται ελλιπές ({len(df)} γραμμές). '
+                         f'Κατεβάστε το ξανά από το myschool.',
+                    fg='#CC0000'
+                )
+                return
+
             # Αποθηκεύουμε ολόκληρο το df για φιλτράρισμα αργότερα
             self._topoth_df = df
 
@@ -3109,4 +3119,15 @@ def _launch(root, checks, splash, pb):
     pb.stop()
     splash.destroy()
     root.deiconify()
-    LauncherApp(root
+    LauncherApp(root, checks)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception:
+        import traceback
+        _log = os.path.join(os.path.expanduser('~'), 'Desktop', 'crash.log')
+        with open(_log, 'w', encoding='utf-8') as _f:
+            _f.write(traceback.format_exc())
+        raise
