@@ -898,6 +898,17 @@ def run_check(check_module, config):
             school_files[school] = path_s
             print(f'  ✓ {safe_name}  ({len(df_s)} εγγραφές)')
 
+    # Προειδοποίηση πριν αποστολή (αν το check module έχει PRE_SEND_WARNING)
+    pre_warn = getattr(check_module, 'PRE_SEND_WARNING', None)
+    if do_send and pre_warn:
+        import tkinter.messagebox as _mb
+        proceed = _mb.askyesno(
+            '⚠ Προσοχή πριν την αποστολή',
+            f'{pre_warn}\n\nΘέλεις να συνεχίσεις με την αποστολή;'
+        )
+        if not proceed:
+            return
+
     # Email
     if do_send and has_email:
         _send_loop(config, test_mode, title, today, subj, body_t,
