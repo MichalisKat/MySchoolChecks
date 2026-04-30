@@ -113,6 +113,8 @@ def process(ctx):
     email_col = next((c for c in df16.columns if c.strip() == 'Email'), None)
     epwn_col  = next((c for c in df16.columns if 'Επώνυμο' in c), None)
     onoma_col = next((c for c in df16.columns if c.strip() == 'Όνομα'), None)
+    apo_col   = next((c for c in df16.columns if c.strip() == 'Από'), None)
+    eos_col   = next((c for c in df16.columns if c.strip() == 'Έως'), None)
 
     if ait_col is None or afm16_col is None:
         print('  ✗ Δεν βρέθηκαν απαραίτητες στήλες στο 4.16')
