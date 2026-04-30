@@ -482,8 +482,17 @@ def run(config):
     os.makedirs(out_dir, exist_ok=True)
 
     out_path = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_DIOIKITIKO.xlsx')
-    build_workbook(df_p1, df_p2, today, out_path)
-    print(f'\n  ✓ Αποθηκεύτηκε: {os.path.basename(out_path)}')
+    try:
+        build_workbook(df_p1, df_p2, today, out_path)
+        print(f'\n  ✓ Αποθηκεύτηκε: {os.path.basename(out_path)}')
+    except PermissionError:
+        import tkinter.messagebox as _mb
+        _mb.showwarning(
+            'Αρχείο ανοιχτό',
+            f'Το αρχείο {os.path.basename(out_path)} είναι ανοιχτό σε άλλο πρόγραμμα.\n'
+            f'Κλείστε το και τρέξτε ξανά τον έλεγχο.'
+        )
+        return
 
     # Σύνοψη αποτελεσμάτων (χτίζεται πάντα για popup ή email)
     body = (

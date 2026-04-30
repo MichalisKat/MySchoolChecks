@@ -706,10 +706,20 @@ def run(config):
 
     path_all   = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_ΣΥΝΟΛΟ.xlsx')
     path_pivot = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_ΑΝΑΦΟΡΑ_PIVOT.xlsx')
-    save_main_workbook(df_out, today, path_all)
-    save_pivot_workbook(df_out, today, path_pivot)
-    print(f'  ✓ Συνολικό      : {os.path.basename(path_all)}')
-    print(f'  ✓ Pivot αναφορά : {os.path.basename(path_pivot)}')
+    try:
+        save_main_workbook(df_out, today, path_all)
+        save_pivot_workbook(df_out, today, path_pivot)
+        print(f'  ✓ Συνολικό      : {os.path.basename(path_all)}')
+        print(f'  ✓ Pivot αναφορά : {os.path.basename(path_pivot)}')
+    except PermissionError as _pe:
+        import tkinter.messagebox as _mb
+        _fname = os.path.basename(str(_pe)).strip("'") if "xlsx" in str(_pe) else "κάποιο αρχείο Excel"
+        _mb.showwarning(
+            'Αρχείο ανοιχτό',
+            f'Ένα αρχείο Excel είναι ανοιχτό σε άλλο πρόγραμμα.\n'
+            f'Κλείστε το και τρέξτε ξανά τον έλεγχο.'
+        )
+        return
 
     school_codes = sorted(df_out['Κωδικός Σχολείου'].unique())
     school_files = {}
