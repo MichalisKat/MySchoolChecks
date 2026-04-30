@@ -1545,6 +1545,11 @@ class EidikotitaDialog(tk.Toplevel):
         self._saved_body    = s.get('body',          self._DEFAULT_BODY)
         self._saved_email   = s.get('advisor_email', '')
         self._saved_dir     = s.get('direction',     '')
+        # Αν τα αποθηκευμένα δεν έχουν placeholder, reset στα defaults
+        if '{specialty}' not in self._saved_subject:
+            self._saved_subject = self._DEFAULT_SUBJECT
+        if '{specialty}' not in self._saved_body:
+            self._saved_body = self._DEFAULT_BODY
 
         # Αυτόματη εύρεση αρχείων από downloads
         self._topoth_path = self._auto_find('Topothetiseis')
@@ -3104,15 +3109,4 @@ def _launch(root, checks, splash, pb):
     pb.stop()
     splash.destroy()
     root.deiconify()
-    LauncherApp(root, checks)
-
-
-if __name__ == '__main__':
-    try:
-        main()
-    except Exception:
-        import traceback
-        _log = os.path.join(os.path.expanduser('~'), 'Desktop', 'crash.log')
-        with open(_log, 'w', encoding='utf-8') as _f:
-            _f.write(traceback.format_exc())
-        raise
+    LauncherApp(root
