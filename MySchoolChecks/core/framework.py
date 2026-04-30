@@ -901,7 +901,9 @@ def run_check(check_module, config):
     # Email
     if do_send and has_email:
         _send_loop(config, test_mode, title, today, subj, body_t,
-                   df_out, schools, school_files, scol, ecol, path_all)
+                   df_out, schools, school_files, scol, ecol, path_all,
+                   cols=cols, ccols=ccols, hlcol=hlcol, hlclrs=hlclrs,
+                   sclrs=sclrs, scol2=scol2)
 
     print('─' * 62)
     total_files = 1 + len(school_files)  # συνολικό + ανά σχολείο
@@ -946,7 +948,8 @@ def run_check(check_module, config):
 
 
 def _send_loop(config, test_mode, title, today, subject_base, body_template,
-               df_out, schools, school_files, scol, ecol, path_all):
+               df_out, schools, school_files, scol, ecol, path_all,
+               cols=None, ccols=None, hlcol=None, hlclrs=None, sclrs=None, scol2=None):
     """Εσωτερική συνάρτηση αποστολής email."""
     import sys as _sys
     print(f'\n{"─"*62}')
@@ -979,7 +982,34 @@ def _send_loop(config, test_mode, title, today, subject_base, body_template,
                   (f' + {cc_extra}' if cc_extra else ''))
         except Exception as e:
             print(f'  ✗ Σφάλμα: {e}')
-    else:
+
+        # Ερώτηση για κανονική αποστολή μετά το test
+        import tkinter.messagebox as _mb
+        proceed = _mb.askyesno(
+            'Κανονική αποστολή;',
+            f'Το test ολοκληρώθηκε.\n\n'
+            f'Θέλεις να προχωρήσω και σε κανονική αποστολή στα {len(schools)} σχολεία;'
+        )
+        if not proceed:
+            return
+
+        # Κανονική αποστολή — τα επιμέρους Excel φτιάχνονται εδώ
+        # (το ΣΥΝΟΛΟ υπάρχει ήδη, δεν ξαναφτιάχνεται)
+        import os as _os
+        out_dir_local = _os.path.dirname(path_all)
+        print(f'\n  Δημιουργία {len(schools)} αρχείων ανά σχολείο...')
+        for school in sorted(schools):
+            df_s      = df_out[df_out[scol] == school].copy()
+            safe_name = ''.join(c for c in str(school) if c not in r'\/:*?"<>|').strip()[:60]
+            path_s    = _os.path.join(out_dir_local, f'{today.strftime("%Y%m%d")}_{safe_name}.xlsx')
+            save_workbook(df_s, title, cols or [], ccols or set(), today, path_s,
+                          subtitle_extra=f'  |  {school}',
+                          highlight_col=hlcol, highlight_colors=hlclrs,
+                          status_colors=sclrs, status_col=scol2)
+            school_files[school] = path_s
+            print(f'  ✓ {safe_name}  ({len(df_s)} εγγραφές)')
+        test_mode = False  # συνέχεια στον κανονικό κλάδο αποστολής
+    if not test_mode:
         print(f'🚀 ΚΑΝΟΝΙΚΗ ΑΠΟΣΤΟΛΗ — {len(schools)} σχολεία')
         print(f'   Θέμα: {subject}\n')
         def _valid_email(e):
