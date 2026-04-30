@@ -865,10 +865,20 @@ def run_check(check_module, config):
 
     # Συνολικό αρχείο
     path_all = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_ΣΥΝΟΛΟ.xlsx')
-    save_workbook(df_out, title, cols, ccols, today, path_all,
-                  highlight_col=hlcol, highlight_colors=hlclrs,
-                  status_colors=sclrs, status_col=scol2)
-    print(f'  ✓ Συνολικό: {os.path.basename(path_all)}  ({len(df_out)} εγγραφές)')
+    try:
+        save_workbook(df_out, title, cols, ccols, today, path_all,
+                      highlight_col=hlcol, highlight_colors=hlclrs,
+                      status_colors=sclrs, status_col=scol2)
+        print(f'  ✓ Συνολικό: {os.path.basename(path_all)}  ({len(df_out)} εγγραφές)')
+    except PermissionError:
+        import tkinter.messagebox as _mb
+        _mb.showwarning(
+            'Αρχείο ανοιχτό',
+            f'Το αρχείο ΣΥΝΟΛΟ.xlsx είναι ανοιχτό σε άλλο πρόγραμμα.\n'
+            f'Κλείστε το και τρέξτε ξανά τον έλεγχο.',
+        )
+
+        return
 
     # Αρχεία ανά σχολείο — δημιουργούνται μόνο σε κανονική αποστολή (όχι test mode)
     schools      = df_out[scol].unique()
