@@ -146,4 +146,9 @@ def test_body(df_out, today, schools):
     neg = df_out[df_out['Υπόλοιπο Υποχρεωτικού Διδακτικού Ωραρίου'].apply(
         lambda x: str(x).replace('="','').replace('"','').strip()
     ).str.lstrip('-').str.isnumeric() if 'Υπόλοιπο Υποχρεωτικού Διδακτικού Ωραρίου' in df_out.columns else df_out]
-    ret
+    return (
+        f'Σύνοψη ελέγχου αρνητικών υπολοίπων ωραρίου — {today.strftime("%d/%m/%Y")}\n'
+        f'{"─"*50}\n'
+        f'Βρέθηκαν: {len(df_out)} εκπαιδευτικοί με αρνητικό υπόλοιπο\n'
+        f'Σχολεία που εμφανίζονται ({len(schools)}): {", ".join(sorted(schools))}'
+    )
