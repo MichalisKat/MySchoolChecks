@@ -1,8 +1,8 @@
 ; ============================================================
 ; myschool-checks.nsi
-; NSIS Installer Script - MySchool Checks 1.0.0
+; NSIS Installer Script - MySchool Checks 1.0.1
 ; Compile: makensis myschool-checks.nsi
-; Output:  myschool-checks-1.0.0-setup.exe
+; Output:  myschool-checks-1.0.1-setup.exe
 ; ============================================================
 
 Unicode True
@@ -11,7 +11,7 @@ SetCompressorDictSize 64
 
 ; --- Metadata ---
 !define APP_NAME      "MySchool Checks"
-!define APP_VERSION   "1.0.0"
+!define APP_VERSION   "1.0.1"
 !define APP_PUBLISHER "Michalis Katsirintakis"
 !define APP_URL       "https://github.com/mkatsirntakis/myschool-checks"
 !define APP_EXE       "MySchoolChecks.exe"
