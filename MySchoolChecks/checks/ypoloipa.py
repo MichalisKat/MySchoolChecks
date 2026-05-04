@@ -32,15 +32,7 @@ HAS_EMAIL         = True
 REQUIRED_REPORTS  = ['4.8 — Ωράριο εκπαιδευτικών', '4.12 — Άδειες/απουσίες', '4.11 — Εκπαιδευτικοί μονάδας']
 CUSTOM_RUN        = True   # Σημαία: το framework θα καλέσει run() αντί για run_check()
 
-EIDI_SXOLEION  = [
-    'Δημοτικά Σχολεία',
-    'Νηπιαγωγεία',
-    'Γυμνάσια',
-    'Ειδικής Επαγγελματικής Εκπαίδευσης και Κατάρτισης',
-    'Επαγγελματικά Λύκεια',
-    'Λύκεια',
-    'Σχολικό Εργαστηριακό Κέντρο',
-]
+EIDI_SXOLEION  = None  # Φιλτράρισμα βάσει αποκλεισμού "Ιδιωτικό"
 ADYN_FILTER    = 'ΑΔΥΝΑΤΟΥΝΤΕΣ'
 JOIN_KEY_48    = 'Α.Μ.'
 JOIN_KEY_ADY   = 'ΑΜΥ '
@@ -134,7 +126,7 @@ def load_48(path):
     for col in ['Α.Μ.', 'Α.Φ.Μ.', 'Κωδικός Σχολείου']:
         if col in df.columns:
             df[col] = _clean(df[col])
-    return df[df['Είδος Σχολείου'].isin(EIDI_SXOLEION)].copy()
+    return df[~df['Είδος Σχολείου'].str.contains('Ιδιωτικ', na=False)].copy()
 
 def load_412(path):
     rows = []

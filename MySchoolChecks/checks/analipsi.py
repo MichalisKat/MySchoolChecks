@@ -65,7 +65,7 @@ def process(ctx):
     df    = read_input(ctx['path'])
     df.columns = [c.strip() for c in df.columns]
 
-    df = df[df['Είδος Σχολείου'].isin(['Δημοτικά Σχολεία', 'Νηπιαγωγεία'])].copy()
+    df = df[~df['Είδος Σχολείου'].str.contains('Ιδιωτικ', na=False)].copy()
     df = df[df['Διευθυντής Σχολείου'] == 'Όχι'].copy()
     df = df[df['Σχέση Τοποθέτησης'] != 'Υπερωριακά'].copy()
 

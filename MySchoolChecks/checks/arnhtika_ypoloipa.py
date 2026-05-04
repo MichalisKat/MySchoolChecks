@@ -15,7 +15,7 @@ RESULTS_FOLDER = 'arnhtika_ypoloipa'
 HAS_EMAIL      = True
 REQUIRED_REPORTS = ['4.8 — Ωράριο εκπαιδευτικών']
 
-SCHOOL_TYPES = ['Νηπιαγωγεία', 'Δημοτικά Σχολεία']
+SCHOOL_TYPES = None  # Φιλτράρισμα βάσει αποκλεισμού "Ιδιωτικό"
 COL_YPOLOIPO = 'Υπόλοιπο Υποχρεωτικού Διδακτικού Ωραρίου'
 
 COLUMNS = [
@@ -86,11 +86,11 @@ def ask_inputs():
 def process(ctx):
     df = read_input(ctx['path']).copy()
 
-    # Φίλτρο τύπου σχολείου
+    # Φίλτρο τύπου σχολείου — εξαιρεί Ιδιωτικά
     type_col = next((c for c in ['Είδος Σχολείου', 'Είδος Φορέα', 'Τύπος Σχολείου']
                      if c in df.columns), None)
     if type_col:
-        df = df[df[type_col].isin(SCHOOL_TYPES)].copy()
+        df = df[~df[type_col].str.contains('Ιδιωτικ', na=False)].copy()
         print(f'  → Μετά φίλτρο τύπου: {len(df)} εγγραφές')
 
     # Φίλτρο αρνητικού υπολοίπου
