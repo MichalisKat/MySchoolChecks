@@ -355,3 +355,8 @@ def custom_full_send(config, today, out_dir, scol, ecol, subject, body_template,
             fail += 1
 
     print(f'\n  Αποστολές: {ok} επιτυχείς, {fail} αποτυχίες')
+    if ok > 0:
+        from core.framework import _send_notify
+        _send_notify(config, 'Απουσία χωρίς Δήλωση Άδειας', today, ok,
+                     [s for s in schools if df[df[scol] == s][ecol].iloc[0] not in ('', 'nan', 'None')
+                      if ecol in df.columns])

@@ -784,7 +784,7 @@ def run(config):
             )
             if not proceed:
                 popup_text = summary_body + (
-                    f'\n\n{"─"*40}\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
+                    f'\n\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
                 )
                 _show_results_popup('Υπόλοιπα Ωραρίου', popup_text)
                 return
@@ -824,8 +824,15 @@ def run(config):
                     print(f'  ✗ [{code}] {school[:43]} → {e}')
                     fail += 1
             print(f'\n  Αποστολές: {ok} επιτυχείς, {fail} αποτυχίες')
+            if ok > 0:
+                from core.framework import _send_notify
+                sent_schools = [school for code, (path_s, email_s, school)
+                                in school_files.items()
+                                if email_s and email_s not in ('', 'nan', 'None')
+                                and '@' in email_s]
+                _send_notify(config, CHECK_TITLE, today, ok, sent_schools)
 
     popup_text = summary_body + (
-        f'\n\n{"─"*40}\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
+        f'\n\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
     )
     _show_results_popup('Υπόλοιπα Ωραρίου', popup_text)

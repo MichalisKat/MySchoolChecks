@@ -183,6 +183,27 @@ def save_workbook(df_sheet, title, columns, center_cols, today, output_path,
 # ΑΠΟΣΤΟΛΗ EMAIL
 # ═══════════════════════════════════════════════════════════════════
 
+def _send_notify(config, check_title, today, ok_count, school_list):
+    """Αποστολή ενημερωτικού email στο NOTIFY_EMAIL μετά από κανονική αποστολή."""
+    notify = getattr(config, 'NOTIFY_EMAIL', '').strip()
+    if not notify:
+        return
+    now_str   = datetime.now().strftime('%d/%m/%Y %H:%M')
+    date_str  = today.strftime('%d/%m/%Y')
+    subject   = f'Αποστολή μηνυμάτων MySchool σε σχολεία — {date_str}'
+    schools_txt = '\n'.join(f'  • {s}' for s in sorted(school_list))
+    body = (
+        f'Εστάλησαν {ok_count} μηνύματα σχετικά με "{check_title}" '
+        f'στα παρακάτω σχολεία σήμερα {date_str} στις {now_str}:\n\n'
+        f'{schools_txt}'
+    )
+    try:
+        send_email(config, notify, subject, body, None)
+        print(f'  ✉ Ενημερωτικό εστάλη → {notify}')
+    except Exception as e:
+        print(f'  ⚠ Ενημερωτικό: {e}')
+
+
 def send_email(config, to_addr, subject, body, attachment_path):
     """Αποστολή email με SSL/STARTTLS fallback. to_addr: str ή list.
     Επιστρέφει False αθόρυβα αν δεν έχει οριστεί κωδικός email."""
@@ -202,14 +223,15 @@ def send_email(config, to_addr, subject, body, attachment_path):
     msg['Subject'] = Header(subject, 'utf-8')
     msg.attach(MIMEText(body, 'plain', 'utf-8'))
 
-    filename = os.path.basename(attachment_path)
-    with open(attachment_path, 'rb') as f:
-        part = MIMEBase('application', 'vnd.ms-excel')
-        part.set_payload(f.read())
-    encoders.encode_base64(part)
-    part.add_header('Content-Disposition', 'attachment', filename=filename)
-    part.add_header('Content-Type', 'application/vnd.ms-excel', name=filename)
-    msg.attach(part)
+    if attachment_path:
+        filename = os.path.basename(attachment_path)
+        with open(attachment_path, 'rb') as f:
+            part = MIMEBase('application', 'vnd.ms-excel')
+            part.set_payload(f.read())
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', 'attachment', filename=filename)
+        part.add_header('Content-Type', 'application/vnd.ms-excel', name=filename)
+        msg.attach(part)
 
     recipients = list(dict.fromkeys(recipients))  # dedup
     msg_str = msg.as_string()
@@ -1082,3 +1104,10 @@ def _send_loop(config, test_mode, title, today, subject_base, body_template,
                 print(f'  ✗ {str(school)[:50]} → {e}')
                 fail += 1
         print(f'\n  Αποστολές: {ok} επιτυχείς, {fail} αποτυχίες')
+
+        # Ενημερωτικό email στο NOTIFY_EMAIL μετά από κανονική αποστολή
+        if ok > 0:
+            sent_schools = [s for s in school_files
+                            if _valid_email(str(df_out[df_out[scol] == s][ecol].iloc[0]).strip()
+                            if ecol in df_out.columns else '')]
+            _send_notify(config, title, today, ok, sent_schools)
