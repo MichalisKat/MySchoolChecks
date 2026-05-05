@@ -1607,7 +1607,7 @@ class EidikotitaDialog(tk.Toplevel):
         super().__init__(parent)
         self.title('Εκπ/κοί ανά Ειδικότητα')
         self.configure(bg=C['bg'])
-        self.resizable(False, False)
+        self.resizable(False, True)
         self.grab_set()
         self.transient(parent)
         self._parent = parent
@@ -1632,10 +1632,11 @@ class EidikotitaDialog(tk.Toplevel):
 
         self._build_form()
         self.update_idletasks()
-        w, h = 620, 500
+        w, h = 620, 580
         x = parent.winfo_x() + (parent.winfo_width()  - w) // 2
         y = parent.winfo_y() + (parent.winfo_height() - h) // 2
         self.geometry(f'{w}x{h}+{x}+{y}')
+        self.minsize(w, 520)
 
     # ── Auto-find ────────────────────────────────────────────────────────────
 
@@ -3748,5 +3749,4 @@ def _launch(root, checks, splash, pb):
     LauncherApp(root, checks)
 
 
-if __name__ == '__main__':
-    main()
+if __name__
