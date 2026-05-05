@@ -704,7 +704,7 @@ def run(config):
     print(f'\nΑποθήκευση → {out_dir}')
     print('-' * 65)
 
-    path_all   = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_ΣΥΝΟΛΟ.xlsx')
+    path_all   = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_ypoloipa_wrariou.xlsx')
     path_pivot = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_ΑΝΑΦΟΡΑ_PIVOT.xlsx')
     try:
         save_main_workbook(df_out, today, path_all)
@@ -786,7 +786,7 @@ def run(config):
                 popup_text = summary_body + (
                     f'\n\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
                 )
-                _show_results_popup('Υπόλοιπα Ωραρίου', popup_text)
+                _show_results_popup('Υπόλοιπα Ωραρίου', popup_text, excel_path=path_all)
                 return
 
             # Δημιουργία αρχείων ανά σχολείο για κανονική αποστολή
@@ -835,4 +835,4 @@ def run(config):
     popup_text = summary_body + (
         f'\n\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
     )
-    _show_results_popup('Υπόλοιπα Ωραρίου', popup_text)
+    _show_results_popup('Υπόλοιπα Ωραρίου', popup_text, excel_path=path_all)

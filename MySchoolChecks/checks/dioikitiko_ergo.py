@@ -521,4 +521,4 @@ def run(config):
     popup_body = body + (
         f'\n\n{"─"*40}\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
     )
-    _show_results_popup('Διοικητικό Έργο', popup_body)
+    _show_results_popup('Διοικητικό Έργο', popup_body, excel_path=out_path)

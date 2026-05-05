@@ -898,7 +898,7 @@ def run_check(check_module, config):
     print('-' * 62)
 
     # Συνολικό αρχείο
-    path_all = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_ΣΥΝΟΛΟ.xlsx')
+    path_all = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_{subfolder}.xlsx')
     try:
         save_workbook(df_out, title, cols, ccols, today, path_all,
                       highlight_col=hlcol, highlight_colors=hlclrs,
