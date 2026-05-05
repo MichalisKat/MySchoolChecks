@@ -260,7 +260,6 @@ def process(ctx):
             return pd.Series([''] * len(result), index=result.index)
         return clean_field(result[col])
 
-
     out = pd.DataFrame({
         'Κωδικός Σχολείου':           _g(kod_col),
         'Ονομασία Σχολείου':          _g(sxol_col),
@@ -280,7 +279,6 @@ def process(ctx):
     return out.sort_values(['Κωδικός Σχολείου', 'Επώνυμο', 'Όνομα']).reset_index(drop=True)
 
 
-
 def test_body(df_out, today, schools):
     sep = '─' * 50
     return (
@@ -289,6 +287,17 @@ def test_body(df_out, today, schools):
         f'Βρέθηκαν: {len(df_out)} εκπαιδευτικοί με μακροχρόνια απουσία χωρίς ενεργή άδεια\n'
         f'Σχολεία που εμφανίζονται ({len(schools)}): {", ".join(sorted(str(s) for s in schools))}'
     )
+
+
+def _find_col(df, *keywords):
+    """Βρίσκει στήλη με ακριβές ή case-insensitive contains match."""
+    for kw in keywords:
+        if kw in df.columns:
+            return kw
+        for c in df.columns:
+            if kw.lower() in c.lower():
+                return c
+    return None
 
 
 def custom_full_send(config, today, out_dir, scol, ecol, subject, body_template,
@@ -322,18 +331,22 @@ def custom_full_send(config, today, out_dir, scol, ecol, subject, body_template,
         messagebox.showerror('Σφάλμα', f'Αδυναμία φόρτωσης αρχείου:\n{e}')
         return
 
-    # Έλεγχος: χρησιμοποιούμε Κωδικός Σχολείου για split — αν λείπει δοκιμάζουμε Ονομασία
-    split_col = scol if scol in df.columns else ('Ονομασία Σχολείου' if 'Ονομασία Σχολείου' in df.columns else None)
+    print(f'  Στήλες Excel: {list(df.columns)}')
+
+    # Αναζήτηση στήλης split (Κωδικός ή Ονομασία) — case-insensitive
+    split_col = _find_col(df, 'Κωδικός Σχολείου', 'Ονομασία Σχολείου')
     if split_col is None:
         messagebox.showerror('Σφάλμα',
-            f'Δεν βρέθηκε στήλη "{scol}" ή "Ονομασία Σχολείου" στο αρχείο.')
+            f'Δεν βρέθηκε στήλη "Κωδικός Σχολείου" ή "Ονομασία Σχολείου" στο αρχείο.\n\n'
+            f'Στήλες που βρέθηκαν:\n{", ".join(df.columns)}')
         return
 
-    # Στήλη ονόματος για εμφάνιση
-    name_col = 'Ονομασία Σχολείου' if 'Ονομασία Σχολείου' in df.columns else split_col
+    # Στήλες ονόματος και email — case-insensitive
+    name_col    = _find_col(df, 'Ονομασία Σχολείου') or split_col
+    ecol_actual = _find_col(df, ecol, 'Email Σχολείου', 'Email') or ecol
 
     school_codes = sorted(df[split_col].dropna().unique())
-    print(f'  Βρέθηκαν {len(school_codes)} σχολεία, {len(df)} εγγραφές.')
+    print(f'  Βρέθηκαν {len(school_codes)} σχολεία ({split_col}), {len(df)} εγγραφές.')
 
     # Split ανά σχολείο + αποστολή
     ok = fail = 0
@@ -342,8 +355,8 @@ def custom_full_send(config, today, out_dir, scol, ecol, subject, body_template,
         df_s = df[df[split_col] == code].copy()
         school_name = str(df_s[name_col].iloc[0]).strip() if name_col in df_s.columns else str(code)
         email_s = ''
-        if ecol in df_s.columns:
-            email_s = str(df_s[ecol].iloc[0]).strip()
+        if ecol_actual in df_s.columns:
+            email_s = str(df_s[ecol_actual].iloc[0]).strip()
         if not email_s or email_s in ('', 'nan', 'None'):
             print(f'  ⚠  [{code}] {school_name[:45]} — ΔΕΝ ΥΠΑΡΧΕΙ EMAIL, παράλειψη.')
             fail += 1
