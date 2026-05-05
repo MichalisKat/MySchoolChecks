@@ -373,14 +373,17 @@ def _show_results_popup(title, body_text, result_type='warn', excel_path=None):
               command=win.destroy).pack(side='bottom', pady=(4, 12))
 
     # Excel link — pack πριν το body text (bottom)
-    if excel_path and os.path.exists(excel_path):
-        fname = os.path.basename(excel_path)
-        lnk = tk.Label(win, text=f'📄 {fname}',
-                       bg=bg, fg='#1565C0',
-                       font=('Arial', 9, 'underline'),
-                       cursor='hand2', anchor='w')
-        lnk.pack(side='bottom', fill='x', padx=14, pady=(0, 2))
-        lnk.bind('<Button-1>', lambda e, p=excel_path: os.startfile(os.path.normpath(p)))
+    # excel_path μπορεί να είναι str ή list[str]
+    _paths = ([excel_path] if isinstance(excel_path, str) else (excel_path or []))
+    for _ep in reversed(_paths):  # reversed ώστε το πρώτο να εμφανιστεί πάνω
+        if _ep and os.path.exists(_ep):
+            _fname = os.path.basename(_ep)
+            _lnk = tk.Label(win, text=f'📄 {_fname}',
+                           bg=bg, fg='#1565C0',
+                           font=('Arial', 9, 'underline'),
+                           cursor='hand2', anchor='w')
+            _lnk.pack(side='bottom', fill='x', padx=14, pady=(0, 1))
+            _lnk.bind('<Button-1>', lambda e, p=_ep: os.startfile(os.path.normpath(p)))
 
     # Body text
     txt = scrolledtext.ScrolledText(

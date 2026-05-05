@@ -786,7 +786,7 @@ def run(config):
                 popup_text = summary_body + (
                     f'\n\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
                 )
-                _show_results_popup('Υπόλοιπα Ωραρίου', popup_text, excel_path=path_all)
+                _show_results_popup('Υπόλοιπα Ωραρίου', popup_text, excel_path=[path_all, path_pivot])
                 return
 
             # Δημιουργία αρχείων ανά σχολείο για κανονική αποστολή
@@ -835,4 +835,4 @@ def run(config):
     popup_text = summary_body + (
         f'\n\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
     )
-    _show_results_popup('Υπόλοιπα Ωραρίου', popup_text, excel_path=path_all)
+    _show_results_popup('Υπόλοιπα Ωραρίου', popup_text, excel_path=[path_all, path_pivot])

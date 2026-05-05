@@ -1438,18 +1438,24 @@ class LauncherApp:
             txt.insert('1.0', body)
             txt.configure(state='disabled')
 
-            # Excel link
-            if xpath and os.path.exists(xpath):
-                fname = os.path.basename(xpath)
-                excel_lbl.configure(
-                    text=f'📄 {fname}',
-                    fg='#1565C0',
-                    bg=bg
+            # Excel link(s) — xpath μπορεί να είναι str ή list[str]
+            # Καθαρισμός προηγούμενων labels
+            for _w in excel_frame.winfo_children():
+                _w.destroy()
+            _paths = ([xpath] if isinstance(xpath, str) else (xpath or []))
+            _valid = [p for p in _paths if p and os.path.exists(p)]
+            for _ep in _valid:
+                _fname = os.path.basename(_ep)
+                _lnk = tk.Label(
+                    excel_frame,
+                    text=f'📄 {_fname}',
+                    font=('Arial', 9, 'underline'),
+                    fg='#1565C0', bg=bg,
+                    cursor='hand2', anchor='w'
                 )
-                excel_lbl.bind('<Button-1>', lambda e, p=xpath: os.startfile(os.path.normpath(p)))
-            else:
-                excel_lbl.configure(text='', bg=bg)
-                excel_lbl.unbind('<Button-1>')
+                _lnk.pack(fill='x')
+                _lnk.bind('<Button-1>', lambda e, p=_ep: os.startfile(os.path.normpath(p)))
+            excel_frame.configure(bg=bg)
 
             # Προηγούμενο: ορατό μόνο από το 2ο
             if i == 0:
