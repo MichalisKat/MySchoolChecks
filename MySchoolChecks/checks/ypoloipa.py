@@ -600,10 +600,12 @@ def _ask_threshold():
     win.update_idletasks()
     sw = win.winfo_screenwidth()
     sh = win.winfo_screenheight()
-    win.geometry(f'300x150+{sw//2-150}+{sh//2-75}')
+    win.geometry(f'300x180+{sw//2-150}+{sh//2-90}')
 
     tk.Label(win, text='Κατώφλι υπολοίπου (ώρες):', bg='#EEF4F0',
              fg='#1F4E79', font=('Arial',10,'bold'), pady=12).pack()
+    tk.Label(win, text='(η αναφορά pivot εξάγεται χωρίς κατώφλι)', bg='#EEF4F0',
+             fg='#555555', font=('Arial',8,'italic')).pack()
 
     val_var = tk.StringVar(value='8')
     sb = tk.Spinbox(win, from_=0, to=100, textvariable=val_var,
@@ -681,8 +683,11 @@ def run(config):
 
     print('\nΕπεξεργασία...')
     df_out  = process_data(df48, df_ady, threshold, lookup_412, lookup_411)
+    # Για το pivot: όλοι (threshold=0) — ανεξάρτητα κατωφλίου
+    df_all  = process_data(df48, df_ady, 0, lookup_412, lookup_411)
     schools = sorted(df_out[SCHOOL_COLUMN].unique())
     print(f'  → {len(df_out)} εκπαιδευτικοί με υπόλοιπο >= {threshold} ώρες')
+    print(f'  → {len(df_all)} εκπαιδευτικοί συνολικά (pivot)')
     print(f'  → {len(schools)} σχολεία')
 
     if df_out.empty:
@@ -708,7 +713,7 @@ def run(config):
     path_pivot = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_ΑΝΑΦΟΡΑ_PIVOT.xlsx')
     try:
         save_main_workbook(df_out, today, path_all)
-        save_pivot_workbook(df_out, today, path_pivot)
+        save_pivot_workbook(df_all, today, path_pivot)
         print(f'  ✓ Συνολικό      : {os.path.basename(path_all)}')
         print(f'  ✓ Pivot αναφορά : {os.path.basename(path_pivot)}')
     except PermissionError as _pe:
