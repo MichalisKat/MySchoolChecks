@@ -7,6 +7,7 @@ checks/aportes_xwris_adeia.py
 """
 
 from datetime import datetime
+import os
 import pandas as pd
 import config
 from dateutil.relativedelta import relativedelta
