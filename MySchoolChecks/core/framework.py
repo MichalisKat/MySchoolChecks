@@ -320,7 +320,7 @@ def ask_file(prompt, required=True, csv_only=False):
         print(f'  OK {os.path.basename(path)}')
         return path
 
-def _show_results_popup(title, body_text, result_type='warn'):
+def _show_results_popup(title, body_text, result_type='warn', excel_path=None):
     """
     Εμφανίζει popup παράθυρο με τα αποτελέσματα ελέγχου.
     result_type: 'ok'   → πράσινο (δεν βρέθηκαν θέματα)
@@ -329,7 +329,7 @@ def _show_results_popup(title, body_text, result_type='warn'):
     """
     import core.framework as _fw
     if _fw._multi_run_mode:
-        _fw._multi_run_results.append((title, body_text, result_type))
+        _fw._multi_run_results.append((title, body_text, result_type, excel_path))
         return
 
     import tkinter as tk
@@ -354,7 +354,7 @@ def _show_results_popup(title, body_text, result_type='warn'):
     win.update_idletasks()
     sw = win.winfo_screenwidth()
     sh = win.winfo_screenheight()
-    win.geometry(f'520x400+{sw//2-260}+{sh//2-200}')
+    win.geometry(f'520x420+{sw//2-260}+{sh//2-210}')
 
     # Header
     hdr = tk.Frame(win, bg=hdr_bg, pady=8)
@@ -371,6 +371,16 @@ def _show_results_popup(title, body_text, result_type='warn'):
               relief='flat', padx=20, pady=6,
               cursor='hand2',
               command=win.destroy).pack(side='bottom', pady=(4, 12))
+
+    # Excel link — pack πριν το body text (bottom)
+    if excel_path and os.path.exists(excel_path):
+        fname = os.path.basename(excel_path)
+        lnk = tk.Label(win, text=f'📄 {fname}',
+                       bg=bg, fg='#1565C0',
+                       font=('Arial', 9, 'underline'),
+                       cursor='hand2', anchor='w')
+        lnk.pack(side='bottom', fill='x', padx=14, pady=(0, 2))
+        lnk.bind('<Button-1>', lambda e, p=excel_path: os.startfile(os.path.normpath(p)))
 
     # Body text
     txt = scrolledtext.ScrolledText(
@@ -986,14 +996,7 @@ def run_check(check_module, config):
         f'📋 Για περισσότερες πληροφορίες δες τα αρχεία\n'
         f'στο φάκελο αποτελεσμάτων.'
     )
-    _show_results_popup(title, summary, result_type='warn')
-
-    # Άνοιγμα φακέλου αποτελεσμάτων στον Explorer
-    try:
-        import subprocess
-        subprocess.Popen(['explorer', out_dir])
-    except Exception:
-        pass
+    _show_results_popup(title, summary, result_type='warn', excel_path=path_all)
 
 
 
@@ -1112,9 +1115,4 @@ def _send_loop(config, test_mode, title, today, subject_base, body_template,
                 fail += 1
         print(f'\n  Αποστολές: {ok} επιτυχείς, {fail} αποτυχίες')
 
-        # Ενημερωτικό email στο NOTIFY_EMAIL μετά από κανονική αποστολή
-        if ok > 0:
-            sent_schools = [s for s in school_files
-                            if _valid_email(str(df_out[df_out[scol] == s][ecol].iloc[0]).strip()
-                            if ecol in df_out.columns else '')]
-            _send_notify(config, title, today, ok, sent_schools)
+        # Ενημερωτικό email στο NOTI

@@ -1364,7 +1364,7 @@ class LauncherApp:
             except Exception: pass
         win.update_idletasks()
         sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-        win.geometry(f'560x500+{sw//2-280}+{sh//2-250}')
+        win.geometry(f'560x520+{sw//2-280}+{sh//2-260}')
 
         # Header
         hdr_frame = tk.Frame(win)
@@ -1376,7 +1376,7 @@ class LauncherApp:
         counter_lbl = tk.Label(win, font=('Arial', 9, 'bold'))
         counter_lbl.pack(pady=(4, 0))
 
-        # Κουμπί κλεισίματος — pack πρώτα (bottom)
+        # Κουμπιά πλοήγησης — pack πρώτα (bottom)
         nav_frame = tk.Frame(win)
         nav_frame.pack(side='bottom', pady=(4, 12))
 
@@ -1398,6 +1398,18 @@ class LauncherApp:
                               command=win.destroy)
         btn_close.pack(side='left', padx=4)
 
+        # Link άνοιγμα Excel — pack πριν το body text (bottom)
+        excel_frame = tk.Frame(win)
+        excel_frame.pack(side='bottom', fill='x', padx=14, pady=(0, 2))
+        excel_lbl = tk.Label(
+            excel_frame,
+            text='',
+            font=('Arial', 9, 'underline'),
+            cursor='hand2',
+            anchor='w'
+        )
+        excel_lbl.pack(fill='x')
+
         # Body text
         txt = scrolledtext.ScrolledText(
             win, wrap=tk.WORD, font=('Consolas', 9),
@@ -1405,7 +1417,12 @@ class LauncherApp:
         txt.pack(fill='both', expand=True, padx=10, pady=(6, 4))
 
         def show(i):
-            title, body, rtype = results[i]
+            row = results[i]
+            title  = row[0]
+            body   = row[1]
+            rtype  = row[2]
+            xpath  = row[3] if len(row) > 3 else None
+
             bg, hdr_bg = COLORS.get(rtype, COLORS['warn'])
             icon = '✓' if rtype == 'ok' else '⚠'
 
@@ -1414,11 +1431,25 @@ class LauncherApp:
             hdr_lbl.configure(text=f'{icon}  {title}', bg=hdr_bg)
             counter_lbl.configure(text=f'{i + 1} / {total}', bg=bg, fg=hdr_bg)
             nav_frame.configure(bg=bg)
+            excel_frame.configure(bg=bg)
 
             txt.configure(state='normal', bg=bg, fg='#212121')
             txt.delete('1.0', tk.END)
             txt.insert('1.0', body)
             txt.configure(state='disabled')
+
+            # Excel link
+            if xpath and os.path.exists(xpath):
+                fname = os.path.basename(xpath)
+                excel_lbl.configure(
+                    text=f'📄 {fname}',
+                    fg='#1565C0',
+                    bg=bg
+                )
+                excel_lbl.bind('<Button-1>', lambda e, p=xpath: os.startfile(os.path.normpath(p)))
+            else:
+                excel_lbl.configure(text='', bg=bg)
+                excel_lbl.unbind('<Button-1>')
 
             # Προηγούμενο: ορατό μόνο από το 2ο
             if i == 0:
