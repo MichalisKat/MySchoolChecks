@@ -903,10 +903,15 @@ def run_check(check_module, config):
         return
 
     # Αρχεία ανά σχολείο — δημιουργούνται μόνο σε κανονική αποστολή (όχι test mode)
+    # Αν υπάρχει custom_full_send, τα per-school αρχεία τα φτιάχνει εκείνο
+    _has_custom_send = callable(getattr(check_module, 'custom_full_send', None))
     schools      = df_out[scol].unique()
     school_files = {}
-    if not do_send or test_mode:
-        print(f'\n  Χωρίς αποστολή: τα {len(schools)} αρχεία ανά σχολείο παραλείπονται.')
+    if not do_send or test_mode or _has_custom_send:
+        if _has_custom_send and do_send and not test_mode:
+            pass  # τα αρχεία θα δημιουργηθούν από το custom_full_send
+        else:
+            print(f'\n  Χωρίς αποστολή: τα {len(schools)} αρχεία ανά σχολείο παραλείπονται.')
     else:
         print(f'\n  Δημιουργία {len(schools)} αρχείων ανά σχολείο...')
         for school in sorted(schools):
