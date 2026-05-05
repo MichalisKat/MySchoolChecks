@@ -774,6 +774,33 @@ def run(config):
                       (f' + {cc_extra}' if cc_extra else ''))
             except Exception as e:
                 print(f'  ✗ Σφάλμα: {e}')
+
+            # Ερώτηση για κανονική αποστολή μετά το test
+            import tkinter.messagebox as _mb
+            proceed = _mb.askyesno(
+                'Κανονική αποστολή;',
+                f'Το test ολοκληρώθηκε.\n\n'
+                f'Θέλεις να προχωρήσω και σε κανονική αποστολή στα {len(school_codes)} σχολεία;'
+            )
+            if not proceed:
+                popup_text = summary_body + (
+                    f'\n\n{"─"*40}\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
+                )
+                _show_results_popup('Υπόλοιπα Ωραρίου', popup_text)
+                return
+
+            # Δημιουργία αρχείων ανά σχολείο για κανονική αποστολή
+            print(f'\n  Δημιουργία {len(school_codes)} αρχείων ανά σχολείο...')
+            for code in school_codes:
+                df_s      = df_out[df_out['Κωδικός Σχολείου'] == code].copy()
+                school    = df_s[SCHOOL_COLUMN].iloc[0]
+                email_s   = str(df_s['Email'].iloc[0]).strip() if 'Email' in df_s.columns else ''
+                safe_name = ''.join(c for c in school if c not in r'\/:*?"<>|').strip()[:55]
+                path_s    = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_{code}_{safe_name}.xlsx')
+                save_main_workbook(df_s, today, path_s, school_name=school)
+                school_files[code] = (path_s, email_s, school)
+                print(f'  ✓ [{code}] {safe_name[:50]}  ({len(df_s)} εγγ.)')
+
         else:
             print(f'🚀 ΚΑΝΟΝΙΚΗ ΑΠΟΣΤΟΛΗ — {len(school_codes)} σχολεία')
             no_email = []

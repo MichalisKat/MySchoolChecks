@@ -914,7 +914,8 @@ def run_check(check_module, config):
         _send_loop(config, test_mode, title, today, subj, body_t,
                    df_out, schools, school_files, scol, ecol, path_all,
                    cols=cols, ccols=ccols, hlcol=hlcol, hlclrs=hlclrs,
-                   sclrs=sclrs, scol2=scol2)
+                   sclrs=sclrs, scol2=scol2,
+                   test_only=_test_only)
 
     print('─' * 62)
     total_files = 1 + len(school_files)  # συνολικό + ανά σχολείο
@@ -960,7 +961,8 @@ def run_check(check_module, config):
 
 def _send_loop(config, test_mode, title, today, subject_base, body_template,
                df_out, schools, school_files, scol, ecol, path_all,
-               cols=None, ccols=None, hlcol=None, hlclrs=None, sclrs=None, scol2=None):
+               cols=None, ccols=None, hlcol=None, hlclrs=None, sclrs=None, scol2=None,
+               test_only=False):
     """Εσωτερική συνάρτηση αποστολής email."""
     import sys as _sys
     print(f'\n{"─"*62}')
@@ -994,7 +996,9 @@ def _send_loop(config, test_mode, title, today, subject_base, body_template,
         except Exception as e:
             print(f'  ✗ Σφάλμα: {e}')
 
-        # Ερώτηση για κανονική αποστολή μετά το test
+        # Ερώτηση για κανονική αποστολή μετά το test (μόνο αν δεν είναι test_only)
+        if test_only:
+            return
         import tkinter.messagebox as _mb
         proceed = _mb.askyesno(
             'Κανονική αποστολή;',

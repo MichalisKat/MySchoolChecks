@@ -93,14 +93,29 @@ def _ask_periochi(path_416):
     win.resizable(False, False)
     win.grab_set()
     win.attributes('-topmost', True)
+    _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'app.ico')
+    if os.path.exists(_ico):
+        try: win.iconbitmap(_ico)
+        except Exception: pass
     win.update_idletasks()
     sw = win.winfo_screenwidth()
     sh = win.winfo_screenheight()
-    win.geometry(f'380x160+{sw//2-190}+{sh//2-80}')
+    win.geometry(f'380x200+{sw//2-190}+{sh//2-100}')
+
+    # ── Header παραμετροποίησης (ίδιο με τις άλλες φόρμες) ──────────
+    import core.framework as _fw
+    tk.Label(win, text='ΠΑΡΑΜΕΤΡΟΠΟΙΗΣΗ ΕΛΕΓΧΟΥ',
+             bg='#1F4E79', fg='white',
+             font=('Arial', 9, 'bold'), pady=5).pack(fill='x')
+    if _fw._current_check_title:
+        tk.Label(win, text=_fw._current_check_title,
+                 bg='#EEF4F0', fg='#1F4E79',
+                 font=('Arial', 9, 'bold'), pady=4).pack(fill='x', padx=10)
+    tk.Frame(win, bg='#C5D8E8', height=1).pack(fill='x', padx=10)
 
     tk.Label(win, text='Επιλέξτε Διεύθυνση (Περιοχή Μετάθεσης):',
              bg='#EEF4F0', fg='#1F4E79',
-             font=('Arial', 10, 'bold'), pady=12).pack()
+             font=('Arial', 10, 'bold'), pady=10).pack()
 
     var = tk.StringVar(value=perioches[0])
     combo = ttk.Combobox(win, textvariable=var, values=perioches,
@@ -243,6 +258,7 @@ def process(ctx):
         if col is None or col not in result.columns:
             return pd.Series([''] * len(result), index=result.index)
         return clean_field(result[col])
+
 
     out = pd.DataFrame({
         'Κωδικός Σχολείου':           _g(kod_col),
