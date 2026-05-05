@@ -11,7 +11,7 @@ SetCompressorDictSize 64
 
 ; --- Metadata ---
 !define APP_NAME      "MySchool Checks"
-!define APP_VERSION   "2.0.1"
+!define APP_VERSION   "2.0.2"
 !define APP_PUBLISHER "Michalis Katsirintakis"
 !define APP_URL       "https://github.com/mkatsirntakis/myschool-checks"
 !define APP_EXE       "MySchoolChecks.exe"
