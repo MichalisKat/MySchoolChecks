@@ -463,6 +463,7 @@ class SettingsDialog(tk.Toplevel):
                  bg=C['bg'], fg=C['footer'], font=('Arial', 8)).grid(
                  row=11, column=0, columnspan=2, sticky='w')
 
+
         # ── Tab 3: Αρχεία ─────────────────────────────────────────────────────
         self._section_label(tab3, 0, 'Αρχείο Αδυνατούντων (υπό έγκριση):')
 

@@ -187,6 +187,8 @@ def _send_notify(config, check_title, today, ok_count, school_list):
     """Αποστολή ενημερωτικού email στο NOTIFY_EMAIL μετά από κανονική αποστολή."""
     notify = getattr(config, 'NOTIFY_EMAIL', '').strip()
     if not notify:
+        notify = getattr(config, 'FROM_EMAIL', '').strip()
+    if not notify:
         return
     now_str   = datetime.now().strftime('%d/%m/%Y %H:%M')
     date_str  = today.strftime('%d/%m/%Y')
