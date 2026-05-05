@@ -321,12 +321,27 @@ def custom_full_send(config, today, out_dir, scol, ecol, subject, body_template,
         print('  ✗ Δεν επιλέχθηκε αρχείο — αποστολή ακυρώθηκε.')
         return
 
-    # Φόρτωση
+    # Φόρτωση — το αρχείο έχει merged title rows, οι επικεφαλίδες μπορεί να είναι σε γραμμή 1, 2 ή 3
     print(f'  Φόρτωση: {os.path.basename(path_xl)}')
     try:
         import pandas as pd
-        df = pd.read_excel(path_xl, dtype=str)
-        df.columns = [str(c).strip() for c in df.columns]
+        df = None
+        # Δοκιμάζουμε header=0,1,2 και κρατάμε αυτό που έχει 'Κωδικός' ή 'Ονομασία' στις στήλες
+        for hdr_row in range(4):
+            try:
+                df_try = pd.read_excel(path_xl, dtype=str, header=hdr_row)
+                df_try.columns = [str(c).strip() for c in df_try.columns]
+                cols_lower = [c.lower() for c in df_try.columns]
+                if any('κωδικός σχολείου' in c or 'ονομασία σχολείου' in c for c in cols_lower):
+                    df = df_try
+                    print(f'  Βρέθηκαν επικεφαλίδες στη γραμμή {hdr_row + 1}')
+                    break
+            except Exception:
+                continue
+        if df is None:
+            # Fallback: φόρτωση από γραμμή 1
+            df = pd.read_excel(path_xl, dtype=str)
+            df.columns = [str(c).strip() for c in df.columns]
     except Exception as e:
         messagebox.showerror('Σφάλμα', f'Αδυναμία φόρτωσης αρχείου:\n{e}')
         return
