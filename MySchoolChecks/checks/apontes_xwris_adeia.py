@@ -287,3 +287,71 @@ def test_body(df_out, today, schools):
         f'Βρέθηκαν: {len(df_out)} εκπαιδευτικοί με μακροχρόνια απουσία χωρίς ενεργή άδεια\n'
         f'Σχολεία που εμφανίζονται ({len(schools)}): {", ".join(sorted(schools))}'
     )
+
+
+def custom_full_send(config, today, out_dir, scol, ecol, subject, body_template,
+                     cols, ccols, title):
+    """Κανονική αποστολή: ζητά επεξεργασμένο Excel, το σπάει ανά σχολείο και στέλνει."""
+    import tkinter as tk
+    from tkinter import filedialog, messagebox
+    import openpyxl
+    from core.framework import send_email, save_workbook
+
+    # Ζητά το επεξεργασμένο αρχείο Excel
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    path_xl = filedialog.askopenfilename(
+        title='Επιλέξτε το επεξεργασμένο αρχείο Excel για αποστολή',
+        filetypes=[('Excel', '*.xlsx *.xls')],
+        parent=root
+    )
+    root.destroy()
+    if not path_xl:
+        print('  ✗ Δεν επιλέχθηκε αρχείο — αποστολή ακυρώθηκε.')
+        return
+
+    # Φόρτωση
+    print(f'  Φόρτωση: {os.path.basename(path_xl)}')
+    try:
+        import pandas as pd
+        df = pd.read_excel(path_xl, dtype=str)
+        df.columns = [str(c).strip() for c in df.columns]
+    except Exception as e:
+        messagebox.showerror('Σφάλμα', f'Αδυναμία φόρτωσης αρχείου:\n{e}')
+        return
+
+    if scol not in df.columns:
+        messagebox.showerror('Σφάλμα',
+            f'Δεν βρέθηκε στήλη "{scol}" στο αρχείο.')
+        return
+
+    schools = sorted(df[scol].dropna().unique())
+    print(f'  Βρέθηκαν {len(schools)} σχολεία, {len(df)} εγγραφές.')
+
+    # Split ανά σχολείο + αποστολή
+    ok = fail = 0
+    for school in schools:
+        df_s = df[df[scol] == school].copy()
+        email_s = ''
+        if ecol in df_s.columns:
+            email_s = str(df_s[ecol].iloc[0]).strip()
+        if not email_s or email_s in ('', 'nan', 'None'):
+            print(f'  ⚠  {school[:50]} — ΔΕΝ ΥΠΑΡΧΕΙ EMAIL, παράλειψη.')
+            fail += 1
+            continue
+
+        safe_name = ''.join(c for c in school if c not in r'\/:*?"<>|').strip()[:60]
+        path_s = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_{safe_name}.xlsx')
+        try:
+            save_workbook(df_s, title, cols, ccols, today, path_s,
+                          subtitle_extra=f'  |  {school}')
+            body = body_template(school) if callable(body_template) else body_template
+            send_email(config, [email_s], subject, body, path_s)
+            print(f'  ✓ {school[:50]} → {email_s}')
+            ok += 1
+        except Exception as e:
+            print(f'  ✗ {school[:50]} → {e}')
+            fail += 1
+
+    print(f'\n  Αποστολές: {ok} επιτυχείς, {fail} αποτυχίες')

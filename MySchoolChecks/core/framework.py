@@ -909,13 +909,22 @@ def run_check(check_module, config):
         if not proceed:
             return
 
+    # Αν το module έχει custom_full_send, χρησιμοποιείται αντί για το default send loop
+    _custom_send = getattr(check_module, 'custom_full_send', None)
+    if do_send and has_email and _custom_send and not test_mode:
+        subject = f'{subj} — {today.strftime("%d/%m/%Y")}'
+        _custom_send(config, today, out_dir, scol, ecol, subject, body_t,
+                     cols, ccols, title)
+        return
+
     # Email
     if do_send and has_email:
         _send_loop(config, test_mode, title, today, subj, body_t,
                    df_out, schools, school_files, scol, ecol, path_all,
                    cols=cols, ccols=ccols, hlcol=hlcol, hlclrs=hlclrs,
                    sclrs=sclrs, scol2=scol2,
-                   test_only=_test_only)
+                   test_only=_test_only,
+                   check_module=check_module, out_dir=out_dir)
 
     print('─' * 62)
     total_files = 1 + len(school_files)  # συνολικό + ανά σχολείο
@@ -962,7 +971,7 @@ def run_check(check_module, config):
 def _send_loop(config, test_mode, title, today, subject_base, body_template,
                df_out, schools, school_files, scol, ecol, path_all,
                cols=None, ccols=None, hlcol=None, hlclrs=None, sclrs=None, scol2=None,
-               test_only=False):
+               test_only=False, check_module=None, out_dir=None):
     """Εσωτερική συνάρτηση αποστολής email."""
     import sys as _sys
     print(f'\n{"─"*62}')
@@ -1006,6 +1015,14 @@ def _send_loop(config, test_mode, title, today, subject_base, body_template,
             f'Θέλεις να προχωρήσω και σε κανονική αποστολή στα {len(schools)} σχολεία;'
         )
         if not proceed:
+            return
+
+        # Αν το module έχει custom_full_send, χρησιμοποιείται αντί για το default
+        _custom_send = getattr(check_module, 'custom_full_send', None) if check_module else None
+        if _custom_send and out_dir:
+            _custom_send(config, today, out_dir, scol, ecol,
+                         f'{subject_base} — {today.strftime("%d/%m/%Y")}',
+                         body_template, cols, ccols, title)
             return
 
         # Κανονική αποστολή — τα επιμέρους Excel φτιάχνονται εδώ
