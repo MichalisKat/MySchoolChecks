@@ -146,6 +146,7 @@ def _select_dxe_combo(driver, base_id, text):
 
 def connect(log=print):
     from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service as ChromeService
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
@@ -154,9 +155,19 @@ def connect(log=print):
     options = webdriver.ChromeOptions()
     options.add_argument('--window-size=1400,900')
     options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
     try:
-        driver = webdriver.Chrome(options=options)
+        log('  Αυτόματη εύρεση/λήψη ChromeDriver...')
+        try:
+            from webdriver_manager.chrome import ChromeDriverManager
+            _wdm_path = ChromeDriverManager().install()
+            driver = webdriver.Chrome(service=ChromeService(_wdm_path), options=options)
+            log('  ChromeDriver OK')
+        except Exception as _e:
+            log(f'  webdriver-manager απέτυχε: {_e} — δοκιμάζω χωρίς service...')
+            driver = webdriver.Chrome(options=options)
     except Exception as e:
         log(f'Αδύνατη εκκίνηση Chrome: {e}')
         return None
