@@ -115,11 +115,15 @@ def _select_dxe_combo(driver, base_id, text):
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
 
-    # Κλικ στο κουμπί dropdown
+    # Κλικ στο κουμπί dropdown και αναμονή για τη λίστα
     try:
         btn = driver.find_element(By.ID, base_id + '_B-1')
         driver.execute_script('arguments[0].click();', btn)
-        time.sleep(1.5)
+        # Αναμονή μέχρι να εμφανιστεί το item με dxtext
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, f'td[dxtext="{text}"]')))
+        time.sleep(0.3)
     except Exception:
         pass
 
