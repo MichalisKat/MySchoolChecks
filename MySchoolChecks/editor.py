@@ -237,13 +237,12 @@ def run(ctx, driver, callback=None):
         driver.get(SEARCH_URL)
         time.sleep(2)
 
-        # ── Συμπλήρωση ΑΦΜ ────────────────────────────────────────────────
+        # ── Συμπλήρωση ΑΦΜ (DevExpress input) ──────────────────────────────
         try:
-            afm_field = WebDriverWait(driver, TIME_TO_WAIT).until(
+            WebDriverWait(driver, TIME_TO_WAIT).until(
                 EC.presence_of_element_located(
-                    (By.NAME, 'ctl00$ContentData$txtTaxNumber')))
-            afm_field.clear()
-            afm_field.send_keys(afm)
+                    (By.ID, 'ctl00_ContentData_txtTaxNumber_I')))
+            _set_dxe_value(driver, 'ctl00_ContentData_txtTaxNumber_I', afm)
         except Exception as e:
             log(f'  ✗ ΑΦΜ field: {e}')
             fail += 1
