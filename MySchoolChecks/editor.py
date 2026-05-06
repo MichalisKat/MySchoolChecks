@@ -111,75 +111,37 @@ def _set_dxe_value(driver, element_id, value):
 
 
 def _select_dxe_combo(driver, base_id, text):
+    """Επιλέγει τιμή από DevExpress ComboBox με πληκτρολόγηση + TAB."""
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.common.keys import Keys
 
-    # Κλικ στο κουμπί dropdown και αναμονή για τη λίστα
-    try:
-        btn = driver.find_element(By.ID, base_id + '_B-1')
-        driver.execute_script('arguments[0].click();', btn)
-        # Αναμονή μέχρι να εμφανιστεί το item με dxtext
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, f'td[dxtext="{text}"]')))
-        time.sleep(0.3)
-    except Exception:
-        pass
-
-    # Εύρεση μέσω dxtext attribute (αξιόπιστο για DevExpress)
-    try:
-        item = driver.find_element(
-            By.CSS_SELECTOR, f'td[dxtext="{text}"]')
-        driver.execute_script('arguments[0].click();', item)
-        time.sleep(0.5)
-        return True
-    except Exception:
-        pass
-
-    # Fallback: όλα τα dxeListBoxItem και σύγκριση dxtext
-    try:
-        items = driver.find_elements(By.CSS_SELECTOR, 'td.dxeListBoxItem')
-        for item in items:
-            dxt = item.get_attribute('dxtext') or ''
-            if text in dxt or text in item.text:
-                driver.execute_script('arguments[0].click();', item)
-                time.sleep(0.5)
-                return True
-    except Exception:
-        pass
-
-    # Fallback: JS απευθείας επιλογή μέσω aspxCBSelectItemByText
-    try:
-        driver.execute_script(
-            f"aspxCBSelectItemByText('{base_id}', arguments[0]);", text)
-        time.sleep(0.5)
-        return True
-    except Exception:
-        pass
-
-    # Fallback: πληκτρολόγηση στο input
     try:
         inp = driver.find_element(By.ID, base_id + '_I')
         driver.execute_script('arguments[0].click();', inp)
-        time.sleep(0.3)
+        time.sleep(0.5)
         inp.clear()
-        _send_keys_slow(inp, text[:4])  # αρκούν τα πρώτα γράμματα
+        time.sleep(0.3)
+        # Πληκτρολόγηση αργά για να φιλτράρει η λίστα
+        _send_keys_slow(inp, text)
         time.sleep(1.5)
-        # Επιλογή πρώτου ορατού item
-        for sel in ['td.dxeListBoxItem', 'td[id*="LBI"]', 'table.dxeListBox td']:
-            try:
-                items = driver.find_elements(By.CSS_SELECTOR, sel)
-                if items:
-                    driver.execute_script('arguments[0].click();', items[0])
-                    time.sleep(0.5)
-                    return True
-            except Exception:
-                continue
-    except Exception:
-        pass
-
-    return False
+        # Αναμονή για item με dxtext και κλικ
+        try:
+            item = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, f'td[dxtext="{text}"]')))
+            driver.execute_script('arguments[0].click();', item)
+            time.sleep(0.5)
+            return True
+        except Exception:
+            pass
+        # Fallback: TAB για επιλογή πρώτου αποτελέσματος
+        inp.send_keys(Keys.TAB)
+        time.sleep(0.5)
+        return True
+    except Exception as e:
+        return False
 
 
 # ── Σύνδεση (καλείται από το UI) ─────────────────────────────────────────────

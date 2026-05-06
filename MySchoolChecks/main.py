@@ -3261,26 +3261,19 @@ class EditorDialog(tk.Toplevel):
                  bg=C['bg'], fg='#666666', font=('Arial', 8), anchor='w', wraplength=520, justify='left')
         note.grid(row=2, column=0, sticky='w', pady=(0, 10))
 
-        # Κουμπιά
+        # Κουμπί ενοποιημένο
         btn_row = tk.Frame(body, bg=C['bg'])
         btn_row.grid(row=3, column=0, sticky='w', pady=(0, 8))
         self._conn_btn = tk.Button(btn_row,
-                  text='🔗  Σύνδεση στο MySchool',
+                  text='▶  Σύνδεση & Εκτέλεση',
                   bg=C['btn_bg'], fg=C['btn_fg'],
                   font=('Arial', 9, 'bold'), relief='flat',
                   padx=12, pady=5, cursor='hand2',
-                  command=self._connect)
+                  command=self._connect_and_run)
         self._conn_btn.pack(side='left')
-        self._run_btn = tk.Button(btn_row,
-                  text='▶  Εκτέλεση',
-                  bg=C['btn_dis'], fg='white',
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=12, pady=5, cursor='hand2',
-                  state='disabled', command=self._run)
-        self._run_btn.pack(side='left', padx=(8, 0))
 
         # Status
-        self._status_var = tk.StringVar(value='Επίλεξε αρχείο και κάνε Σύνδεση.')
+        self._status_var = tk.StringVar(value='Επίλεξε αρχείο και πάτα Σύνδεση & Εκτέλεση.')
         tk.Label(body, textvariable=self._status_var,
                  bg=C['bg'], fg=C['status_run'],
                  font=('Arial', 8), anchor='w').grid(row=4, column=0, sticky='w', pady=(0, 4))
@@ -3314,41 +3307,28 @@ class EditorDialog(tk.Toplevel):
             self._log.configure(state='disabled')
         self.after(0, _do)
 
-    def _connect(self):
-        import threading as _th
-        self._conn_btn.configure(state='disabled', text='Συνδέομαι...')
-        self._log_msg('Εκκίνηση σύνδεσης...')
-        def _do():
-            import editor
-            drv = editor.connect(log=self._log_msg)
-            def _after():
-                if drv:
-                    self._driver = drv
-                    self._run_btn.configure(state='normal', bg=C['btn_bg'])
-                    self._conn_btn.configure(text='✓  Συνδεδεμένο', bg='#1A5276')
-                    self._status_var.set('Συνδεδεμένο. Επίλεξε αρχείο και πάτα Εκτέλεση.')
-                else:
-                    self._conn_btn.configure(state='normal', text='🔗  Σύνδεση στο MySchool')
-                    self._status_var.set('Αποτυχία σύνδεσης — έλεγξε credentials στις Ρυθμίσεις.')
-            self.after(0, _after)
-        _th.Thread(target=_do, daemon=True).start()
-
-    def _run(self):
+    def _connect_and_run(self):
         import threading as _th
         path = self._file_var.get().strip()
         if not path:
             messagebox.showwarning('Προσοχή', 'Επίλεξε αρχείο πρώτα.', parent=self)
             return
-        if not self._driver:
-            messagebox.showwarning('Προσοχή', 'Κάνε πρώτα Σύνδεση στο MySchool.', parent=self)
-            return
-        self._run_btn.configure(state='disabled', bg=C['btn_dis'])
-        self._status_var.set('Εκτέλεση...')
+        self._conn_btn.configure(state='disabled', text='Εκτελείται...')
+        self._status_var.set('Σύνδεση στο MySchool...')
         def _do():
             import editor
-            editor.run({'file_path': path}, self._driver, callback=self._log_msg)
+            drv = editor.connect(log=self._log_msg)
+            if not drv:
+                def _fail():
+                    self._conn_btn.configure(state='normal', text='▶  Σύνδεση & Εκτέλεση')
+                    self._status_var.set('Αποτυχία σύνδεσης — έλεγξε credentials στις Ρυθμίσεις.')
+                self.after(0, _fail)
+                return
+            self._driver = drv
+            self.after(0, lambda: self._status_var.set('Εκτέλεση...'))
+            editor.run({'file_path': path}, drv, callback=self._log_msg)
             def _after():
-                self._run_btn.configure(state='normal', bg=C['btn_bg'])
+                self._conn_btn.configure(state='normal', text='▶  Σύνδεση & Εκτέλεση')
                 self._status_var.set('Ολοκλήρωση.')
             self.after(0, _after)
         _th.Thread(target=_do, daemon=True).start()
