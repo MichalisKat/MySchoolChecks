@@ -277,15 +277,7 @@ def run(ctx, driver, callback=None):
             fail += 1
             continue
 
-        # ── Ώρες από κεντρική ─────────────────────────────────────────────
         hours = ''
-        try:
-            hours_el = driver.find_element(
-                By.ID, 'ctl00_ContentData_txtAvailableHoursForUnit_I')
-            hours = hours_el.get_attribute('value').strip()
-            log(f'  Διαθέσιμες ώρες: {hours}')
-        except Exception as e:
-            log(f'  ⚠ Ώρες: {e}')
 
         # ── Εύρεση εγγραφής ───────────────────────────────────────────────
         edit_links = driver.find_elements(
@@ -323,6 +315,16 @@ def run(ctx, driver, callback=None):
             log(f'  ✗ Καρτέλα: {e}')
             fail += 1
             continue
+
+        # ── Ώρες από καρτέλα (μετά άνοιγμα) ────────────────────────────
+        try:
+            hours_el = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located(
+                    (By.ID, 'ctl00_ContentData_txtAvailableHoursForUnit_I')))
+            hours = hours_el.get_attribute('value').strip()
+            log(f'  Διαθέσιμες ώρες: {hours}')
+        except Exception as e:
+            log(f'  ⚠ Ώρες: {e}')
 
         # ── Σταυρός Προσθήκης ─────────────────────────────────────────────
         try:
