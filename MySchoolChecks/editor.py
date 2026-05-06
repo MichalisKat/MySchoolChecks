@@ -115,42 +115,67 @@ def _select_dxe_combo(driver, base_id, text):
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
 
+    # Κλικ στο κουμπί dropdown
     try:
         btn = driver.find_element(By.ID, base_id + '_B-1')
         driver.execute_script('arguments[0].click();', btn)
-        time.sleep(1)
+        time.sleep(1.5)
     except Exception:
         pass
 
+    # Εύρεση μέσω dxtext attribute (αξιόπιστο για DevExpress)
     try:
-        items = WebDriverWait(driver, 5).until(
-            EC.presence_of_all_elements_located(
-                (By.CSS_SELECTOR, '.dxeListBoxItem, .dxeLBItem')))
+        item = driver.find_element(
+            By.CSS_SELECTOR, f'td[dxtext="{text}"]')
+        driver.execute_script('arguments[0].click();', item)
+        time.sleep(0.5)
+        return True
+    except Exception:
+        pass
+
+    # Fallback: όλα τα dxeListBoxItem και σύγκριση dxtext
+    try:
+        items = driver.find_elements(By.CSS_SELECTOR, 'td.dxeListBoxItem')
         for item in items:
-            if text in item.text:
+            dxt = item.get_attribute('dxtext') or ''
+            if text in dxt or text in item.text:
                 driver.execute_script('arguments[0].click();', item)
                 time.sleep(0.5)
                 return True
     except Exception:
         pass
 
+    # Fallback: JS απευθείας επιλογή μέσω aspxCBSelectItemByText
     try:
-        inp = driver.find_element(By.ID, base_id + '_I')
-        inp.clear()
-        inp.send_keys(text)
-        time.sleep(0.3)
-        driver.execute_script(f"aspxETextChanged('{base_id}');")
+        driver.execute_script(
+            f"aspxCBSelectItemByText('{base_id}', arguments[0]);", text)
         time.sleep(0.5)
-        try:
-            first = WebDriverWait(driver, 3).until(
-                EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, '.dxeListBoxItem, .dxeLBItem')))
-            driver.execute_script('arguments[0].click();', first)
-        except Exception:
-            pass
         return True
     except Exception:
-        return False
+        pass
+
+    # Fallback: πληκτρολόγηση στο input
+    try:
+        inp = driver.find_element(By.ID, base_id + '_I')
+        driver.execute_script('arguments[0].click();', inp)
+        time.sleep(0.3)
+        inp.clear()
+        _send_keys_slow(inp, text[:4])  # αρκούν τα πρώτα γράμματα
+        time.sleep(1.5)
+        # Επιλογή πρώτου ορατού item
+        for sel in ['td.dxeListBoxItem', 'td[id*="LBI"]', 'table.dxeListBox td']:
+            try:
+                items = driver.find_elements(By.CSS_SELECTOR, sel)
+                if items:
+                    driver.execute_script('arguments[0].click();', items[0])
+                    time.sleep(0.5)
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    return False
 
 
 # ── Σύνδεση (καλείται από το UI) ─────────────────────────────────────────────
@@ -253,14 +278,22 @@ def run(ctx, driver, callback=None):
             afm_field = WebDriverWait(driver, TIME_TO_WAIT).until(
                 EC.presence_of_element_located(
                     (By.ID, 'ctl00_ContentData_txtTaxNumber_I')))
-            from selenium.webdriver.common.keys import Keys
-            driver.execute_script('arguments[0].click();', afm_field)
-            time.sleep(0.3)
-            afm_field.clear()
-            time.sleep(0.3)
-            _send_keys_slow(afm_field, afm)
-            time.sleep(0.3)
-            afm_field.send_keys(Keys.TAB)
+            # JS dispatch KeyboardEvent -- μοναδικος τροπος για DevExpress
+            driver.execute_script("""
+                var el = arguments[0];
+                var val = arguments[1];
+                el.focus();
+                el.value = '';
+                for (var i = 0; i < val.length; i++) {
+                    var ch = val[i];
+                    el.value += ch;
+                    el.dispatchEvent(new KeyboardEvent('keydown',  {key: ch, bubbles: true}));
+                    el.dispatchEvent(new KeyboardEvent('keypress', {key: ch, bubbles: true}));
+                    el.dispatchEvent(new KeyboardEvent('keyup',    {key: ch, bubbles: true}));
+                    el.dispatchEvent(new Event('input', {bubbles: true}));
+                }
+                el.dispatchEvent(new Event('change', {bubbles: true}));
+            """, afm_field, afm)
             time.sleep(1)
         except Exception as e:
             log(f'  ✗ ΑΦΜ field: {e}')
