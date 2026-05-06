@@ -6,8 +6,8 @@ editor.py
 Αυτόματη συμπλήρωση Γραμματειακής Υποστήριξης στο MySchool.
 
 Ροή:
-1. Dialog εισαγωγής ΑΦΜ (ένα ή περισσότερα, χωρισμένα με κόμα)
-2. Σύνδεση στο MySchool με credentials από config
+1. Επιλογή Excel/CSV με στήλες: Α.Φ.Μ., Ονομασία Σχολείου (προαιρετική)
+2. Σύνδεση στο MySchool
 3. Για κάθε ΑΦΜ: αναζήτηση → ανάγνωση ωρών → άνοιγμα καρτέλας
 4. Επιλογή "Γραμματειακή Υποστήριξη" + ώρες + ημερομηνίες (= σήμερα)
 5. Αποδοχή → Αποθήκευση
@@ -18,9 +18,11 @@ import sys
 import time
 from datetime import date
 
+import pandas as pd
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-CHECK_TITLE       = 'Editor - Γραμματειακή Υποστήριξη'
+CHECK_TITLE       = 'Editor — Επεξεργασία Καρτέλας Εκπαιδευτικού'
 CHECK_DESCRIPTION = 'Αυτόματη συμπλήρωση Γραμματειακής Υποστήριξης στο MySchool'
 HAS_EMAIL         = False
 CUSTOM_RUN        = True
@@ -32,58 +34,59 @@ TIME_TO_WAIT = 15
 WORK_TYPE_TEXT = 'Γραμματειακή Υποστήριξη'
 
 
-# ── Dialog εισαγωγής ΑΦΜ ─────────────────────────────────────────────────────
+# ── Ανάγνωση αρχείου ─────────────────────────────────────────────────────────
 
-def _ask_afm_dialog():
-    """Εμφανίζει παράθυρο εισαγωγής ΑΦΜ. Επιστρέφει list[str] ή []."""
-    import tkinter as tk
+def load_data(file_path, log=print):
+    """
+    Διαβάζει Excel ή CSV.
+    Επιστρέφει list[dict] με 'afm' και 'school'.
+    Υποχρεωτική στήλη: Α.Φ.Μ.
+    Προαιρετική: Ονομασία Σχολείου (για διαλογή όταν υπάρχουν πολλές τοποθετήσεις).
+    """
+    ext = os.path.splitext(file_path)[1].lower()
+    try:
+        if ext in ('.xlsx', '.xls'):
+            df = pd.read_excel(file_path, dtype=str)
+        else:
+            for enc in ('utf-8', 'iso-8859-7', 'cp1253'):
+                try:
+                    df = pd.read_csv(file_path, sep=';', encoding=enc, dtype=str)
+                    break
+                except Exception:
+                    pass
+            else:
+                df = pd.read_csv(file_path, dtype=str)
+    except Exception as e:
+        log(f'Σφάλμα ανάγνωσης αρχείου: {e}')
+        return []
 
-    result = []
-    root = tk.Tk()
-    root.title('Εισαγωγή ΑΦΜ')
-    root.resizable(False, False)
-    root.configure(bg='#f5f5f5')
+    cols = {c.strip(): c for c in df.columns}
 
-    w, h = 420, 200
-    root.update_idletasks()
-    x = (root.winfo_screenwidth()  - w) // 2
-    y = (root.winfo_screenheight() - h) // 2
-    root.geometry(f'{w}x{h}+{x}+{y}')
+    afm_col = None
+    for candidate in ('Α.Φ.Μ.', 'ΑΦΜ', 'Α.Φ.Μ', 'AFM'):
+        if candidate in cols:
+            afm_col = cols[candidate]
+            break
 
-    tk.Label(root, text='Εισαγωγή ΑΦΜ εκπαιδευτικού/ών',
-             bg='#f5f5f5', font=('Arial', 11, 'bold')).pack(pady=(18, 4))
-    tk.Label(root, text='Ένα ή περισσότερα ΑΦΜ χωρισμένα με κόμα:',
-             bg='#f5f5f5', font=('Arial', 9)).pack()
+    school_col = None
+    for candidate in ('Ονομασία Σχολείου', 'ΣΧΟΛΕΙΟ', 'Σχολείο', 'ΚΩΔ. ΣΧΟΛΕΙΟΥ'):
+        if candidate in cols:
+            school_col = cols[candidate]
+            break
 
-    entry_var = tk.StringVar()
-    entry = tk.Entry(root, textvariable=entry_var, font=('Arial', 11), width=34)
-    entry.pack(pady=10, ipady=4)
-    entry.focus_set()
+    if not afm_col:
+        log(f'Δεν βρέθηκε στήλη ΑΦΜ. Διαθέσιμες: {list(cols.keys())}')
+        return []
 
-    def _ok(event=None):
-        raw = entry_var.get().strip()
-        if not raw:
-            return
-        afms = [a.strip().zfill(9) for a in raw.replace(';', ',').split(',') if a.strip()]
-        if afms:
-            result.extend(afms)
-            root.destroy()
+    records = []
+    for _, row in df.iterrows():
+        afm    = str(row.get(afm_col, '')).strip()
+        school = str(row.get(school_col, '')).strip() if school_col else ''
+        if afm and afm not in ('nan', 'None', ''):
+            records.append({'afm': afm.zfill(9), 'school': school})
 
-    def _cancel():
-        root.destroy()
-
-    btn_frame = tk.Frame(root, bg='#f5f5f5')
-    btn_frame.pack()
-    tk.Button(btn_frame, text='ΟΚ', width=10, command=_ok,
-              bg='#1a73e8', fg='white', font=('Arial', 9, 'bold'),
-              relief='flat').pack(side='left', padx=6)
-    tk.Button(btn_frame, text='Ακύρωση', width=10, command=_cancel,
-              font=('Arial', 9), relief='flat').pack(side='left', padx=6)
-
-    root.bind('<Return>', _ok)
-    root.bind('<Escape>', lambda e: _cancel())
-    root.mainloop()
-    return result
+    log(f'Φορτώθηκαν {len(records)} εγγραφές')
+    return records
 
 
 # ── Βοηθητικές Selenium ───────────────────────────────────────────────────────
@@ -109,7 +112,6 @@ def _select_dxe_combo(driver, base_id, text):
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
 
-    # Άνοιγμα dropdown
     try:
         btn = driver.find_element(By.ID, base_id + '_B-1')
         driver.execute_script('arguments[0].click();', btn)
@@ -117,7 +119,6 @@ def _select_dxe_combo(driver, base_id, text):
     except Exception:
         pass
 
-    # Επιλογή από λίστα
     try:
         items = WebDriverWait(driver, 5).until(
             EC.presence_of_all_elements_located(
@@ -150,33 +151,15 @@ def _select_dxe_combo(driver, base_id, text):
         return False
 
 
-# ── Κύρια συνάρτηση ───────────────────────────────────────────────────────────
+# ── Σύνδεση ───────────────────────────────────────────────────────────────────
 
-def run(config):
-    """Entry point για CUSTOM_RUN=True."""
-    import core.framework as _fw
-    _fw._current_check_title = CHECK_TITLE
-
+def connect(config, log=print):
+    """Ανοίγει Chrome και συνδέεται στο MySchool."""
     from selenium import webdriver
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
 
-    # ── Dialog ΑΦΜ ───────────────────────────────────────────────────────────
-    afm_list = _ask_afm_dialog()
-    if not afm_list:
-        print('Ακύρωση.')
-        return
-
-    today_str = date.today().strftime('%d/%m/%Y')
-    print('=' * 62)
-    print(f'  {CHECK_TITLE}')
-    print('=' * 62)
-    print(f'  ΑΦΜ: {", ".join(afm_list)}')
-    print(f'  Ημερομηνία: {today_str}')
-    print('-' * 62)
-
-    # ── Εκκίνηση Chrome ──────────────────────────────────────────────────────
     options = webdriver.ChromeOptions()
     options.add_argument('--window-size=1400,900')
     options.add_argument('--no-sandbox')
@@ -184,12 +167,11 @@ def run(config):
     try:
         driver = webdriver.Chrome(options=options)
     except Exception as e:
-        print(f'Αδύνατη εκκίνηση Chrome: {e}')
-        return
+        log(f'Αδύνατη εκκίνηση Chrome: {e}')
+        return None
 
     try:
-        # ── Login ─────────────────────────────────────────────────────────────
-        print('Σύνδεση στο MySchool...')
+        log('Σύνδεση στο MySchool...')
         driver.get(BASE_URL)
         time.sleep(2)
 
@@ -209,21 +191,66 @@ def run(config):
                 'button[type="submit"], input[type="submit"]').click()
             time.sleep(3)
 
+        log('Φόρτωση σελίδας αναζήτησης...')
         driver.get(SEARCH_URL)
         time.sleep(3)
-        print('Σύνδεση ΟΚ\n')
+        log('Σύνδεση ΟΚ')
+        return driver
 
-        ok = fail = 0
-        total = len(afm_list)
+    except Exception as e:
+        log(f'Σφάλμα σύνδεσης: {e}')
+        try:
+            driver.quit()
+        except Exception:
+            pass
+        return None
 
-        for idx, afm in enumerate(afm_list, 1):
-            print(f'[{idx}/{total}] ΑΦΜ: {afm}')
 
-            # ── Σελίδα αναζήτησης ─────────────────────────────────────────
+# ── Κύριος βρόχος ─────────────────────────────────────────────────────────────
+
+def run(config):
+    """Entry point για CUSTOM_RUN=True."""
+    import core.framework as _fw
+    _fw._current_check_title = CHECK_TITLE
+
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+
+    # Το framework έχει ήδη ζητήσει το αρχείο — το παίρνουμε από εκεί
+    file_path = getattr(_fw, '_current_file_path', None)
+    if not file_path or not os.path.exists(file_path):
+        from core.framework import ask_file
+        file_path = ask_file('Αρχείο εκπαιδευτικών (Excel ή CSV):')
+        if not file_path:
+            print('Ακύρωση.')
+            return
+
+    records = load_data(file_path)
+    if not records:
+        return
+
+    driver = connect(config)
+    if not driver:
+        return
+
+    today_str = date.today().strftime('%d/%m/%Y')
+    total = len(records)
+    print(f'\n  {total} εγγραφές  |  Ημερομηνία: {today_str}')
+    print('─' * 62)
+
+    ok = fail = 0
+
+    try:
+        for idx, record in enumerate(records, 1):
+            afm    = record['afm']
+            school = record['school']
+            print(f'\n[{idx}/{total}] ΑΦΜ: {afm}  |  {school}')
+
             driver.get(SEARCH_URL)
             time.sleep(2)
 
-            # ── Συμπλήρωση ΑΦΜ ────────────────────────────────────────────
+            # ── ΑΦΜ ───────────────────────────────────────────────────────
             try:
                 afm_field = WebDriverWait(driver, TIME_TO_WAIT).until(
                     EC.presence_of_element_located(
@@ -246,7 +273,7 @@ def run(config):
                 fail += 1
                 continue
 
-            # ── Ανάγνωση διαθέσιμων ωρών ──────────────────────────────────
+            # ── Ώρες από κεντρική ─────────────────────────────────────────
             hours = ''
             try:
                 hours_el = driver.find_element(
@@ -254,25 +281,42 @@ def run(config):
                 hours = hours_el.get_attribute('value').strip()
                 print(f'  Διαθέσιμες ώρες: {hours}')
             except Exception as e:
-                print(f'  ⚠ Ώρες (κεντρική): {e}')
+                print(f'  ⚠ Ώρες: {e}')
 
-            # ── Εύρεση γραναζιού ──────────────────────────────────────────
+            # ── Εύρεση εγγραφής ───────────────────────────────────────────
             edit_links = driver.find_elements(
                 By.XPATH, '//a[.//img[@alt="Διόρθωση"]]')
             print(f'  {len(edit_links)} αποτέλεσμα(-τα)')
 
             if not edit_links:
-                print(f'  ✗ Κανένα αποτέλεσμα')
+                print('  ✗ Κανένα αποτέλεσμα')
                 fail += 1
                 continue
 
+            target = None
+            if len(edit_links) == 1:
+                target = edit_links[0]
+            else:
+                for link in edit_links:
+                    try:
+                        row = link.find_element(By.XPATH, './ancestor::tr[1]')
+                        if school.upper() in row.text.upper():
+                            target = link
+                            print(f'  Βρέθηκε: {school}')
+                            break
+                    except Exception:
+                        pass
+                if not target:
+                    print('  Χρήση πρώτης εγγραφής')
+                    target = edit_links[0]
+
             # ── Άνοιγμα καρτέλας ──────────────────────────────────────────
             try:
-                driver.execute_script('arguments[0].click();', edit_links[0])
+                driver.execute_script('arguments[0].click();', target)
                 time.sleep(3)
                 print('  Καρτέλα ανοιχτή')
             except Exception as e:
-                print(f'  ✗ Άνοιγμα καρτέλας: {e}')
+                print(f'  ✗ Καρτέλα: {e}')
                 fail += 1
                 continue
 
@@ -289,11 +333,11 @@ def run(config):
                 time.sleep(2)
                 print('  Φόρμα ωραρίου ανοιχτή')
             except Exception as e:
-                print(f'  ✗ Σταυρός Προσθήκης: {e}')
+                print(f'  ✗ Σταυρός: {e}')
                 fail += 1
                 continue
 
-            # ── Dropdown "Γραμματειακή Υποστήριξη" ───────────────────────
+            # ── Dropdown ──────────────────────────────────────────────────
             combo_base = ('ctl00_ContentData_gridEmplDet_'
                           'editnew_2_cmbWorkHoursDetailsType')
             try:
@@ -303,16 +347,16 @@ def run(config):
                 print(f'  ⚠ Dropdown: {e}')
             time.sleep(0.5)
 
-            # ── Ώρες (DXEditor4) ──────────────────────────────────────────
+            # ── Ώρες φόρμα (DXEditor4) ────────────────────────────────────
             if hours:
                 try:
                     _set_dxe_value(driver,
                         'ctl00_ContentData_gridEmplDet_DXEditor4_I', hours)
                     print(f'  ✓ Ώρες: {hours}')
                 except Exception as e:
-                    print(f'  ⚠ Ώρες (φόρμα): {e}')
+                    print(f'  ⚠ Ώρες φόρμα: {e}')
 
-            # ── Ημερομηνία από (DXEditor5) ────────────────────────────────
+            # ── Ημ. από (DXEditor5) ───────────────────────────────────────
             try:
                 _set_dxe_value(driver,
                     'ctl00_ContentData_gridEmplDet_DXEditor5_I', today_str)
@@ -320,7 +364,7 @@ def run(config):
             except Exception as e:
                 print(f'  ⚠ Ημ. από: {e}')
 
-            # ── Ημερομηνία έως (DXEditor6) ────────────────────────────────
+            # ── Ημ. έως (DXEditor6) ───────────────────────────────────────
             try:
                 _set_dxe_value(driver,
                     'ctl00_ContentData_gridEmplDet_DXEditor6_I', today_str)
@@ -355,14 +399,10 @@ def run(config):
                 print(f'  ✗ Αποθήκευση: {e}')
                 fail += 1
 
+    finally:
         print(f'\n{"─"*62}')
         print(f'Ολοκλήρωση: {ok} επιτυχείς, {fail} αποτυχίες')
-
-    except Exception as e:
-        print(f'Κρίσιμο σφάλμα: {e}')
-    finally:
         try:
-            input('\nΠάτα Enter για κλείσιμο browser...')
             driver.quit()
         except Exception:
             pass
