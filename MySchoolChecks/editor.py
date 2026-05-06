@@ -85,7 +85,18 @@ def load_data(file_path, log=print):
 
 # ── Βοηθητικές Selenium ───────────────────────────────────────────────────────
 
+STRIKE_INTERVAL = 0.3
+
+
+def _send_keys_slow(element, text, delay=STRIKE_INTERVAL):
+    """Πληκτρολογεί έναν-έναν χαρακτήρα με καθυστέρηση (απαραίτητο για MySchool)."""
+    for char in str(text):
+        element.send_keys(char)
+        time.sleep(delay)
+
+
 def _set_dxe_value(driver, element_id, value):
+
     js = """
         var inp = document.getElementById(arguments[0]);
         if (!inp) return false;
@@ -242,10 +253,15 @@ def run(ctx, driver, callback=None):
             afm_field = WebDriverWait(driver, TIME_TO_WAIT).until(
                 EC.presence_of_element_located(
                     (By.ID, 'ctl00_ContentData_txtTaxNumber_I')))
+            from selenium.webdriver.common.keys import Keys
             driver.execute_script('arguments[0].click();', afm_field)
             time.sleep(0.3)
             afm_field.clear()
-            afm_field.send_keys(afm)
+            time.sleep(0.3)
+            _send_keys_slow(afm_field, afm)
+            time.sleep(0.3)
+            afm_field.send_keys(Keys.TAB)
+            time.sleep(1)
         except Exception as e:
             log(f'  ✗ ΑΦΜ field: {e}')
             fail += 1
