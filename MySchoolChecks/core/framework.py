@@ -1118,4 +1118,12 @@ def _send_loop(config, test_mode, title, today, subject_base, body_template,
                 fail += 1
         print(f'\n  Αποστολές: {ok} επιτυχείς, {fail} αποτυχίες')
 
-        # Ενημερωτικό email στο NOTI
+        # Ενημερωτικό email στο NOTIFY_EMAIL (=FROM_EMAIL)
+        if ok > 0:
+            sent_schools = []
+            for school in school_files:
+                df_s    = df_out[df_out[scol] == school]
+                email_s = str(df_s[ecol].iloc[0]).strip() if ecol in df_s.columns else ''
+                if email_s and '@' in email_s and email_s not in ('', 'nan', 'None'):
+                    sent_schools.append(str(school))
+            _send_notify(config, title, today, ok, sent_schools)
