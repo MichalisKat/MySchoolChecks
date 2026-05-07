@@ -787,13 +787,13 @@ class LauncherApp:
 
         root.title('MySchool Checks')
         root.configure(bg=C['bg'])
-        root.resizable(False, False)
 
         self._build_ui()
 
-        # Παγώνουμε το μέγεθος μετά το render ώστε να μην αλλάζει
+        # Παγώνουμε το μέγεθος μετά το πλήρες render
         root.update_idletasks()
-        root.geometry(f'{root.winfo_width()}x{root.winfo_height()}')
+        root.update()
+        root.resizable(False, False)
 
         self._poll_status()
         # Σύνδεση stdout με status bar
@@ -900,6 +900,30 @@ class LauncherApp:
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
                   command=self._open_inform_email).pack(side='left', padx=(0, 0))
 
+        # Κουμπί PANIC — dropdown με Έναρξη / Λήξη
+        tk.Label(toolbar, text='|', bg=C['bg2'], fg=C['desc'],
+                 font=('Arial', 9)).pack(side='left', padx=4)
+        _panic_btn = tk.Button(toolbar, text='⚠  PANIC',
+                  bg='#B71C1C', fg='white',
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=14, pady=4, cursor='hand2',
+                  activebackground='#D32F2F', activeforeground='white')
+        _panic_btn.pack(side='left', padx=(0, 0))
+
+        _panic_menu = tk.Menu(self.root, tearoff=0,
+                              bg='white', fg='#1A1A1A',
+                              activebackground='#B71C1C', activeforeground='white',
+                              font=('Arial', 10), relief='flat', bd=1)
+        _panic_menu.add_command(label='▶  Έναρξη', command=self._open_editor)
+        _panic_menu.add_command(label='⏹  Λήξη',   command=self._open_panic_end)
+
+        def _show_panic_menu(event=None):
+            x = _panic_btn.winfo_rootx()
+            y = _panic_btn.winfo_rooty() + _panic_btn.winfo_height()
+            _panic_menu.tk_popup(x, y)
+
+        _panic_btn.configure(command=_show_panic_menu)
+
         # Κουμπί Plus — dropdown με τις νέες λειτουργίες
         tk.Label(toolbar, text='|', bg=C['bg2'], fg=C['desc'],
                  font=('Arial', 9)).pack(side='left', padx=4)
@@ -916,7 +940,6 @@ class LauncherApp:
                              font=('Arial', 10), relief='flat', bd=1)
         _plus_menu.add_command(label='👥  Τοποθετήσεις',  command=self._open_placements)
         _plus_menu.add_command(label='📊  ΣΜΕΑΕ',         command=self._open_smeae)
-        _plus_menu.add_command(label='✏   Editor',        command=self._open_editor)
 
         def _show_plus_menu(event=None):
             x = _plus_btn.winfo_rootx()
@@ -942,9 +965,9 @@ class LauncherApp:
         self._all_btn.pack(side='right')
         self._all_selected = False
 
-        # Scrollable περιοχή ελέγχων
-        _screen_h   = self.root.winfo_screenheight()
-        _canvas_h   = min(_screen_h - 280, len(self.checks) * 54 + 10)
+        # Scrollable περιοχή ελέγχων — χωράει στην οθόνη αφαιρώντας header/toolbar/btn/status
+        _screen_h = self.root.winfo_screenheight()
+        _canvas_h = min(len(self.checks) * 54 + 10, _screen_h - 340)
 
         scroll_outer = tk.Frame(self.root, bg=C['bg'], padx=18)
         scroll_outer.pack(fill='x')
@@ -1106,9 +1129,10 @@ class LauncherApp:
         PlacementsDialog(self.root)
 
     def _open_editor(self):
-        if not self._require_password():
-            return
         EditorDialog(self.root)
+
+    def _open_panic_end(self):
+        PanicEndDialog(self.root)
 
     def _open_inform_email(self):
         InformEmailDialog(self.root)
@@ -3340,6 +3364,155 @@ class EditorDialog(tk.Toplevel):
         self.destroy()
 
 
+class PanicEndDialog(tk.Toplevel):
+    """Λήξη PANIC — Διαγραφή εγγραφών Γραμματειακής Υποστήριξης."""
+
+    _HDR_BG  = '#B71C1C'
+    _LBL_CLR = '#B71C1C'
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title('PANIC — Λήξη')
+        self.configure(bg=C['bg'])
+        self.resizable(True, True)
+        self.transient(parent)
+        self._driver   = None
+        self._file_var = tk.StringVar()
+
+        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
+        if os.path.exists(ico):
+            try: self.iconbitmap(ico)
+            except Exception: pass
+
+        self._build()
+        self.update_idletasks()
+        self.geometry('580x460')
+        pw = parent.winfo_x() + (parent.winfo_width()  - self.winfo_width())  // 2
+        ph = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f'+{pw}+{ph}')
+
+    def _build(self):
+        from tkinter import scrolledtext as st2
+
+        hdr = tk.Frame(self, bg=self._HDR_BG, pady=10)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='⏹  PANIC — Λήξη / Αναίρεση Γραμματειακής Υποστήριξης',
+                 bg=self._HDR_BG, fg='white',
+                 font=('Arial', 12, 'bold')).pack()
+
+        body = tk.Frame(self, bg=C['bg'], padx=16, pady=12)
+        body.pack(fill='both', expand=True)
+        body.columnconfigure(0, weight=1)
+
+        # Αρχείο
+        tk.Label(body, text='Αρχείο εκπαιδευτικών (Excel ή CSV):',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).grid(row=0, column=0, sticky='w', pady=(0, 3))
+        ff = tk.Frame(body, bg=C['bg'])
+        ff.grid(row=1, column=0, sticky='ew', pady=(0, 4))
+        ff.columnconfigure(0, weight=1)
+        tk.Entry(ff, textvariable=self._file_var, font=('Arial', 9),
+                 relief='solid', bd=1).pack(side='left', fill='x', expand=True)
+        tk.Button(ff, text='📂', bg=C['bg'], relief='flat', font=('Arial', 11),
+                  cursor='hand2', command=self._browse).pack(side='left', padx=(4, 0))
+
+        # Ενημέρωση από τελευταία Έναρξη
+        import editor as _ed
+        _last = _ed.get_panic_path()
+        if _last and os.path.exists(_last):
+            self._file_var.set(_last)
+            _hint = f'Προφορτώθηκε από την τελευταία Έναρξη: {os.path.basename(_last)}'
+            _hint_clr = C.get('status_ok', '#388E3C')
+        else:
+            _hint = 'Δεν βρέθηκε αρχείο από προηγούμενη Έναρξη — επίλεξε χειροκίνητα.'
+            _hint_clr = C.get('warn', '#E65100')
+        tk.Label(body, text=_hint, bg=C['bg'], fg=_hint_clr,
+                 font=('Arial', 8), anchor='w', wraplength=520).grid(
+                 row=2, column=0, sticky='w', pady=(0, 10))
+
+        # Κουμπί
+        btn_row = tk.Frame(body, bg=C['bg'])
+        btn_row.grid(row=3, column=0, sticky='w', pady=(0, 8))
+        self._run_btn = tk.Button(btn_row,
+                  text='⏹  Σύνδεση & Διαγραφή',
+                  bg='#B71C1C', fg='white',
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=12, pady=5, cursor='hand2',
+                  activebackground='#D32F2F', activeforeground='white',
+                  command=self._connect_and_run)
+        self._run_btn.pack(side='left')
+
+        # Status
+        self._status_var = tk.StringVar(value='Επίλεξε αρχείο και πάτα Σύνδεση & Διαγραφή.')
+        tk.Label(body, textvariable=self._status_var,
+                 bg=C['bg'], fg=C['status_run'],
+                 font=('Arial', 8), anchor='w').grid(row=4, column=0, sticky='w', pady=(0, 4))
+
+        # Log
+        tk.Label(body, text='Αρχείο καταγραφής:',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).grid(row=5, column=0, sticky='w', pady=(4, 2))
+        self._log = st2.ScrolledText(body, height=12, font=('Consolas', 8),
+                                      relief='solid', bd=1, state='disabled',
+                                      bg='#F5F5F5', wrap=tk.WORD)
+        self._log.grid(row=6, column=0, sticky='nsew', pady=(0, 4))
+        body.rowconfigure(6, weight=1)
+
+        self.protocol('WM_DELETE_WINDOW', self._on_close)
+
+    def _browse(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            parent=self,
+            title='Επιλογή αρχείου εκπαιδευτικών',
+            filetypes=[('Excel/CSV', '*.xlsx *.xls *.csv'), ('Όλα', '*.*')])
+        if path:
+            self._file_var.set(path)
+
+    def _log_msg(self, msg):
+        def _do():
+            self._log.configure(state='normal')
+            self._log.insert(tk.END, msg + '\n')
+            self._log.see(tk.END)
+            self._log.configure(state='disabled')
+        self.after(0, _do)
+
+    def _connect_and_run(self):
+        import threading as _th
+        path = self._file_var.get().strip()
+        if not path:
+            messagebox.showwarning('Προσοχή', 'Επίλεξε αρχείο πρώτα.', parent=self)
+            return
+        if not os.path.exists(path):
+            messagebox.showwarning('Προσοχή', 'Το αρχείο δεν βρέθηκε.', parent=self)
+            return
+        self._run_btn.configure(state='disabled', text='Εκτελείται...')
+        self._status_var.set('Σύνδεση στο MySchool...')
+        def _do():
+            import editor
+            drv = editor.connect(log=self._log_msg)
+            if not drv:
+                def _fail():
+                    self._run_btn.configure(state='normal', text='⏹  Σύνδεση & Διαγραφή')
+                    self._status_var.set('Αποτυχία σύνδεσης — έλεγξε credentials στις Ρυθμίσεις.')
+                self.after(0, _fail)
+                return
+            self._driver = drv
+            self.after(0, lambda: self._status_var.set('Εκτέλεση διαγραφών...'))
+            editor.run_delete({'file_path': path}, drv, callback=self._log_msg)
+            def _after():
+                self._run_btn.configure(state='normal', text='⏹  Σύνδεση & Διαγραφή')
+                self._status_var.set('Ολοκλήρωση.')
+            self.after(0, _after)
+        _th.Thread(target=_do, daemon=True).start()
+
+    def _on_close(self):
+        if self._driver:
+            try: self._driver.quit()
+            except Exception: pass
+        self.destroy()
+
+
 class InformEmailDialog(tk.Toplevel):
     """Αποστολή ενημερωτικού email υπενθύμισης επιβεβαίωσης MySchool."""
 
@@ -3636,187 +3809,4 @@ def _show_splash(root):
 
 def _splash_log(log_txt, msg):
     def _do():
-        log_txt.configure(state='normal')
-        log_txt.insert(tk.END, msg + '\n')
-        log_txt.see(tk.END)
-        log_txt.configure(state='disabled')
-    try:
-        log_txt.after(0, _do)
-    except Exception:
-        pass
-
-
-
-def _play_startup_sound(path, on_finished):
-    """Παίζει MP3 μέσω MCI (blocking). Καλεί on_finished() μόνο αν το άνοιγμα
-    του αρχείου πέτυχε — ώστε αποτυχία MCI να μην προκαλεί πρόωρο launch."""
-    _opened = False
-    try:
-        import ctypes
-        mci = ctypes.windll.winmm.mciSendStringW
-        if mci(f'open "{path}" type mpegvideo alias splash_snd', None, 0, None) == 0:
-            _opened = True
-            mci('play splash_snd wait', None, 0, None)
-    except Exception:
-        pass
-    if _opened:
-        on_finished()
-
-
-def _stop_startup_sound():
-    try:
-        import ctypes
-        mci = ctypes.windll.winmm.mciSendStringW
-        mci('stop splash_snd', None, 0, None)
-        mci('close splash_snd', None, 0, None)
-    except Exception:
-        pass
-
-
-
-def main():
-    try:
-        from ctypes import windll
-        windll.shcore.SetProcessDpiAwareness(1)
-    except Exception:
-        pass
-
-    root = tk.Tk()
-    root.withdraw()
-
-    ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
-    if os.path.exists(ico):
-        try: root.iconbitmap(ico)
-        except Exception: pass
-
-    splash, pb, log_txt, ready_btn = _show_splash(root)
-
-    checks_result = []
-    done_flag     = threading.Event()
-    launched      = [False]
-
-    def _do_launch():
-        if not launched[0]:
-            launched[0] = True
-            _stop_startup_sound()
-            # Περιμένουμε το done_flag (20s) πριν ανοίξουμε — σε περίπτωση
-            # που η μουσική τελειώσει νωρίτερα από τον χρονομετρητή
-            def _wait_ready():
-                if not done_flag.is_set():
-                    root.after(100, _wait_ready)
-                    return
-                checks = checks_result[0] if checks_result else []
-                _launch(root, checks, splash, pb)
-            root.after(0, _wait_ready)
-
-    _snd_path  = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'startup.mp3')
-    _has_sound = os.path.exists(_snd_path)
-    if _has_sound:
-        threading.Thread(target=_play_startup_sound,
-                         args=(_snd_path, _do_launch), daemon=True).start()
-
-    def _startup():
-        import subprocess as _sub
-        import traceback as _tb
-        _log_path = os.path.join(os.path.expanduser('~'), 'Desktop', 'crash.log')
-
-        def _log(msg):
-            try:
-                with open(_log_path, 'a', encoding='utf-8') as _f:
-                    _f.write(msg + '\n')
-            except Exception:
-                pass
-
-        try:
-            _start_time = time.time()
-
-            _splash_log(log_txt, f'✓ Python {sys.version.split()[0]}')
-            time.sleep(0.3)
-
-            if getattr(sys, 'frozen', False):
-                # ── Frozen exe: βιβλιοθήκες είναι ήδη bundled ──────────
-                # ΔΕΝ τρέχουμε pip — sys.executable είναι το .exe, όχι Python
-                _splash_log(log_txt, '✓ Βιβλιοθήκες εγκατεστημένες')
-                time.sleep(0.2)
-            else:
-                # ── Development mode: έλεγχος & εγκατάσταση βιβλιοθηκών ─
-                _base    = os.path.dirname(os.path.abspath(__file__))
-                _libs_ok = os.path.join(_base, '.libs_ok')
-                _reqs    = [('pandas','pandas'), ('openpyxl','openpyxl'),
-                            ('selenium','selenium'), ('xlrd','xlrd'),
-                            ('html2text','html2text')]
-
-                if os.path.exists(_libs_ok):
-                    _splash_log(log_txt, '✓ Βιβλιοθήκες εγκατεστημένες')
-                    time.sleep(0.2)
-                else:
-                    _splash_log(log_txt, 'Έλεγχος βιβλιοθηκών...')
-                    for pkg, imp in _reqs:
-                        try:
-                            __import__(imp)
-                            _splash_log(log_txt, f'  ✓ {pkg}')
-                        except ImportError:
-                            _splash_log(log_txt, f'  ⬇ Εγκατάσταση {pkg}...')
-                            _sub.run([sys.executable, '-m', 'pip', 'install', pkg,
-                                      '--disable-pip-version-check', '-q'],
-                                     capture_output=True)
-                            _splash_log(log_txt, f'  ✓ {pkg} εγκαταστάθηκε')
-                        time.sleep(0.15)
-                    open(_libs_ok, 'w').close()
-
-            _splash_log(log_txt, 'Φόρτωση ελέγχων...')
-            checks = load_checks()
-            checks_result.append(checks)
-            _splash_log(log_txt, f'✓ {len(checks)} έλεγχοι φορτώθηκαν')
-            time.sleep(0.4)
-
-            elapsed   = time.time() - _start_time
-            remaining = 20 - elapsed
-            if remaining > 0:
-                time.sleep(remaining)
-
-        except Exception as _e:
-            checks_result.append([])
-        finally:
-            done_flag.set()
-
-    threading.Thread(target=_startup, daemon=True).start()
-
-    def _poll_checks():
-        if not done_flag.is_set():
-            root.after(100, _poll_checks)
-            return
-        checks = checks_result[0] if checks_result else []
-        if not checks:
-            pb.stop()
-            from tkinter import messagebox
-            _log_path = os.path.join(os.path.expanduser('~'), 'Desktop', 'crash.log')
-            messagebox.showerror('Σφάλμα',
-                f'Δεν φορτώθηκαν έλεγχοι!\n\nΔες το αρχείο:\n{_log_path}')
-            splash.destroy()
-            sys.exit(1)
-        pb.stop()
-        pb.configure(style='SplashDone.Horizontal.TProgressbar',
-                     mode='determinate', value=100)
-        _splash_log(log_txt, '✓ Έτοιμο!')
-        ready_btn.configure(command=_do_launch)
-        ready_btn.pack(pady=(6, 4))
-        splash.update()
-
-    root.after(100, _poll_checks)
-    root.mainloop()
-
-
-def _launch(root, checks, splash, pb):
-    """Κλείνει το splash και εμφανίζει το κύριο παράθυρο."""
-    pb.stop()
-    try:
-        splash.destroy()
-    except Exception:
-        pass
-    root.deiconify()
-    LauncherApp(root, checks)
-
-
-if __name__ == '__main__':
-    main()
+        

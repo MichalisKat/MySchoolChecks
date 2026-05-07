@@ -351,13 +351,23 @@ def run(ctx, driver, callback=None):
             log(f'  {"✓" if ok_c else "⚠"} Τύπος: {WORK_TYPE_TEXT}')
         except Exception as e:
             log(f'  ⚠ Dropdown: {e}')
-        time.sleep(0.5)
 
-        # ── Ώρες φόρμα (DXEditor4) ────────────────────────────────────────
+        # ── Ώρες φόρμα (DXEditor4) — κλικ κλείνει και το dropdown ─────────
         if hours:
             try:
-                _set_dxe_value(driver,
-                    'ctl00_ContentData_gridEmplDet_DXEditor4_I', hours)
+                hours_inp = WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located(
+                        (By.ID, 'ctl00_ContentData_gridEmplDet_DXEditor4_I')))
+                driver.execute_script('arguments[0].click(); arguments[0].focus();', hours_inp)
+                time.sleep(0.5)
+                driver.execute_script("""
+                    var el = arguments[0];
+                    var val = arguments[1];
+                    el.value = '';
+                    el.value = val;
+                    el.dispatchEvent(new Event('change', {bubbles: true}));
+                    aspxEValueChanged('ctl00_ContentData_gridEmplDet_DXEditor4');
+                """, hours_inp, hours)
                 log(f'  ✓ Ώρες: {hours}')
             except Exception as e:
                 log(f'  ⚠ Ώρες φόρμα: {e}')
@@ -380,11 +390,12 @@ def run(ctx, driver, callback=None):
 
         time.sleep(0.5)
 
-        # ── Αποδοχή ───────────────────────────────────────────────────────
+        # ── Αποδοχή (πράσινο τικ) ────────────────────────────────────────
         try:
-            driver.execute_script(
-                "aspxGVScheduleCommand('ctl00_ContentData_gridEmplDet',"
-                "['UpdateEdit'],1)")
+            accept_btn = WebDriverWait(driver, TIME_TO_WAIT).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, '//img[@alt="Αποδοχή"]')))
+            driver.execute_script('arguments[0].click();', accept_btn)
             time.sleep(2)
             log('  ✓ Αποδοχή')
         except Exception as e:
@@ -407,3 +418,180 @@ def run(ctx, driver, callback=None):
 
     log(f'\n{"─"*50}')
     log(f'Ολοκλήρωση: {ok} επιτυχείς, {fail} αποτυχίες')
+
+    # Αποθήκευση path για χρήση από τη Λήξη
+    if ok > 0:
+        _save_panic_path(file_path)
+
+
+def _panic_path_file():
+    """Επιστρέφει το path του αρχείου που κρατάει το τελευταίο panic Excel."""
+    docs = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks')
+    os.makedirs(docs, exist_ok=True)
+    return os.path.join(docs, '.panic_last_file.txt')
+
+
+def _save_panic_path(file_path):
+    try:
+        with open(_panic_path_file(), 'w', encoding='utf-8') as f:
+            f.write(file_path)
+    except Exception:
+        pass
+
+
+def get_panic_path():
+    """Επιστρέφει το path του τελευταίου panic Excel (ή '' αν δεν υπάρχει)."""
+    try:
+        p = _panic_path_file()
+        if os.path.exists(p):
+            with open(p, encoding='utf-8') as f:
+                return f.read().strip()
+    except Exception:
+        pass
+    return ''
+
+
+# ── Λήξη PANIC — Διαγραφή εγγραφών ──────────────────────────────────────────
+
+def run_delete(ctx, driver, callback=None):
+    """Διαγράφει τις εγγραφές Γραμματειακής Υποστήριξης για κάθε ΑΦΜ."""
+    log = callback or print
+
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+
+    file_path = ctx.get('file_path')
+    records   = load_data(file_path, log=log)
+    if not records:
+        return
+
+    total = len(records)
+    log(f'  {total} εγγραφές προς διαγραφή')
+
+    ok = fail = 0
+
+    for idx, record in enumerate(records, 1):
+        afm    = record['afm']
+        school = record['school']
+        log(f'\n[{idx}/{total}] ΑΦΜ: {afm}  |  {school}')
+
+        # ── Σελίδα αναζήτησης ─────────────────────────────────────────────
+        driver.get(SEARCH_URL)
+        time.sleep(2)
+
+        # ── Συμπλήρωση ΑΦΜ ────────────────────────────────────────────────
+        try:
+            afm_field = WebDriverWait(driver, TIME_TO_WAIT).until(
+                EC.presence_of_element_located(
+                    (By.ID, 'ctl00_ContentData_txtTaxNumber_I')))
+            driver.execute_script("""
+                var el = arguments[0];
+                var val = arguments[1];
+                el.focus();
+                el.value = '';
+                for (var i = 0; i < val.length; i++) {
+                    var ch = val[i];
+                    el.value += ch;
+                    el.dispatchEvent(new KeyboardEvent('keydown',  {key: ch, bubbles: true}));
+                    el.dispatchEvent(new KeyboardEvent('keypress', {key: ch, bubbles: true}));
+                    el.dispatchEvent(new KeyboardEvent('keyup',    {key: ch, bubbles: true}));
+                    el.dispatchEvent(new Event('input', {bubbles: true}));
+                }
+                el.dispatchEvent(new Event('change', {bubbles: true}));
+            """, afm_field, afm)
+            time.sleep(1)
+        except Exception as e:
+            log(f'  ✗ ΑΦΜ field: {e}')
+            fail += 1
+            continue
+
+        # ── Αναζήτηση ─────────────────────────────────────────────────────
+        try:
+            search_link = WebDriverWait(driver, TIME_TO_WAIT).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, 'a.hint_search')))
+            driver.execute_script('arguments[0].click();', search_link)
+            time.sleep(3)
+        except Exception as e:
+            log(f'  ✗ Αναζήτηση: {e}')
+            fail += 1
+            continue
+
+        # ── Εύρεση εγγραφής ───────────────────────────────────────────────
+        edit_links = driver.find_elements(
+            By.XPATH, '//a[.//img[@alt="Διόρθωση"]]')
+        log(f'  {len(edit_links)} αποτέλεσμα(-τα)')
+
+        if not edit_links:
+            log('  ✗ Κανένα αποτέλεσμα')
+            fail += 1
+            continue
+
+        target = None
+        if len(edit_links) == 1:
+            target = edit_links[0]
+        else:
+            for link in edit_links:
+                try:
+                    row = link.find_element(By.XPATH, './ancestor::tr[1]')
+                    if school.upper() in row.text.upper():
+                        target = link
+                        log(f'  Βρέθηκε: {school}')
+                        break
+                except Exception:
+                    pass
+            if not target:
+                log('  Χρήση πρώτης εγγραφής')
+                target = edit_links[0]
+
+        # ── Άνοιγμα καρτέλας ──────────────────────────────────────────────
+        try:
+            driver.execute_script('arguments[0].click();', target)
+            time.sleep(3)
+            log('  Καρτέλα ανοιχτή')
+        except Exception as e:
+            log(f'  ✗ Καρτέλα: {e}')
+            fail += 1
+            continue
+
+        # ── Κουμπί Διαγραφή (πρώτη γραμμή gridEmplDet) ───────────────────
+        try:
+            del_btn = WebDriverWait(driver, TIME_TO_WAIT).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, '//img[@alt="Διαγραφή" and contains(@onclick,"gridEmplDet")]')))
+            driver.execute_script('arguments[0].scrollIntoView({block:"center"});', del_btn)
+            time.sleep(0.5)
+            driver.execute_script('arguments[0].click();', del_btn)
+            time.sleep(1)
+            log('  Διαγραφή κλικ')
+        except Exception as e:
+            log(f'  ✗ Διαγραφή: {e}')
+            fail += 1
+            continue
+
+        # ── Επιβεβαίωση (OK στο confirm dialog) ──────────────────────────
+        try:
+            from selenium.webdriver.support.ui import WebDriverWait
+            WebDriverWait(driver, 5).until(EC.alert_is_present())
+            driver.switch_to.alert.accept()
+            time.sleep(2)
+            log('  ✓ Επιβεβαίωση ΟΚ')
+        except Exception:
+            # Δεν υπήρξε alert — ίσως ήταν inline confirm
+            log('  ⚠ Alert δεν εμφανίστηκε')
+
+        # ── Αποθήκευση ────────────────────────────────────────────────────
+        try:
+            save_btn = WebDriverWait(driver, TIME_TO_WAIT).until(
+                EC.element_to_be_clickable(
+                    (By.ID, 'ctl00_ContentData_btnSave')))
+            driver.execute_script('arguments[0].click();', save_btn)
+            time.sleep(3)
+            log('  ✓ Αποθήκευση')
+            ok += 1
+        except Exception as e:
+            log(f'  ✗ Αποθήκευση: {e}')
+            fail += 1
+
+    log(f'\n{"─"*50}')
+    log(f'Λήξη PANIC — Διαγραφές: {ok} επιτυχείς, {fail} αποτυχίες')
