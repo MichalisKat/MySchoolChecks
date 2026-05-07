@@ -665,7 +665,7 @@ class DownloadDialog(tk.Toplevel):
             var = tk.BooleanVar(value=False)
             self._report_vars[rid] = var
             row, col = divmod(i, 2)
-            prefix   = '' if rid in ('ady', 'topoth') else f'{rid} — '
+            prefix   = '' if rid in ('topoth',) else (f'4.26/4.27 — ' if rid == '4.26' else f'{rid} — ')
             lbl_text = f'✓ {prefix}{label}' if exists else f'{prefix}{label}'
             lbl_fg   = C['status_ok'] if exists else C['fg'] if 'fg' in C else '#000000'
             tk.Checkbutton(grid, text=lbl_text,
@@ -755,11 +755,15 @@ class DownloadDialog(tk.Toplevel):
                 # Κράτα μόνο τον τελευταίο φάκελο
                 cleanup_old_downloads(base_dir, keep=1)
 
+                from core.downloader import REPORTS as _REPS
+                _rid_label = {r[0]: (f'4.26/4.27 — {r[1]}' if r[0] == '4.26' else f'{r[0]} — {r[1]}' if r[0] not in ('topoth',) else r[1]) for r in _REPS}
+                failed_names = [_rid_label.get(rid, rid) for rid, v in results.items() if not v]
+
                 msg = f'Ολοκληρώθηκε: {ok}/{len(results)} αρχεία κατεβήκαν.'
-                if fail:
-                    msg += f' Αποτυχίες: {fail}.'
+                if failed_names:
+                    msg += '\n\nΔεν κατέβηκε:\n' + '\n'.join(f'• {n}' for n in failed_names)
                 self.after(0, lambda m=msg: [
-                    self._progress_var.set(m),
+                    self._progress_var.set(m.split('\n')[0]),
                     messagebox.showinfo('Λήψη', m, parent=self)
                 ])
             except Exception as e:
@@ -887,6 +891,14 @@ class LauncherApp:
                   padx=14, pady=4, cursor='hand2',
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
                   command=self._open_monada_tool).pack(side='left', padx=(0, 0))
+        tk.Label(toolbar, text='|', bg=C['bg2'], fg=C['desc'],
+                 font=('Arial', 9)).pack(side='left', padx=4)
+        tk.Button(toolbar, text='✉  Ενημερωτικό',
+                  bg=C['bg2'], fg=C['hdr_bg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=14, pady=4, cursor='hand2',
+                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
+                  command=self._open_inform_email).pack(side='left', padx=(0, 0))
 
         # Κουμπί Plus — dropdown με τις νέες λειτουργίες
         tk.Label(toolbar, text='|', bg=C['bg2'], fg=C['desc'],
@@ -905,8 +917,6 @@ class LauncherApp:
         _plus_menu.add_command(label='👥  Τοποθετήσεις',  command=self._open_placements)
         _plus_menu.add_command(label='📊  ΣΜΕΑΕ',         command=self._open_smeae)
         _plus_menu.add_command(label='✏   Editor',        command=self._open_editor)
-        _plus_menu.add_separator()
-        _plus_menu.add_command(label='✉  Ενημερωτικό Email', command=self._open_inform_email)
 
         def _show_plus_menu(event=None):
             x = _plus_btn.winfo_rootx()
@@ -1101,8 +1111,6 @@ class LauncherApp:
         EditorDialog(self.root)
 
     def _open_inform_email(self):
-        if not self._require_password():
-            return
         InformEmailDialog(self.root)
 
     def _refresh_highlights(self):
@@ -1638,7 +1646,7 @@ class EidikotitaDialog(tk.Toplevel):
         'Κατάσταση',
         'Φορέας τοποθέτησης',
         'Τηλέφωνο', 'e-mail',
-        'ΑΠΟΥΣΙΑ', 'Έως',
+        'ΑΠΟΥΣΙΑ', 'Από', 'Έως',
     ]
 
     def __init__(self, parent):
@@ -2138,21 +2146,26 @@ class EidikotitaDialog(tk.Toplevel):
                     s16_afm_col = df_s16.columns[16]
                 # col shift: header[i] περιγράφει data[i-1]
                 # header[45]='Αιτιολόγηση Απουσίας' → data[44]
-                # header[48]='Έως'                  → data[47]
+                # header[47]='Από'                   → data[46]
+                # header[48]='Έως'                   → data[47]
                 s16_abs_col = df_s16.columns[44] if len(df_s16.columns) > 44 else df_s16.columns[45]
+                s16_apo_col = df_s16.columns[46] if len(df_s16.columns) > 46 else None
                 s16_eos_col = df_s16.columns[47] if len(df_s16.columns) > 47 else None
 
                 df_s16['_afm'] = df_s16[s16_afm_col].apply(self._clean_afm).str.zfill(9)
                 keep16 = ['_afm', s16_abs_col]
+                if s16_apo_col: keep16.append(s16_apo_col)
                 if s16_eos_col: keep16.append(s16_eos_col)
                 df_s16_lu = df_s16[keep16].drop_duplicates('_afm').copy()
                 rename16 = {'_afm': '_afm', s16_abs_col: '_apoysia'}
+                if s16_apo_col: rename16[s16_apo_col] = '_apo'
                 if s16_eos_col: rename16[s16_eos_col] = '_eos'
                 df_s16_lu = df_s16_lu.rename(columns=rename16)
+                if '_apo' not in df_s16_lu: df_s16_lu['_apo'] = ''
                 if '_eos' not in df_s16_lu: df_s16_lu['_eos'] = ''
                 absent_afms = set(df_s16_lu['_afm'])
             else:
-                df_s16_lu = pd.DataFrame(columns=['_afm', '_apoysia', '_eos'])
+                df_s16_lu = pd.DataFrame(columns=['_afm', '_apoysia', '_apo', '_eos'])
                 absent_afms = set()
 
             # ── 5. stat4_1 & stat4_2 (Email ΠΣΔ, Κινητό) — join με ΑΦΜ ─────
@@ -2220,10 +2233,12 @@ class EidikotitaDialog(tk.Toplevel):
             out['Τηλέφωνο']          = df_t['_phone'].fillna('')
             out['e-mail']            = df_t['_school_email'].fillna('')
             out['ΑΠΟΥΣΙΑ']           = df_t['_apoysia'].fillna('')
+            out['Από']               = df_t['_apo'].fillna('') if '_apo' in df_t.columns else ''
             out['Έως']               = df_t['_eos'].fillna('') if '_eos' in df_t.columns else ''
             out['_absent']           = df_t['_absent']
-            # Αιτιολόγηση + ημ/νία επιστροφής μόνο για απόντες
+            # Αιτιολόγηση + ημ/νίες απουσίας μόνο για απόντες
             out.loc[~out['_absent'], 'ΑΠΟΥΣΙΑ'] = ''
+            out.loc[~out['_absent'], 'Από']     = ''
             out.loc[~out['_absent'], 'Έως']     = ''
 
             out = out.sort_values('Επώνυμο', na_position='last').reset_index(drop=True)
@@ -2313,14 +2328,11 @@ class EidikotitaDialog(tk.Toplevel):
         total_count  = len(out)
 
         if not send:
-            messagebox.showinfo('Έτοιμο',
-                f'Αρχείο αποθηκεύτηκε:\n{out_path}\n\n'
+            from core.framework import _show_results_popup
+            _show_results_popup('Εκπ/κοί ανά Ειδικότητα',
+                f'Αρχείο αποθηκεύτηκε.\n\n'
                 f'Σύνολο: {total_count} εκπ/κοί  |  Απόντες (κόκκινο): {absent_count}',
-                parent=self)
-            try:
-                import subprocess; subprocess.Popen(['explorer', out_dir])
-            except Exception:
-                pass
+                result_type='warn', excel_path=out_path)
             self.destroy()
             return
 
@@ -2328,15 +2340,11 @@ class EidikotitaDialog(tk.Toplevel):
         try:
             from core.framework import send_email
             send_email(config, to_email, subject, full_body, out_path)
-            messagebox.showinfo('Αποστολή',
+            from core.framework import _show_results_popup
+            _show_results_popup('Εκπ/κοί ανά Ειδικότητα',
                 f'Email στάλθηκε: {to_email}\n\n'
-                f'Αρχείο: {out_path}\n'
                 f'Σύνολο: {total_count} εκπ/κοί  |  Απόντες: {absent_count}',
-                parent=self)
-            try:
-                import subprocess; subprocess.Popen(['explorer', out_dir])
-            except Exception:
-                pass
+                result_type='ok', excel_path=out_path)
             self.destroy()
         except Exception as e:
             messagebox.showerror('Σφάλμα αποστολής', str(e), parent=self)
@@ -2644,11 +2652,9 @@ class MonadaDialog(tk.Toplevel):
             c_dir_mail = csv_df.columns[59]
             c_dir_psd  = csv_df.columns[60]
 
-            # Φίλτρο τύπου: Δημοτικά + Νηπιαγωγεία, όχι Ιδιωτικά / Ξένα
+            # Φίλτρο τύπου: εξαίρεση Ιδιωτικών / Ξένων
             eidos_ser = csv_df[c_eidos].fillna('').astype(str)
             mask_type = (
-                (eidos_ser.str.contains('Δημοτικό',    na=False) |
-                 eidos_ser.str.contains('Νηπιαγωγείο', na=False)) &
                 ~eidos_ser.str.contains('Ιδιωτικό', na=False) &
                 ~eidos_ser.str.contains('Ξένο',     na=False)
             )
@@ -2936,26 +2942,20 @@ class MonadaDialog(tk.Toplevel):
         with open(path_s, 'w', encoding='utf-8') as f:
             json.dump(s, f, ensure_ascii=False, indent=2)
         if not send:
-            messagebox.showinfo('Έτοιμο',
-                f'Αρχείο αποθηκεύτηκε:\n{out_path}\n\nΣχολεία: {school_count}',
-                parent=self)
-            try:
-                import subprocess; subprocess.Popen(['explorer', out_dir])
-            except Exception:
-                pass
+            from core.framework import _show_results_popup
+            _show_results_popup('Σχολικές Μονάδες',
+                f'Αρχείο αποθηκεύτηκε.\n\nΣχολεία: {school_count}',
+                result_type='warn', excel_path=out_path)
             self.destroy()
             return
 
         try:
             from core.framework import send_email
             send_email(config, to_email, subject, full_body, out_path)
-            messagebox.showinfo('Αποστολή',
-                f'Email στάλθηκε: {to_email}\n\nΑρχείο: {out_path}\nΣχολεία: {school_count}',
-                parent=self)
-            try:
-                import subprocess; subprocess.Popen(['explorer', out_dir])
-            except Exception:
-                pass
+            from core.framework import _show_results_popup
+            _show_results_popup('Σχολικές Μονάδες',
+                f'Email στάλθηκε: {to_email}\n\nΣχολεία: {school_count}',
+                result_type='ok', excel_path=out_path)
             self.destroy()
         except Exception as e:
             messagebox.showerror('Σφάλμα αποστολής', str(e), parent=self)
@@ -3341,11 +3341,11 @@ class EditorDialog(tk.Toplevel):
 
 
 class InformEmailDialog(tk.Toplevel):
-    """Αποστολή απλού ενημερωτικού email χωρίς συνημμένο."""
+    """Αποστολή ενημερωτικού email υπενθύμισης επιβεβαίωσης MySchool."""
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.title('Αποστολή Ενημερωτικού Email')
+        self.title('Ενημερωτικό email')
         self.configure(bg=C['bg'])
         self.resizable(False, False)
         self.grab_set()
@@ -3362,102 +3362,133 @@ class InformEmailDialog(tk.Toplevel):
         ph = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
         self.geometry(f'+{pw}+{ph}')
 
+    @staticmethod
+    def _obligation_date(now):
+        """Επιστρέφει την πιο πρόσφατη 1η ή 15η του μήνα."""
+        return now.replace(day=15) if now.day >= 15 else now.replace(day=1)
+
     def _build(self):
         from tkinter import scrolledtext as st3
         from datetime import datetime as _dt
 
         hdr = tk.Frame(self, bg='#0F6E56', pady=10)
         hdr.pack(fill='x')
-        tk.Label(hdr, text='✉  Αποστολή Ενημερωτικού Email',
+        tk.Label(hdr, text='✉  Ενημερωτικό email',
                  bg='#0F6E56', fg='white',
                  font=('Arial', 12, 'bold')).pack()
 
         body = tk.Frame(self, bg=C['bg'], padx=18, pady=14)
         body.pack(fill='both', expand=True)
 
-        # Θέμα
+        # ── Ημερομηνίες ──────────────────────────────────────────────────────
+        GREEK_DAYS = ['Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη',
+                      'Παρασκευή', 'Σάββατο', 'Κυριακή']
+        now          = _dt.now()
+        day_name     = GREEK_DAYS[now.weekday()]
+        date_send    = f'{now.day}/{now.month}/{now.year}'
+        date_send_lg = f'{day_name} {date_send}'
+        obl          = self._obligation_date(now)
+        date_obl     = f'{obl.day}/{obl.month}/{obl.year}'
+
+        # ── Θέμα ─────────────────────────────────────────────────────────────
         tk.Label(body, text='Θέμα:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold')).grid(row=0, column=0, sticky='w', pady=(0, 3))
-        self._subj_var = tk.StringVar()
-        tk.Entry(body, textvariable=self._subj_var, width=54,
+        self._subj_var = tk.StringVar(
+            value=f'Υπενθύμιση επιβεβαίωσης δεδομένων στο myschool για {date_obl}')
+        tk.Entry(body, textvariable=self._subj_var, width=58,
                  font=('Arial', 9), relief='solid', bd=1).grid(
                  row=1, column=0, columnspan=2, sticky='ew', pady=(0, 10))
 
-        # Σώμα
+        # ── Σώμα μηνύματος ───────────────────────────────────────────────────
         tk.Label(body, text='Σώμα μηνύματος:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold')).grid(row=2, column=0, sticky='w', pady=(0, 3))
-        self._body_txt = st3.ScrolledText(body, width=54, height=8,
+        self._body_txt = st3.ScrolledText(body, width=58, height=9,
                                            font=('Arial', 9), relief='solid', bd=1, wrap=tk.WORD)
-        self._body_txt.grid(row=3, column=0, columnspan=2, pady=(0, 10))
+        self._body_txt.grid(row=3, column=0, columnspan=2, pady=(0, 6))
 
-        # Παραλήπτες
-        tk.Label(body, text='Παραλήπτες:', bg=C['bg'], fg=C['hdr_bg'],
-                 font=('Arial', 9, 'bold')).grid(row=4, column=0, sticky='w', pady=(0, 3))
+        # ── Checkbox αδυναμία αναθέσεων ──────────────────────────────────────
+        self._ady_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(body,
+                       text='Συμπερίληψη πρότασης για αδυναμία αναθέσεων',
+                       variable=self._ady_var,
+                       bg=C['bg'], fg=C['hdr_bg'],
+                       selectcolor=C['sel_bg'], activebackground=C['bg'],
+                       font=('Arial', 9),
+                       command=self._refresh_body).grid(
+                       row=4, column=0, columnspan=2, sticky='w', pady=(0, 10))
 
-        _test_addr = getattr(config, 'TEST_EMAIL', '') or getattr(config, 'FROM_EMAIL', '')
-        _prod_list = 'dim-a@thess.sch.gr\nnip-a@thess.sch.gr\nitdipea@sch.gr'
-        self._recip_mode = tk.StringVar(value='prod')
-        rf = tk.Frame(body, bg=C['bg'])
-        rf.grid(row=5, column=0, columnspan=2, sticky='w', pady=(0, 4))
+        # ── Παραλήπτες ───────────────────────────────────────────────────────
+        tk.Label(body, text='Συμπληρώστε παραλήπτες:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold')).grid(row=5, column=0, sticky='w', pady=(0, 3))
 
-        def _on_mode():
-            val = _prod_list if self._recip_mode.get() == 'prod' else _test_addr
-            self._recip_txt.delete('1.0', tk.END)
-            self._recip_txt.insert('1.0', val)
-
-        tk.Radiobutton(rf, text='Σχολεία  (dim-a, nip-a)',
-                       variable=self._recip_mode, value='prod',
-                       bg=C['bg'], fg=C['hdr_bg'], selectcolor=C['sel_bg'],
-                       activebackground=C['bg'], font=('Arial', 9),
-                       command=_on_mode).pack(side='left', padx=(0, 16))
-        tk.Radiobutton(rf, text=f'Δοκιμαστικό  ({"{_test_addr or chr(8212)}"})',
-                       variable=self._recip_mode, value='test',
-                       bg=C['bg'], fg=C['status_run'], selectcolor=C['sel_bg'],
-                       activebackground=C['bg'], font=('Arial', 9),
-                       command=_on_mode).pack(side='left')
-
-        self._recip_txt = st3.ScrolledText(body, width=54, height=3,
+        _saved = getattr(config, 'INFORM_RECIPIENTS', '')
+        self._recip_txt = st3.ScrolledText(body, width=42, height=4,
                                             font=('Consolas', 8), relief='solid', bd=1, wrap=tk.NONE)
-        self._recip_txt.grid(row=6, column=0, columnspan=2, pady=(0, 8))
+        self._recip_txt.grid(row=6, column=0, pady=(0, 4), sticky='ew')
+        self._recip_txt.insert('1.0', _saved)
 
+        tk.Button(body, text='💾 Αποθήκευση',
+                  bg=C['bg2'], fg=C['hdr_bg'],
+                  font=('Arial', 8), relief='flat',
+                  padx=8, pady=4, cursor='hand2',
+                  command=self._save_recipients).grid(
+                  row=6, column=1, sticky='nw', padx=(8, 0))
+
+        # ── Status + κουμπί αποστολής ─────────────────────────────────────────
         self._status_var = tk.StringVar(value='')
         tk.Label(body, textvariable=self._status_var, bg=C['bg'],
-                 fg=C['status_run'], font=('Arial', 8), wraplength=400,
-                 justify='left').grid(row=7, column=0, columnspan=2, sticky='w', pady=(0, 4))
-        self._send_btn = tk.Button(body, text='✉  Αποστολή Email',
+                 fg=C['status_run'], font=('Arial', 8), wraplength=420,
+                 justify='left').grid(row=7, column=0, columnspan=2, sticky='w', pady=(4, 2))
+
+        self._send_btn = tk.Button(body, text='✉  Αποστολή',
                   bg=C['btn_bg'], fg=C['btn_fg'],
                   font=('Arial', 10, 'bold'), relief='flat',
                   padx=18, pady=6, cursor='hand2',
                   command=self._send)
         self._send_btn.grid(row=8, column=0, columnspan=2, pady=(4, 0), sticky='e')
+
         body.columnconfigure(0, weight=1)
 
-        GREEK_DAYS = ['Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη',
-                      'Παρασκευή', 'Σάββατο', 'Κυριακή']
-        from datetime import datetime as _dt2
-        now = _dt2.now()
-        day_name   = GREEK_DAYS[now.weekday()]
-        date_short = f'{now.day}/{now.month}/{now.year}'
-        date_long  = f'{day_name} {date_short}'
-        self._subj_var.set(f'Επιβεβαίωση δεδομένων στο myschool για {date_short}')
-        self._body_txt.insert('1.0',
-            f'Καλή σας μέρα,\n\n\n'
-            f'Σήμερα, {date_long}, κάνουμε επιβεβαίωση δεδομένων στο myschool.\n\n\n'
-            f'(Για πάγιες περιπτώσεις αδυναμίας αναθέσεων έχουν γίνει ήδη οι απαραίτητες '
-            f'ενέργειες για να κάνετε επιβεβαίωση σήμερα χωρίς να σας εμφανίσει κάποιο '
-            f'πρόβλημα αλλιώς επικοινωνείτε με μένα).\n \n\n'
-            f'Με εκτίμηση,\n\n'
-            f'Για τη Δ/νση ΠΕ Ανατ. Θεσ/νίκης,\n'
-            f'Μιχάλης Κατσιρντάκης\n'
-            f'Υπεύθυνος MySchool (Θέματα προσωπικού)\n'
-            f'τηλ. 2310954145')
-        self._recip_txt.insert('1.0', _prod_list)
+        self._date_send_lg = date_send_lg
+        self._date_send    = date_send
+        self._date_obl     = date_obl
+        self._refresh_body()
+
+    def _refresh_body(self):
+        """Ανανεώνει το σώμα με ή χωρίς την πρόταση αδυναμίας."""
+        sig = config.email_signature().strip()
+        ady_line = (
+            '\nΓια πάγιες περιπτώσεις αδυναμίας αναθέσεων έχουν γίνει ήδη οι απαραίτητες '
+            'ενέργειες για να κάνετε επιβεβαίωση σήμερα χωρίς να σας εμφανίσει κάποιο '
+            'πρόβλημα αλλιώς επικοινωνείτε με μένα.\n'
+        ) if self._ady_var.get() else ''
+
+        text = (f'Καλή σας μέρα,\n\n'
+                f'Σήμερα, {self._date_send_lg}, κάνουμε επιβεβαίωση δεδομένων '
+                f'στο myschool για {self._date_obl}.\n'
+                f'{ady_line}')
+        if sig:
+            text += f'\n\n{sig}'
+        self._body_txt.delete('1.0', tk.END)
+        self._body_txt.insert('1.0', text)
+
+    def _save_recipients(self):
+        """Αποθηκεύει τους παραλήπτες στο local_settings.json."""
+        recips = self._recip_txt.get('1.0', tk.END).strip()
+        try:
+            _save_config({'INFORM_RECIPIENTS': recips})
+            setattr(config, 'INFORM_RECIPIENTS', recips)
+            self._status_var.set('✓ Παραλήπτες αποθηκεύτηκαν.')
+        except Exception as e:
+            self._status_var.set(f'❌ Σφάλμα αποθήκευσης: {e}')
 
     def _send(self):
         import threading as _th
+        from core.framework import send_email as _send_email
         subject = self._subj_var.get().strip()
         body    = self._body_txt.get('1.0', tk.END).strip()
-        recips  = [r.strip() for r in self._recip_txt.get('1.0', tk.END).splitlines() if r.strip()]
+        recips  = [r.strip() for r in self._recip_txt.get('1.0', tk.END).splitlines()
+                   if r.strip() and '@' in r]
         if not subject:
             messagebox.showwarning('Προσοχή', 'Συμπλήρωσε το Θέμα.', parent=self)
             return
@@ -3465,30 +3496,50 @@ class InformEmailDialog(tk.Toplevel):
             messagebox.showwarning('Προσοχή', 'Συμπλήρωσε το σώμα.', parent=self)
             return
         if not recips:
-            messagebox.showwarning('Προσοχή', 'Δεν υπάρχουν παραλήπτες.', parent=self)
+            messagebox.showwarning('Προσοχή',
+                'Δεν υπάρχουν παραλήπτες.\nΣυμπλήρωσε email (ένα ανά γραμμή).', parent=self)
             return
         if not getattr(config, 'FROM_PASSWORD', ''):
             messagebox.showwarning('Προσοχή',
                 'Ο κωδικός email δεν έχει οριστεί.\nΠήγαινε στις Ρυθμίσεις (⚙).', parent=self)
             return
-        n = len(recips)
+        n  = len(recips)
         pl = 'η' if n == 1 else 'ες'
         if not messagebox.askyesno('Επιβεβαίωση',
                 f'Αποστολή email σε {n} παραλήπτ{pl};\n\n' + '\n'.join(recips), parent=self):
             return
         self._send_btn.configure(state='disabled', bg=C['btn_dis'], text='Αποστολή...')
-        self._status_var.set('Εκκίνηση αποστολής...')
+        self._status_var.set('Αποστολή...')
+
+        _subj   = subject
+        _body   = body
+        _recips = recips[:]
+        _date   = self._date_send
+        _obl    = self._date_obl
+
         def _do():
             try:
-                from core.framework import send_plain_email
-                send_plain_email(config, recips, subject, body)
+                _send_email(config, _recips, _subj, _body, None)
+
+                # Επιβεβαιωτικό email στον αποστολέα
+                from_addr = getattr(config, 'FROM_EMAIL', '')
+                if from_addr:
+                    _confirm_subj = f'Αποστολή ενημερωτικού {_date}'
+                    _confirm_body = (
+                        f'Εστάλη ενημερωτικό email:\n\n'
+                        f'Ημερομηνία: {_date}\n'
+                        f'Θέμα: {_subj}\n'
+                        f'Παραλήπτες ({n}):\n' + '\n'.join(f'  • {r}' for r in _recips)
+                    )
+                    _send_email(config, [from_addr], _confirm_subj, _confirm_body, None)
+
                 def _ok():
-                    self._send_btn.configure(state='normal', bg=C['btn_bg'], text='✉  Αποστολή Email')
+                    self._send_btn.configure(state='normal', bg=C['btn_bg'], text='✉  Αποστολή')
                     self._status_var.set(f'✓ Εστάλη σε {n} παραλήπτ{pl}.')
                 self.after(0, _ok)
-            except Exception as m:
-                def _err():
-                    self._send_btn.configure(state='normal', bg=C['btn_bg'], text='✉  Αποστολή Email')
+            except Exception as err:
+                def _err(m=str(err)):
+                    self._send_btn.configure(state='normal', bg=C['btn_bg'], text='✉  Αποστολή')
                     self._status_var.set(f'❌ Σφάλμα: {m}')
                 self.after(0, _err)
         _th.Thread(target=_do, daemon=True).start()
@@ -3682,90 +3733,4 @@ def main():
             _splash_log(log_txt, f'✓ Python {sys.version.split()[0]}')
             time.sleep(0.3)
 
-            if getattr(sys, 'frozen', False):
-                # ── Frozen exe: βιβλιοθήκες είναι ήδη bundled ──────────
-                # ΔΕΝ τρέχουμε pip — sys.executable είναι το .exe, όχι Python
-                _splash_log(log_txt, '✓ Βιβλιοθήκες εγκατεστημένες')
-                time.sleep(0.2)
-            else:
-                # ── Development mode: έλεγχος & εγκατάσταση βιβλιοθηκών ─
-                _base    = os.path.dirname(os.path.abspath(__file__))
-                _libs_ok = os.path.join(_base, '.libs_ok')
-                _reqs    = [('pandas','pandas'), ('openpyxl','openpyxl'),
-                            ('selenium','selenium'), ('xlrd','xlrd'),
-                            ('html2text','html2text')]
-
-                if os.path.exists(_libs_ok):
-                    _splash_log(log_txt, '✓ Βιβλιοθήκες εγκατεστημένες')
-                    time.sleep(0.2)
-                else:
-                    _splash_log(log_txt, 'Έλεγχος βιβλιοθηκών...')
-                    for pkg, imp in _reqs:
-                        try:
-                            __import__(imp)
-                            _splash_log(log_txt, f'  ✓ {pkg}')
-                        except ImportError:
-                            _splash_log(log_txt, f'  ⬇ Εγκατάσταση {pkg}...')
-                            _sub.run([sys.executable, '-m', 'pip', 'install', pkg,
-                                      '--disable-pip-version-check', '-q'],
-                                     capture_output=True)
-                            _splash_log(log_txt, f'  ✓ {pkg} εγκαταστάθηκε')
-                        time.sleep(0.15)
-                    open(_libs_ok, 'w').close()
-
-            _splash_log(log_txt, 'Φόρτωση ελέγχων...')
-            checks = load_checks()
-            checks_result.append(checks)
-            _splash_log(log_txt, f'✓ {len(checks)} έλεγχοι φορτώθηκαν')
-            time.sleep(0.4)
-
-            elapsed   = time.time() - _start_time
-            remaining = 20 - elapsed
-            if remaining > 0:
-                time.sleep(remaining)
-
-        except Exception as _e:
-            checks_result.append([])
-        finally:
-            done_flag.set()
-
-    threading.Thread(target=_startup, daemon=True).start()
-
-    def _poll_checks():
-        if not done_flag.is_set():
-            root.after(100, _poll_checks)
-            return
-        checks = checks_result[0] if checks_result else []
-        if not checks:
-            pb.stop()
-            from tkinter import messagebox
-            _log_path = os.path.join(os.path.expanduser('~'), 'Desktop', 'crash.log')
-            messagebox.showerror('Σφάλμα',
-                f'Δεν φορτώθηκαν έλεγχοι!\n\nΔες το αρχείο:\n{_log_path}')
-            splash.destroy()
-            sys.exit(1)
-        pb.stop()
-        pb.configure(style='SplashDone.Horizontal.TProgressbar',
-                     mode='determinate', value=100)
-        _splash_log(log_txt, '✓ Έτοιμο!')
-        ready_btn.configure(command=_do_launch)
-        ready_btn.pack(pady=(6, 4))
-        splash.update()
-
-    root.after(100, _poll_checks)
-    root.mainloop()
-
-
-def _launch(root, checks, splash, pb):
-    """Κλείνει το splash και εμφανίζει το κύριο παράθυρο."""
-    pb.stop()
-    try:
-        splash.destroy()
-    except Exception:
-        pass
-    root.deiconify()
-    LauncherApp(root, checks)
-
-
-if __name__ == '__main__':
-    main()
+            if getattr(sys, 'fro

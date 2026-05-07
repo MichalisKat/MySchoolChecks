@@ -16,7 +16,7 @@ core/downloader.py
   4.20   — Άδειες Άνευ Αποδοχών
   4.21   — Άδειες (πλην ΑΑ)
   8.2    — Επιβεβαίωση δεδομένων σχολείων
-  ady    — Αδυνατούντες ανά ειδικότητα (άμεση εξαγωγή)
+  4.26   — Αδυνατούντες ανά ειδικότητα (4.26 ΠΔΕ / 4.27 ΔΔΕ)
 
 Χρήση:
   from core.downloader import MySchoolDownloader
@@ -51,7 +51,7 @@ REPORTS = [
              ['ctl00_cntStats_cbpSearch_sus_cbmPanel_cmbCalendarYear_LBI1T1',
               'ctl00_cntStats_cbpSearch_sus_cbmPanel_cmbCalendarYear_LBI2T1']),
     ('8.2',  'Επιβεβαίωση δεδομένων',          '/Statistics/Management.stat.LastConfirmDateUnits.aspx?parentId=9',           '8.2_Epivevaiwsi',     30, 60, False),
-    ('ady',  'Πλήθος αδυνατούντων/ειδικότητα',  '/Worker.add.incapable.aspx',                                                  'Adynatountes',        10, 40, True),
+    ('4.26', 'Αδυνατούντες ανά ειδικότητα',    '/Statistics/Management.stat.wrkInCapable.aspx?parentId=5',                    '4.26_Adynatountes',   30, 60, False),
 ]
 
 # Mapping: report_id → prefix ονόματος αποθηκευμένου αρχείου
@@ -70,7 +70,7 @@ FILE_PREFIX_MAP = {
     '4.20': '4.20_',
     '4.21': '4.21_',
     '8.2' : '8.2_',
-    'ady' : 'Adynatountes',
+    '4.26': '4.26_',
 }
 
 BASE_URL = 'https://app.myschool.sch.gr'

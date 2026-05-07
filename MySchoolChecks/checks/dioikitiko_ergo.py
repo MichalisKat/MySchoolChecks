@@ -36,7 +36,7 @@ CHECK_TITLE       = 'Έλεγχος καταχωρήσεων διοικητικ�
 CHECK_DESCRIPTION = 'Έλεγχος Γραμματειακής Υποστήριξης 4.12 vs Αδυνατούντες'
 RESULTS_FOLDER    = 'dioikitiko_ergo'
 HAS_EMAIL         = True
-REQUIRED_REPORTS  = ['4.12 — Άδειες/απουσίες', 'Αρχείο Αδυνατούντων ανά ειδικότητα']
+REQUIRED_REPORTS  = ['4.12 — Συμπλήρωση ωραρίου', '4.26/4.27 — Αδυνατούντες ανά ειδικότητα']
 CUSTOM_RUN        = True
 TEST_ONLY         = True   # Μόνο test mode — δεν αφορά σχολεία
 
@@ -53,9 +53,22 @@ COL_SXOL_ALT = 'Ονομασία Σχολείου'
 COL_KWD      = 'Κωδικός Φορέα'
 COL_EIDOS    = 'Είδος Σχολείου'
 
-# ── Regex για ΠΔΕ απόφαση ────────────────────────────────────────────────────
-# Π.χ. "ΠΔΕ 1234/15-03-2026" ή "ΠΔΕ 1234/2026"
-RE_PDE = re.compile(r'ΠΔΕ\s+\d+/[\d\-]+', re.IGNORECASE)
+# ── Regex για έγκυρη απόφαση ─────────────────────────────────────────────────
+# Αναγνωρίζει οποιαδήποτε από τις παρακάτω μορφές:
+#   ΑΔΑ: 64ΨΘ4653ΠΣ-ΒΞΒ          (ΑΔΑ με κωδικό)
+#   1234/15-03-2026 ΑΠΟΦ. ...     (αριθμός/ημερομηνία + ΑΠΟΦ)
+#   37/27-08-2025 ΠΡΑΞΗ ΠΥΣΔΕ    (αριθμός/ημερομηνία + ΠΡΑΞΗ)
+#   16759/02-09-2025 ΕΓΚΡΙΣΗ ΠΔΕ (αριθμός/ημερομηνία + ΕΓΚΡΙΣΗ)
+#   ΠΔΕ 1234/15-03-2026           (παλιά μορφή — διατηρείται)
+RE_PDE = re.compile(
+    r'ΑΔΑ\s*:\s*[\w\-]+'                        # ΑΔΑ: ΧΧΧΧ-ΧΧΧ
+    r'|ΠΔΕ\s+\d+/[\d\-]+'                       # ΠΔΕ 1234/15-03-2026
+    r'|\d+(?:/[Α-ΩA-Z]+)?/\d{2}-\d{2}-\d{4}'   # 1234(/Η)/15-03-2026
+    r'|\bΑΠΟΦ\b'                                 # ΑΠΟΦ. (οπουδήποτε)
+    r'|\bΠΡΑΞΗ\b'                                # ΠΡΑΞΗ
+    r'|\bΕΓΚΡΙΣΗ\b',                             # ΕΓΚΡΙΣΗ
+    re.IGNORECASE | re.UNICODE
+)
 
 # ── Χρώματα Excel ────────────────────────────────────────────────────────────
 COLOR_HEADER    = '1F4E79'
@@ -445,7 +458,7 @@ def run(config):
     print('=' * 65)
 
     path_412 = get_downloaded_file('4.12', 'Αρχείο 4.12 [csv]:', csv_only=True, silent=True)
-    path_ady = get_downloaded_file('ady', 'Αρχείο Αδυνατούντων ανά ειδικότητα [csv / xlsx]:')
+    path_ady = get_downloaded_file('4.26', 'Αρχείο Αδυνατούντων ανά ειδικότητα (4.26/4.27) [csv / xlsx]:', silent=True)
 
     # Έλεγχος αρχείων πριν ζητηθούν παράμετροι
     if path_412 is None or path_ady is None:
@@ -498,27 +511,4 @@ def run(config):
     body = (
         f'Σύνοψη ελέγχου καταχωρήσεων διοικητικού έργου — {today.strftime("%d/%m/%Y")}\n'
         f'{"─"*50}\n\n'
-        f'{summary1}\n\n'
-        f'{summary2}\n\n'
-        f'Λεπτομερειες στο επισυναπτομενο αρχειο.'
-    )
-
-    # Email
-    if do_send:
-        cc_extra  = getattr(config, 'TEST_EMAIL_CC', None)
-        to_list   = [config.TEST_EMAIL] + ([cc_extra] if cc_extra else [])
-        subject   = f'[TEST] {EMAIL_SUBJECT} — {today.strftime("%d/%m/%Y")}'
-
-        print(f'\n  Προεπισκόπηση body:\n{"─"*40}')
-        print(body)
-        print('─' * 40)
-        try:
-            _send(config, to_list, subject, body, out_path)
-            print(f'  ✓ Εστάλη στο {", ".join(to_list)}')
-        except Exception as e:
-            print(f'  ✗ Σφάλμα: {e}')
-
-    popup_body = body + (
-        f'\n\n{"─"*40}\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
-    )
-    _show_results_popup('Διοικητικό Έργο', popup_body, excel_path=out_path)
+        f'{

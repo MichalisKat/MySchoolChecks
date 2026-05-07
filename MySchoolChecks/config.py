@@ -28,6 +28,9 @@ BROWSER = 'chrome'
 # β”€β”€ Ξ‘ΟΟ‡ΞµΞ―ΞΏ Ξ‘Ξ΄Ο…Ξ½Ξ±Ο„ΞΏΟΞ½Ο„Ο‰Ξ½ Ο…Ο€Ο Ξ­Ξ³ΞΊΟΞΉΟƒΞ· β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€
 ADY_XORIS_EGKRISI_PATH = ''
 
+# ── Παραλήπτες ενημερωτικού email ───────────────────────────────────────────
+INFORM_RECIPIENTS = ''   # emails παραλητών (ένα ανά γραμμή)
+
 
 def email_signature():
     """Ξ•Ο€ΞΉΟƒΟ„ΟΞ­Ο†ΞµΞΉ Ο„Ξ·Ξ½ Ο…Ο€ΞΏΞ³ΟΞ±Ο†Ξ® email Ξ²Ξ¬ΟƒΞµΞΉ Ο„Ο‰Ξ½ ΟΟ…ΞΈΞΌΞ―ΟƒΞµΟ‰Ξ½."""
@@ -87,15 +90,4 @@ def _load_local():
     # 2. Ξ¦ΟΟΟ„Ο‰ΟƒΞµ ΞµΟ…Ξ±Ξ―ΟƒΞΈΞ·Ο„Ξ± Ξ±Ο€Ο Windows Credential Manager
     try:
         import keyring
-        _SENSITIVE = ('MYSCHOOL_USER', 'MYSCHOOL_PASS', 'FROM_PASSWORD')
-        _SERVICE   = 'MySchoolChecks'
-        g = globals()
-        for key in _SENSITIVE:
-            val = keyring.get_password(_SERVICE, key)
-            if val:
-                g[key] = val
-    except Exception:
-        pass
-
-
-_load_local()
+        _SENSITIVE = ('MYSCHOOL_USER', 'MYSC
