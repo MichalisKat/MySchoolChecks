@@ -3809,4 +3809,187 @@ def _show_splash(root):
 
 def _splash_log(log_txt, msg):
     def _do():
-        
+        log_txt.configure(state='normal')
+        log_txt.insert(tk.END, msg + '\n')
+        log_txt.see(tk.END)
+        log_txt.configure(state='disabled')
+    try:
+        log_txt.after(0, _do)
+    except Exception:
+        pass
+
+
+
+def _play_startup_sound(path, on_finished):
+    """Παίζει MP3 μέσω MCI (blocking). Καλεί on_finished() μόνο αν το άνοιγμα
+    του αρχείου πέτυχε — ώστε αποτυχία MCI να μην προκαλεί πρόωρο launch."""
+    _opened = False
+    try:
+        import ctypes
+        mci = ctypes.windll.winmm.mciSendStringW
+        if mci(f'open "{path}" type mpegvideo alias splash_snd', None, 0, None) == 0:
+            _opened = True
+            mci('play splash_snd wait', None, 0, None)
+    except Exception:
+        pass
+    if _opened:
+        on_finished()
+
+
+def _stop_startup_sound():
+    try:
+        import ctypes
+        mci = ctypes.windll.winmm.mciSendStringW
+        mci('stop splash_snd', None, 0, None)
+        mci('close splash_snd', None, 0, None)
+    except Exception:
+        pass
+
+
+
+def main():
+    try:
+        from ctypes import windll
+        windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+
+    root = tk.Tk()
+    root.withdraw()
+
+    ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
+    if os.path.exists(ico):
+        try: root.iconbitmap(ico)
+        except Exception: pass
+
+    splash, pb, log_txt, ready_btn = _show_splash(root)
+
+    checks_result = []
+    done_flag     = threading.Event()
+    launched      = [False]
+
+    def _do_launch():
+        if not launched[0]:
+            launched[0] = True
+            _stop_startup_sound()
+            # Περιμένουμε το done_flag (20s) πριν ανοίξουμε — σε περίπτωση
+            # που η μουσική τελειώσει νωρίτερα από τον χρονομετρητή
+            def _wait_ready():
+                if not done_flag.is_set():
+                    root.after(100, _wait_ready)
+                    return
+                checks = checks_result[0] if checks_result else []
+                _launch(root, checks, splash, pb)
+            root.after(0, _wait_ready)
+
+    _snd_path  = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'startup.mp3')
+    _has_sound = os.path.exists(_snd_path)
+    if _has_sound:
+        threading.Thread(target=_play_startup_sound,
+                         args=(_snd_path, _do_launch), daemon=True).start()
+
+    def _startup():
+        import subprocess as _sub
+        import traceback as _tb
+        _log_path = os.path.join(os.path.expanduser('~'), 'Desktop', 'crash.log')
+
+        def _log(msg):
+            try:
+                with open(_log_path, 'a', encoding='utf-8') as _f:
+                    _f.write(msg + '\n')
+            except Exception:
+                pass
+
+        try:
+            _start_time = time.time()
+
+            _splash_log(log_txt, f'✓ Python {sys.version.split()[0]}')
+            time.sleep(0.3)
+
+            if getattr(sys, 'frozen', False):
+                # ── Frozen exe: βιβλιοθήκες είναι ήδη bundled ──────────
+                # ΔΕΝ τρέχουμε pip — sys.executable είναι το .exe, όχι Python
+                _splash_log(log_txt, '✓ Βιβλιοθήκες εγκατεστημένες')
+                time.sleep(0.2)
+            else:
+                # ── Development mode: έλεγχος & εγκατάσταση βιβλιοθηκών ─
+                _base    = os.path.dirname(os.path.abspath(__file__))
+                _libs_ok = os.path.join(_base, '.libs_ok')
+                _reqs    = [('pandas','pandas'), ('openpyxl','openpyxl'),
+                            ('selenium','selenium'), ('xlrd','xlrd'),
+                            ('html2text','html2text')]
+
+                if os.path.exists(_libs_ok):
+                    _splash_log(log_txt, '✓ Βιβλιοθήκες εγκατεστημένες')
+                    time.sleep(0.2)
+                else:
+                    _splash_log(log_txt, 'Έλεγχος βιβλιοθηκών...')
+                    for pkg, imp in _reqs:
+                        try:
+                            __import__(imp)
+                            _splash_log(log_txt, f'  ✓ {pkg}')
+                        except ImportError:
+                            _splash_log(log_txt, f'  ⬇ Εγκατάσταση {pkg}...')
+                            _sub.run([sys.executable, '-m', 'pip', 'install', pkg,
+                                      '--disable-pip-version-check', '-q'],
+                                     capture_output=True)
+                            _splash_log(log_txt, f'  ✓ {pkg} εγκαταστάθηκε')
+                        time.sleep(0.15)
+                    open(_libs_ok, 'w').close()
+
+            _splash_log(log_txt, 'Φόρτωση ελέγχων...')
+            checks = load_checks()
+            checks_result.append(checks)
+            _splash_log(log_txt, f'✓ {len(checks)} έλεγχοι φορτώθηκαν')
+            time.sleep(0.4)
+
+            elapsed   = time.time() - _start_time
+            remaining = 20 - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
+
+        except Exception as _e:
+            checks_result.append([])
+        finally:
+            done_flag.set()
+
+    threading.Thread(target=_startup, daemon=True).start()
+
+    def _poll_checks():
+        if not done_flag.is_set():
+            root.after(100, _poll_checks)
+            return
+        checks = checks_result[0] if checks_result else []
+        if not checks:
+            pb.stop()
+            from tkinter import messagebox
+            _log_path = os.path.join(os.path.expanduser('~'), 'Desktop', 'crash.log')
+            messagebox.showerror('Σφάλμα',
+                f'Δεν φορτώθηκαν έλεγχοι!\n\nΔες το αρχείο:\n{_log_path}')
+            splash.destroy()
+            sys.exit(1)
+        pb.stop()
+        pb.configure(style='SplashDone.Horizontal.TProgressbar',
+                     mode='determinate', value=100)
+        _splash_log(log_txt, '✓ Έτοιμο!')
+        ready_btn.configure(command=_do_launch)
+        ready_btn.pack(pady=(6, 4))
+        splash.update()
+
+    root.after(100, _poll_checks)
+    root.mainloop()
+
+
+def _launch(root, checks, splash, pb):
+    """Κλείνει το splash και εμφανίζει το κύριο παράθυρο."""
+    pb.stop()
+    try:
+        splash.destroy()
+    except Exception:
+        pass
+    root.deiconify()
+    LauncherApp(root, checks)
+
+
+if __name__ == '__main__':
+    main()

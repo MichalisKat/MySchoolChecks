@@ -1,0 +1,21 @@
+{
+  "eidikotita_tool": {
+    "subject": "Στοιχεία τοποθετήσεων εκπ/κών \"{specialty}\" σε σχολικές μονάδες",
+    "body": "Αποτύπωση Myschool 07/05/2026.\n\nΚαλημέρα σας,\n\nΕπισυνάπτεται πίνακας excel με τους εκπαιδευτικούς ειδικότητας {specialty} που υπηρετούν στη Δ/νση μας σύμφωνα με τα καταχωρημένα στοιχεία στο myschool.\n\n\nΣτη διάθεσή σας για οποιαδήποτε πληροφορία",
+    "advisor_email": "katsirntakis@gmail.com",
+    "direction": "Α΄ ΘΕΣΣΑΛΟΝΙΚΗΣ (Π.Ε.) 2018"
+  },
+  "monada_tool": {
+    "subject": "Στοιχεία σχολικών μονάδων Δήμου {dimos}",
+    "body": "Αποτύπωση Myschool {date}.\n\nΚαλημέρα σας,\n\nΕπισυνάπτεται πίνακας excel με τα στοιχεία των σχολικών μονάδων Δήμου {dimos} σύμφωνα με τα καταχωρημένα στοιχεία στο myschool.\n\n\nΣτη διάθεσή σας για οποιαδήποτε πληροφορία",
+    "dimos_email": ""
+  },
+  "INFORM_RECIP_SCHOOLS": "katsirntakis@gmail.com",
+  "INFORM_RECIPIENTS": "katsirntakis@gmail.com",
+  "FROM_NAME": "ΔΙ.Π.Ε. Αν. Θεσσαλονίκης",
+  "FROM_EMAIL": "itdipea@sch.gr",
+  "TEST_EMAIL": "itdipea@sch.gr",
+  "SMTP_HOST": "mail.sch.gr",
+  "EMAIL_SIGNATURE": "Με εκτίμηση,\n\nΓια τη Δ/νση ΠΕ Ανατ. Θεσ/νίκης,\nΜιχάλης Κατσιρντάκης\nΤμ. Προσωπικού\nΥπεύθυνος MySchool (Θέματα προσωπικού)\nτηλ. 2310954145",
+  "BROWSER": "chrome"
+}
