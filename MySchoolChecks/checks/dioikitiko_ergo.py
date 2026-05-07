@@ -125,16 +125,19 @@ def load_adynatountes(path):
         df = pd.read_excel(path)
     df.columns = [c.strip() for c in df.columns]
 
-    # Στήλη κωδικού: ακριβώς "Κωδικός", αλλιώς πρώτη στήλη
-    eid_col = 'Κωδικός' if 'Κωδικός' in df.columns else df.columns[0]
+    # Στήλη κωδικού ειδικότητας
+    _eid_candidates = ['Κωδ. Ειδικότητας', 'Κωδικός Ειδικότητας', 'Κωδικός']
+    eid_col = next((c for c in _eid_candidates if c in df.columns), df.columns[0])
 
-    # Στήλη πλήθους: οτιδήποτε εκτός από "Κωδικός" και κείμενο ειδικότητας
-    cnt_col = next((c for c in df.columns
-                    if c != eid_col and any(w in c.lower()
-                    for w in ['πλήθος','αριθμ','σύνολ','count','total','σύν'])),
-                   None)
+    # Στήλη πλήθους
+    _cnt_candidates = ['Αριθμός', 'Πλήθος', 'Σύνολο']
+    cnt_col = next((c for c in _cnt_candidates if c in df.columns), None)
     if not cnt_col:
-        # Fallback: δεύτερη αριθμητική στήλη
+        cnt_col = next((c for c in df.columns
+                        if c != eid_col and any(w in c.lower()
+                        for w in ['αριθμ','πλήθος','σύνολ','count','total'])),
+                       None)
+    if not cnt_col:
         cnt_col = next((c for c in df.columns if c != eid_col), df.columns[1])
 
     print(f'  Αδυνατούντες — στήλη κωδικού: "{eid_col}", στήλη πλήθους: "{cnt_col}"')
