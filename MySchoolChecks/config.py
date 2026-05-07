@@ -90,4 +90,15 @@ def _load_local():
     # 2. Ξ¦ΟΟΟ„Ο‰ΟƒΞµ ΞµΟ…Ξ±Ξ―ΟƒΞΈΞ·Ο„Ξ± Ξ±Ο€Ο Windows Credential Manager
     try:
         import keyring
-        _SENSITIVE = ('MYSCHOOL_USER', 'MYSC
+        _SENSITIVE = ('MYSCHOOL_USER', 'MYSCHOOL_PASS', 'FROM_PASSWORD')
+        _SERVICE   = 'MySchoolChecks'
+        g = globals()
+        for key in _SENSITIVE:
+            val = keyring.get_password(_SERVICE, key)
+            if val:
+                g[key] = val
+    except Exception:
+        pass
+
+
+_load_local()

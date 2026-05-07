@@ -511,4 +511,27 @@ def run(config):
     body = (
         f'Σύνοψη ελέγχου καταχωρήσεων διοικητικού έργου — {today.strftime("%d/%m/%Y")}\n'
         f'{"─"*50}\n\n'
-        f'{
+        f'{summary1}\n\n'
+        f'{summary2}\n\n'
+        f'Λεπτομερειες στο επισυναπτομενο αρχειο.'
+    )
+
+    # Email
+    if do_send:
+        cc_extra  = getattr(config, 'TEST_EMAIL_CC', None)
+        to_list   = [config.TEST_EMAIL] + ([cc_extra] if cc_extra else [])
+        subject   = f'[TEST] {EMAIL_SUBJECT} — {today.strftime("%d/%m/%Y")}'
+
+        print(f'\n  Προεπισκόπηση body:\n{"─"*40}')
+        print(body)
+        print('─' * 40)
+        try:
+            _send(config, to_list, subject, body, out_path)
+            print(f'  ✓ Εστάλη στο {", ".join(to_list)}')
+        except Exception as e:
+            print(f'  ✗ Σφάλμα: {e}')
+
+    popup_body = body + (
+        f'\n\n{"─"*40}\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
+    )
+    _show_results_popup('Διοικητικό Έργο', popup_body, excel_path=out_path)

@@ -3733,4 +3733,90 @@ def main():
             _splash_log(log_txt, f'✓ Python {sys.version.split()[0]}')
             time.sleep(0.3)
 
-            if getattr(sys, 'fro
+            if getattr(sys, 'frozen', False):
+                # ── Frozen exe: βιβλιοθήκες είναι ήδη bundled ──────────
+                # ΔΕΝ τρέχουμε pip — sys.executable είναι το .exe, όχι Python
+                _splash_log(log_txt, '✓ Βιβλιοθήκες εγκατεστημένες')
+                time.sleep(0.2)
+            else:
+                # ── Development mode: έλεγχος & εγκατάσταση βιβλιοθηκών ─
+                _base    = os.path.dirname(os.path.abspath(__file__))
+                _libs_ok = os.path.join(_base, '.libs_ok')
+                _reqs    = [('pandas','pandas'), ('openpyxl','openpyxl'),
+                            ('selenium','selenium'), ('xlrd','xlrd'),
+                            ('html2text','html2text')]
+
+                if os.path.exists(_libs_ok):
+                    _splash_log(log_txt, '✓ Βιβλιοθήκες εγκατεστημένες')
+                    time.sleep(0.2)
+                else:
+                    _splash_log(log_txt, 'Έλεγχος βιβλιοθηκών...')
+                    for pkg, imp in _reqs:
+                        try:
+                            __import__(imp)
+                            _splash_log(log_txt, f'  ✓ {pkg}')
+                        except ImportError:
+                            _splash_log(log_txt, f'  ⬇ Εγκατάσταση {pkg}...')
+                            _sub.run([sys.executable, '-m', 'pip', 'install', pkg,
+                                      '--disable-pip-version-check', '-q'],
+                                     capture_output=True)
+                            _splash_log(log_txt, f'  ✓ {pkg} εγκαταστάθηκε')
+                        time.sleep(0.15)
+                    open(_libs_ok, 'w').close()
+
+            _splash_log(log_txt, 'Φόρτωση ελέγχων...')
+            checks = load_checks()
+            checks_result.append(checks)
+            _splash_log(log_txt, f'✓ {len(checks)} έλεγχοι φορτώθηκαν')
+            time.sleep(0.4)
+
+            elapsed   = time.time() - _start_time
+            remaining = 20 - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
+
+        except Exception as _e:
+            checks_result.append([])
+        finally:
+            done_flag.set()
+
+    threading.Thread(target=_startup, daemon=True).start()
+
+    def _poll_checks():
+        if not done_flag.is_set():
+            root.after(100, _poll_checks)
+            return
+        checks = checks_result[0] if checks_result else []
+        if not checks:
+            pb.stop()
+            from tkinter import messagebox
+            _log_path = os.path.join(os.path.expanduser('~'), 'Desktop', 'crash.log')
+            messagebox.showerror('Σφάλμα',
+                f'Δεν φορτώθηκαν έλεγχοι!\n\nΔες το αρχείο:\n{_log_path}')
+            splash.destroy()
+            sys.exit(1)
+        pb.stop()
+        pb.configure(style='SplashDone.Horizontal.TProgressbar',
+                     mode='determinate', value=100)
+        _splash_log(log_txt, '✓ Έτοιμο!')
+        ready_btn.configure(command=_do_launch)
+        ready_btn.pack(pady=(6, 4))
+        splash.update()
+
+    root.after(100, _poll_checks)
+    root.mainloop()
+
+
+def _launch(root, checks, splash, pb):
+    """Κλείνει το splash και εμφανίζει το κύριο παράθυρο."""
+    pb.stop()
+    try:
+        splash.destroy()
+    except Exception:
+        pass
+    root.deiconify()
+    LauncherApp(root, checks)
+
+
+if __name__ == '__main__':
+    main()
