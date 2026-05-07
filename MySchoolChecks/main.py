@@ -1739,12 +1739,14 @@ class EidikotitaDialog(tk.Toplevel):
     def _build_form(self):
         self._clear()
 
-        tk.Label(self, text='Εκπαιδευτικοί ανά Ειδικότητα',
-                 bg=C['bg'], fg=C['hdr_bg'],
-                 font=('Arial', 11, 'bold')).pack(anchor='w', padx=18, pady=(14, 0))
-        tk.Label(self, text='για αποστολή στοιχείων ενδεικτικά σε Συμβούλους Εκπ/σης  (Απαιτούνται: Τοποθετήσεις, 2.1, 4.1, 4.2, 4.16)',
-                 bg=C['bg'], fg=C['desc'],
-                 font=('Arial', 8, 'italic')).pack(anchor='w', padx=18, pady=(0, 6))
+        hdr = tk.Frame(self, bg='#0F6E56', pady=10)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='📋  Εκπαιδευτικοί ανά Ειδικότητα',
+                 bg='#0F6E56', fg='white',
+                 font=('Arial', 12, 'bold')).pack()
+        tk.Label(hdr, text='για αποστολή στοιχείων ενδεικτικά σε Συμβούλους Εκπ/σης  (Απαιτούνται: Τοποθετήσεις, 2.1, 4.1, 4.2, 4.16)',
+                 bg='#0F6E56', fg='#A8D8C8',
+                 font=('Arial', 8, 'italic')).pack()
 
         # Προειδοποίηση αν λείπουν κρίσιμα αρχεία
         missing = []
@@ -2497,12 +2499,14 @@ class MonadaDialog(tk.Toplevel):
     def _build_form(self):
         self._clear()
 
-        tk.Label(self, text='Στοιχεία Σχολικών Μονάδων',
-                 bg=C['bg'], fg=C['hdr_bg'],
-                 font=('Arial', 11, 'bold')).pack(anchor='w', padx=18, pady=(14, 0))
-        tk.Label(self, text='για αποστολή στοιχείων ενδεικτικά σε Δήμους  (Απαιτούνται: 3.1, 2.2)',
-                 bg=C['bg'], fg=C['desc'],
-                 font=('Arial', 8, 'italic')).pack(anchor='w', padx=18, pady=(0, 6))
+        hdr = tk.Frame(self, bg='#0F6E56', pady=10)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='🏫  Στοιχεία Σχολικών Μονάδων',
+                 bg='#0F6E56', fg='white',
+                 font=('Arial', 12, 'bold')).pack()
+        tk.Label(hdr, text='για αποστολή στοιχείων ενδεικτικά σε Δήμους  (Απαιτούνται: 3.1, 2.2)',
+                 bg='#0F6E56', fg='#A8D8C8',
+                 font=('Arial', 8, 'italic')).pack()
 
         # Προειδοποίηση αν λείπουν αρχεία
         missing = []
