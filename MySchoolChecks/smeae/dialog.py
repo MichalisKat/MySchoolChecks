@@ -307,14 +307,27 @@ class SmeaeDialog(tk.Toplevel):
                     outfile = write_to_excel(diffs, sf, out_dir, year)
                     on_log(f'  → {os.path.basename(outfile)}')
 
+                # Βρες το τελευταίο αρχείο αποτελεσμάτων
+                import glob as _glob
+                _diff_files = sorted(_glob.glob(os.path.join(out_dir, 'differences_*.xlsx')))
+                _diff_last  = _diff_files[-1] if _diff_files else None
+                if _diff_last:
+                    on_log(f'\n📄 Αρχείο: {_diff_last}')
                 on_log('\n✓ Σύγκριση ολοκληρώθηκε!')
-                self.after(0, lambda: [
-                    self._cmp_btn.configure(
-                        state='normal', bg=C['btn_bg'],
-                        text='🔍  Εκτέλεση Σύγκρισης'),
-                    messagebox.showinfo('Σύγκριση', 'Η σύγκριση ολοκληρώθηκε!',
-                                        parent=self)
-                ])
+
+                def _done():
+                    self._cmp_btn.configure(state='normal', bg=C['btn_bg'],
+                                            text='🔍  Εκτέλεση Σύγκρισης')
+                    if _diff_last:
+                        ans = messagebox.askyesno('Σύγκριση',
+                            'Η σύγκριση ολοκληρώθηκε!\n\nΆνοιγμα αρχείου αποτελεσμάτων;',
+                            parent=self)
+                        if ans:
+                            os.startfile(_diff_last)
+                    else:
+                        messagebox.showinfo('Σύγκριση', 'Η σύγκριση ολοκληρώθηκε!',
+                                            parent=self)
+                self.after(0, _done)
             except Exception as e:
                 err = str(e)
                 self.after(0, lambda m=err: [
@@ -430,20 +443,21 @@ class SmeaeDialog(tk.Toplevel):
                  bg=C['bg'], fg=C['desc'],
                  font=('Arial', 8), justify='left').pack(anchor='w', pady=(0, 8))
 
+        # Επιλογή τρόπου αποστολής
+        self._email_mode = tk.StringVar(value='schools')
         opt = tk.Frame(body, bg=C['bg'])
         opt.pack(fill='x', pady=(0, 6))
-        self._dry_run  = tk.BooleanVar(value=True)
-        self._one_only = tk.BooleanVar(value=False)
-        tk.Checkbutton(opt, text='Dry-run (χωρίς αποστολή)',
-                       variable=self._dry_run,
+        _from_email = getattr(self._cfg, 'FROM_EMAIL', '') or '...'
+        tk.Radiobutton(opt, text='Σχολεία (ένα email ανά σχολείο)',
+                       variable=self._email_mode, value='schools',
                        bg=C['bg'], selectcolor=C['sel_bg'],
                        activebackground=C['bg'],
-                       font=('Arial', 9)).pack(side='left', padx=(0, 16))
-        tk.Checkbutton(opt, text='Μόνο 1 email (δοκιμή)',
-                       variable=self._one_only,
+                       font=('Arial', 9)).pack(anchor='w')
+        tk.Radiobutton(opt, text=f'Test mode — συνολικό αρχείο στο: {_from_email}',
+                       variable=self._email_mode, value='test',
                        bg=C['bg'], selectcolor=C['sel_bg'],
                        activebackground=C['bg'],
-                       font=('Arial', 9)).pack(side='left')
+                       font=('Arial', 9)).pack(anchor='w')
 
         self._email_log = self._make_log(body)
         br = tk.Frame(body, bg=C['bg'])
@@ -453,82 +467,50 @@ class SmeaeDialog(tk.Toplevel):
     def _start_emails(self):
         C    = self._C
         year = self._email_year.get().strip()
+        mode = self._email_mode.get()  # 'schools' ή 'test'
+        cfg  = self._cfg
 
-        # Αυτόματη ανίχνευση αρχείου 10. Βασικά Στοιχεία Σχολικών Μονάδων
-        sch_candidates = sorted(
-            glob.glob(os.path.join(self._dl_dir(year), '10.*'))
-        )
-        sch_path = next(
-            (f for f in sch_candidates
-             if not f.endswith(('.tmp', '.crdownload'))),
-            None
-        )
-        if not sch_path:
-            messagebox.showwarning('Προσοχή',
-                'Δεν βρέθηκε το αρχείο "10. Βασικά Στοιχεία Σχολικών Μονάδων".\n\n'
-                'Τρέξτε πρώτα τη Λήψη (tab ⬇).',
-                parent=self)
-            return
-        if not getattr(self._cfg, 'FROM_PASSWORD', '').strip():
+        if not getattr(cfg, 'FROM_PASSWORD', '').strip():
             messagebox.showwarning('Προσοχή',
                 'Ο κωδικός email δεν έχει οριστεί.\nΠήγαινε στις Ρυθμίσεις (⚙).',
                 parent=self)
             return
 
-        split_out = self._split_dir(year)
-        if not os.path.isdir(split_out) or \
-           not any(f.endswith('.xlsx') for f in os.listdir(split_out)):
-            messagebox.showwarning('Προσοχή',
-                f'Δεν βρέθηκαν αρχεία ανά σχολείο σε:\n{split_out}\n\n'
-                'Τρέξτε πρώτα τον Διαχωρισμό.', parent=self)
-            return
-
-        dry_run  = self._dry_run.get()
-        one_only = self._one_only.get()
-
-        if not dry_run:
-            ok = messagebox.askyesno(
-                'Επιβεβαίωση Αποστολής',
-                'Θα αποσταλούν emails σε ΟΛΑ τα σχολεία που έχουν αποκλίσεις.\n\n'
-                'Συνέχεια;', parent=self)
+        if mode == 'schools':
+            # Αποστολή ανά σχολείο — χρειάζεται αρχείο 10 + split φάκελο
+            sch_candidates = sorted(glob.glob(os.path.join(self._dl_dir(year), '10.*')))
+            sch_path = next(
+                (f for f in sch_candidates if not f.endswith(('.tmp', '.crdownload'))), None)
+            if not sch_path:
+                messagebox.showwarning('Προσοχή',
+                    'Δεν βρέθηκε το αρχείο "10. Βασικά Στοιχεία Σχολικών Μονάδων".\n\n'
+                    'Τρέξτε πρώτα τη Λήψη (tab ⬇).', parent=self)
+                return
+            split_out = self._split_dir(year)
+            if not os.path.isdir(split_out) or \
+               not any(f.endswith('.xlsx') for f in os.listdir(split_out)):
+                messagebox.showwarning('Προσοχή',
+                    f'Δεν βρέθηκαν αρχεία ανά σχολείο σε:\n{split_out}\n\n'
+                    'Τρέξτε πρώτα τον Διαχωρισμό.', parent=self)
+                return
+            ok = messagebox.askyesno('Επιβεβαίωση Αποστολής',
+                'Θα αποσταλούν emails σε ΟΛΑ τα σχολεία που έχουν αποκλίσεις.\n\nΣυνέχεια;',
+                parent=self)
             if not ok:
                 return
+        else:
+            # Test mode — στέλνει συνολικό αρχείο στο FROM_EMAIL
+            out_dir = self._out_dir(year)
+            diff_files = sorted(glob.glob(os.path.join(out_dir, 'differences_*.xlsx')))
+            if not diff_files:
+                messagebox.showwarning('Προσοχή',
+                    f'Δεν βρέθηκε αρχείο αποκλίσεων σε:\n{out_dir}\n\n'
+                    'Τρέξτε πρώτα τη Σύγκριση.', parent=self)
+                return
+            sch_path   = None
+            split_out  = None
+            diff_file  = diff_files[-1]  # πιο πρόσφατο
 
-        cfg = self._cfg
         self._email_btn.configure(state='disabled', bg=C['btn_dis'], text='Αποστολή...')
 
-        def on_log(msg):
-            self._log_append(self._email_log, msg)
-
-        def task():
-            try:
-                from smeae.compare import send_emails
-                send_emails(
-                    output_dir    = split_out,
-                    school_year   = year,
-                    email_from    = cfg.FROM_EMAIL,
-                    username      = cfg.FROM_EMAIL,
-                    password      = cfg.FROM_PASSWORD,
-                    smtp_host     = cfg.SMTP_HOST,
-                    school_dir_path = sch_path,
-                    dry_run       = dry_run,
-                    send_only_one = one_only,
-                    callback      = on_log,
-                )
-                on_log('\n✓ Αποστολή ολοκληρώθηκε!')
-                self.after(0, lambda: [
-                    self._email_btn.configure(
-                        state='normal', bg=C['btn_bg'],
-                        text='✉  Αποστολή Email'),
-                    messagebox.showinfo('Email', 'Αποστολή ολοκληρώθηκε!', parent=self)
-                ])
-            except Exception as e:
-                err = str(e)
-                self.after(0, lambda m=err: [
-                    self._email_btn.configure(
-                        state='normal', bg=C['btn_bg'],
-                        text='✉  Αποστολή Email'),
-                    messagebox.showerror('Σφάλμα Email', m, parent=self)
-                ])
-
-        threading.Thread(target=task, daemon=True).start()
+        def on_log(

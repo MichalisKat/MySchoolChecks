@@ -899,6 +899,12 @@ class LauncherApp:
                   padx=14, pady=4, cursor='hand2',
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
                   command=self._open_inform_email).pack(side='left', padx=(0, 0))
+        tk.Button(toolbar, text='📊  Έλεγχος Ε.Ε.Α.',
+                  bg=C['bg2'], fg=C['hdr_bg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=14, pady=4, cursor='hand2',
+                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
+                  command=self._open_smeae).pack(side='left', padx=(0, 0))
 
         # Κουμπί PANIC — dropdown με Έναρξη / Λήξη
         tk.Label(toolbar, text='|', bg=C['bg2'], fg=C['desc'],
@@ -939,7 +945,6 @@ class LauncherApp:
                              activebackground='#C62828', activeforeground='white',
                              font=('Arial', 10), relief='flat', bd=1)
         _plus_menu.add_command(label='👥  Τοποθετήσεις',  command=self._open_placements)
-        _plus_menu.add_command(label='📊  ΣΜΕΑΕ',         command=self._open_smeae)
 
         def _show_plus_menu(event=None):
             x = _plus_btn.winfo_rootx()
@@ -1110,8 +1115,6 @@ class LauncherApp:
         return True
 
     def _open_smeae(self):
-        if not self._require_password():
-            return
         import shutil
         docs = _docs_base()
         data_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'smeae_column_mappings.json')
@@ -3981,15 +3984,4 @@ def main():
 
 
 def _launch(root, checks, splash, pb):
-    """Κλείνει το splash και εμφανίζει το κύριο παράθυρο."""
-    pb.stop()
-    try:
-        splash.destroy()
-    except Exception:
-        pass
-    root.deiconify()
-    LauncherApp(root, checks)
-
-
-if __name__ == '__main__':
-    main()
+    """Κλείνει το splash και εμ

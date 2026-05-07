@@ -121,29 +121,15 @@ class SmeaeDownloader:
                 self._log(f'  Χρήση τοπικού driver: {_local}')
                 driver = webdriver.Chrome(service=ChromeService(_local), options=options)
             else:
-                # Fallback: Selenium Manager (απαιτεί internet) — ίδιο με core/downloader.py
-                self._log('  Αυτόματη αναζήτηση driver (απαιτεί internet)...')
+                self._log('  Αυτόματη εύρεση/λήψη ChromeDriver...')
                 try:
-                    driver = webdriver.Chrome(options=options)
+                    from webdriver_manager.chrome import ChromeDriverManager
+                    _wdm_path = ChromeDriverManager().install()
+                    driver = webdriver.Chrome(service=ChromeService(_wdm_path), options=options)
+                    self._log('  ChromeDriver OK')
                 except Exception as e:
-                    chrome_ver = ''
-                    try:
-                        import winreg
-                        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                            r'Software\Google\Chrome\BLBeacon')
-                        chrome_ver = winreg.QueryValueEx(key, 'version')[0]
-                        winreg.CloseKey(key)
-                    except Exception:
-                        pass
-                    ver_msg = f' (Chrome {chrome_ver})' if chrome_ver else ''
-                    raise RuntimeError(
-                        f'Δεν βρέθηκε Chrome WebDriver{ver_msg}.\n\n'
-                        f'Κατέβασε το chromedriver από:\n'
-                        f'https://storage.googleapis.com/chrome-for-testing-public/'
-                        f'{chrome_ver or "VERSION"}/win64/chromedriver-win64.zip\n\n'
-                        f'και τοποθέτησέ το στον φάκελο:\n'
-                        f'{os.path.normpath(os.path.join(_base, "..", "drivers", "chromedriver-win64"))}'
-                    ) from e
+                    self._log(f'  webdriver-manager απέτυχε: {e} — δοκιμάζω χωρίς service...')
+                    driver = webdriver.Chrome(options=options)
 
             wait = WebDriverWait(driver, 20)
 
@@ -280,3 +266,4 @@ class SmeaeDownloader:
                     pass
 
         return results
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
