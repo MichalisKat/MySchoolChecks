@@ -3984,4 +3984,15 @@ def main():
 
 
 def _launch(root, checks, splash, pb):
-    """Κλείνει το splash και εμ
+    """Κλείνει το splash και εμφανίζει το κύριο παράθυρο."""
+    pb.stop()
+    try:
+        splash.destroy()
+    except Exception:
+        pass
+    root.deiconify()
+    LauncherApp(root, checks)
+
+
+if __name__ == '__main__':
+    main()

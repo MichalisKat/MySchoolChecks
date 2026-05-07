@@ -513,4 +513,52 @@ class SmeaeDialog(tk.Toplevel):
 
         self._email_btn.configure(state='disabled', bg=C['btn_dis'], text='Αποστολή...')
 
-        def on_log(
+        def on_log(msg):
+            self._log_append(self._email_log, msg)
+
+        def task():
+            try:
+                from smeae.compare import send_emails, send_email_with_attachment
+                if mode == 'schools':
+                    send_emails(
+                        output_dir      = split_out,
+                        school_year     = year,
+                        email_from      = cfg.FROM_EMAIL,
+                        username        = cfg.FROM_EMAIL,
+                        password        = cfg.FROM_PASSWORD,
+                        smtp_host       = cfg.SMTP_HOST,
+                        school_dir_path = sch_path,
+                        dry_run         = False,
+                        send_only_one   = False,
+                        callback        = on_log,
+                    )
+                else:
+                    on_log(f'Test mode — αποστολή συνολικού αρχείου στο {cfg.FROM_EMAIL}')
+                    send_email_with_attachment(
+                        receiver_email  = cfg.FROM_EMAIL,
+                        attachment_path = diff_file,
+                        dry_run         = False,
+                        sender_email    = cfg.FROM_EMAIL,
+                        username        = cfg.FROM_EMAIL,
+                        password        = cfg.FROM_PASSWORD,
+                        smtp_host       = cfg.SMTP_HOST,
+                        first_email     = True,
+                        school_name     = 'Test',
+                        school_year     = year,
+                        callback        = on_log,
+                    )
+                on_log('\n✓ Αποστολή ολοκληρώθηκε!')
+                self.after(0, lambda: [
+                    self._email_btn.configure(
+                        state='normal', bg=C['btn_bg'], text='✉  Αποστολή Email'),
+                    messagebox.showinfo('Email', 'Αποστολή ολοκληρώθηκε!', parent=self)
+                ])
+            except Exception as e:
+                err = str(e)
+                self.after(0, lambda m=err: [
+                    self._email_btn.configure(
+                        state='normal', bg=C['btn_bg'], text='✉  Αποστολή Email'),
+                    messagebox.showerror('Σφάλμα Email', m, parent=self)
+                ])
+
+        threading.Thread(target=task, daemon=True).start()
