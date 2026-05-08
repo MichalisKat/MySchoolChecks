@@ -1112,8 +1112,6 @@ class LauncherApp:
         SmeaeDialog(self.root, config, docs, C)
 
     def _open_placements(self):
-        if not self._require_password():
-            return
         PlacementsDialog(self.root)
 
     def _open_editor(self):
@@ -3028,7 +3026,7 @@ class PlacementsDialog(tk.Toplevel):
 
         # ── Βήμα 1 ───────────────────────────────────────────────────────────
         sec1 = tk.LabelFrame(body,
-                             text='  Βήμα 1 — Μετατροπή/επεξεργασία αρχικού αρχείου  (μόνο για χρήση από Δ/νση Π.Ε. Αν. Θεσσαλονίκης)',
+                             text='  Βήμα 1 — Επεξεργασία αρχικού αρχείου  (μόνο για χρήση από Δ/νση Π.Ε. Αν. Θεσσαλονίκης)',
                              bg=self._SEC_BG, fg=self._LBL_STEP,
                              font=('Arial', 9, 'bold'),
                              bd=1, relief='groove', padx=10, pady=8)
@@ -3045,11 +3043,11 @@ class PlacementsDialog(tk.Toplevel):
                   command=self._browse_raw).pack(side='left', padx=(4, 0))
 
         self._conv_btn = tk.Button(sec1,
-                  text='Μετατροπή & άνοιγμα  →',
+                  text='Επεξεργασία & άνοιγμα  →',
                   bg=C['btn_bg'], fg=C['btn_fg'],
                   font=('Arial', 9, 'bold'), relief='flat',
                   padx=10, pady=4, cursor='hand2',
-                  command=self._convert)
+                  command=self._convert_with_auth)
         self._conv_btn.grid(row=1, column=0, sticky='e', pady=(6, 0))
 
         # ── Διαχωριστής ──────────────────────────────────────────────────────
@@ -3065,8 +3063,92 @@ class PlacementsDialog(tk.Toplevel):
         sec2.grid(row=2, column=0, sticky='ew', pady=(0, 8))
         sec2.columnconfigure(0, weight=1)
 
+        # Links γραμμή
+        lnk_row = tk.Frame(sec2, bg=C['bg'])
+        lnk_row.grid(row=0, column=0, sticky='w', pady=(0, 6))
+
+        def _open_template():
+            import sys, subprocess
+            tpl = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'placements_template.xlsx')
+            if os.path.exists(tpl):
+                os.startfile(tpl)
+            else:
+                messagebox.showwarning('Προσοχή', 'Το αρχείο προτύπου δεν βρέθηκε.', parent=self)
+
+        def _open_help():
+            help_win = tk.Toplevel(self)
+            help_win.title('Οδηγίες αρχείου Excel τοποθετήσεων')
+            help_win.configure(bg=C['bg'])
+            help_win.resizable(True, True)
+            help_win.transient(self)
+            help_win.geometry('640x580')
+            pw = self.winfo_x() + (self.winfo_width()  - 640) // 2
+            ph = self.winfo_y() + (self.winfo_height() - 580) // 2
+            help_win.geometry(f'+{pw}+{ph}')
+            hdr2 = tk.Frame(help_win, bg='#1F4E79', pady=8)
+            hdr2.pack(fill='x')
+            tk.Label(hdr2, text='📋  Μορφή αρχείου Excel τοποθετήσεων',
+                     bg='#1F4E79', fg='white', font=('Arial', 11, 'bold')).pack()
+            import tkinter.scrolledtext as st3
+            txt = st3.ScrolledText(help_win, font=('Arial', 9), wrap=tk.WORD,
+                                   bg='#F5F5F5', relief='flat', padx=12, pady=10)
+            txt.pack(fill='both', expand=True, padx=8, pady=8)
+            help_text = (
+                "Διαβάζονται δεδομένα από τις παρακάτω στήλες:\n\n"
+                "• ΕΙΔΟΣ ΤΟΠΟΘΕΤΗΣΗΣ\n"
+                "  Επιτρεπτές τιμές (ακριβώς όπως στο MySchool):\n"
+                "    - Οργανικά\n"
+                "    - Οργανικά από Αμοιβαία Μετάθεση\n"
+                "    - Οργανικά από Αρση Υπεραριθμίας\n"
+                "    - Οργανικά σε Τμήμα Ένταξης\n"
+                "    - Από Διάθεση ΠΥΣΠΕ/ΠΥΣΔΕ\n"
+                "    - Επί Θητεία\n"
+                "    - Ειδική Θέση (τ. Σχ. Σύμβουλοι - ν. 1966/1991 άρ.8, παρ.5)\n"
+                "    - Απόσπαση (με αίτηση - κύριος φορέας)\n"
+                "    - Ολική Διάθεση (ανάγκες υπηρεσίας - κύριος φορέας)\n"
+                "    - Μερική Διάθεση (Συμπλήρωση Ωραρίου)\n"
+                "    - Υπερωριακά\n\n"
+                "• Α.Φ.Μ.\n"
+                "• ΕΠΙΘΕΤΟ\n"
+                "• ΟΝΟΜΑ\n"
+                "• ΚΩΔ. ΣΧΟΛΕΙΟΥ\n"
+                "• ΣΧΟΛΕΙΟ\n"
+                "• ΩΡΕΣ\n"
+                "  Για πλήρη διάθεση → τιμή -1 (δίνει πλήρες ωράριο και επιλέγει όλες τις ημέρες).\n"
+                "  Αν βάλεις αριθμό ωρών (π.χ. 25), καταχωρεί τις ώρες αλλά ΔΕΝ επιλέγει ημέρες εβδομάδας.\n\n"
+                "• ΑΠΟ  (π.χ. 01/09/2025)\n"
+                "• ΕΩΣ  (π.χ. 21/06/2026)\n"
+                "• OK      → δεν γράφουμε, συμπληρώνεται από την εφαρμογή\n"
+                "• ΣΧΟΛΙΟ → δεν γράφουμε, συμπληρώνεται από την εφαρμογή\n\n"
+                "─────────────────────────────────────\n"
+                "Παρατηρήσεις:\n\n"
+                "• Δεν έχει σημασία με ποια σειρά είναι τοποθετημένες οι στήλες.\n"
+                "• ΔΕ ΜΟΡΦΟΠΟΙΟΥΜΕ ΤΟ ΑΡΧΕΙΟ.\n"
+                "  ΔΕΝ επιλέγουμε ολόκληρες γραμμές ή στήλες για να εφαρμόσουμε κάποιον κανόνα."
+            )
+            txt.insert('1.0', help_text)
+            txt.configure(state='disabled')
+            tk.Button(help_win, text='Κλείσιμο', bg=C['btn_bg'], fg=C['btn_fg'],
+                      font=('Arial', 9, 'bold'), relief='flat', padx=12, pady=4,
+                      cursor='hand2', command=help_win.destroy).pack(pady=(0, 10))
+
+        lbl_tpl = tk.Label(lnk_row, text='📥 Πρότυπο Excel',
+                           bg=C['bg'], fg='#1565C0',
+                           font=('Arial', 9, 'underline'), cursor='hand2')
+        lbl_tpl.pack(side='left')
+        lbl_tpl.bind('<Button-1>', lambda e: _open_template())
+
+        tk.Label(lnk_row, text='  |  ', bg=C['bg'],
+                 fg=C['desc'], font=('Arial', 9)).pack(side='left')
+
+        lbl_hlp = tk.Label(lnk_row, text='❓ Οδηγίες αρχείου',
+                           bg=C['bg'], fg='#1565C0',
+                           font=('Arial', 9, 'underline'), cursor='hand2')
+        lbl_hlp.pack(side='left')
+        lbl_hlp.bind('<Button-1>', lambda e: _open_help())
+
         f2 = tk.Frame(sec2, bg=C['bg'])
-        f2.grid(row=0, column=0, sticky='ew')
+        f2.grid(row=1, column=0, sticky='ew')
         f2.columnconfigure(1, weight=1)
         tk.Label(f2, text='Αρχείο τοποθετήσεων:',
                  bg=C['bg'], fg=C['hdr_bg'],
@@ -3078,7 +3160,7 @@ class PlacementsDialog(tk.Toplevel):
                   command=self._browse).grid(row=0, column=2, padx=(4, 0))
 
         btn_row = tk.Frame(sec2, bg=C['bg'])
-        btn_row.grid(row=1, column=0, sticky='w', pady=(8, 0))
+        btn_row.grid(row=2, column=0, sticky='w', pady=(8, 0))
         self._run_btn = tk.Button(btn_row,
                   text='▶  Εκτέλεση καταχώρησης',
                   bg=C['btn_bg'], fg=C['btn_fg'],
@@ -3115,6 +3197,15 @@ class PlacementsDialog(tk.Toplevel):
             filetypes=[('Excel', '*.xlsx *.xls'), ('Όλα', '*.*')])
         if path:
             self._raw_var.set(path)
+
+    def _convert_with_auth(self):
+        from tkinter import simpledialog
+        pw = simpledialog.askstring('Κωδικός', 'Εισάγετε κωδικό πρόσβασης:', show='*', parent=self)
+        if pw != '199888':
+            if pw is not None:
+                messagebox.showwarning('Σφάλμα', 'Λάθος κωδικός.', parent=self)
+            return
+        self._convert()
 
     def _convert(self):
         import threading as _th
