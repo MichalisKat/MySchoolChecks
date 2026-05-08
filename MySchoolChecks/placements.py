@@ -578,6 +578,7 @@ def connect(log=print):
         return None
 
     try:
+        import config as _cfg
         log('MySchool...')
         driver.get(BASE_URL)
         time.sleep(2)
@@ -587,12 +588,12 @@ def connect(log=print):
                 EC.presence_of_element_located((By.CSS_SELECTOR,
                     '#username, input[name="username"], input[type="text"]')))
             user_f.clear()
-            user_f.send_keys(config.MYSCHOOL_USER)
+            user_f.send_keys(_cfg.MYSCHOOL_USER)
 
             pass_f = driver.find_element(By.CSS_SELECTOR,
                 '#password, input[name="password"], input[type="password"]')
             pass_f.clear()
-            pass_f.send_keys(config.MYSCHOOL_PASS)
+            pass_f.send_keys(_cfg.MYSCHOOL_PASS)
 
             driver.find_element(By.CSS_SELECTOR,
                 'button[type="submit"], input[type="submit"]').click()
