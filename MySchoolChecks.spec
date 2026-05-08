@@ -8,6 +8,7 @@ datas = [
     ('MySchoolChecks\\config.py', '.'),
     ('MySchoolChecks\\editor.py', '.'),
     ('MySchoolChecks\\placements.py', '.'),
+    ('MySchoolChecks\\placements_template.xlsx', '.'),
     ('MySchoolChecks\\startup.mp3', '.'),
     ('MySchoolChecks\\app.ico', '.'),
     ('MySchoolChecks_Odigos.pdf', '.'),
