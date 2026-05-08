@@ -562,9 +562,17 @@ def connect(log=print):
     options = webdriver.ChromeOptions()
     options.add_argument('--window-size=1400,900')
     options.add_argument('--no-sandbox')
+    options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
     try:
-        driver = webdriver.Chrome(options=options)
+        from selenium.webdriver.chrome.service import Service as ChromeService
+        try:
+            from webdriver_manager.chrome import ChromeDriverManager
+            driver = webdriver.Chrome(
+                service=ChromeService(ChromeDriverManager().install()),
+                options=options)
+        except Exception:
+            driver = webdriver.Chrome(options=options)
     except Exception as e:
         log(f'Chrome: {e}')
         return None
