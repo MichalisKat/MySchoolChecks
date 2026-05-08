@@ -20,7 +20,7 @@ class SmeaeDialog(tk.Toplevel):
 
         self.title('ΣΜΕΑΕ — Στατιστικά ΕΕΑ')
         self.configure(bg=C['bg'])
-        self.resizable(True, True)
+        self.resizable(False, False)
         self.grab_set()
         self.transient(parent)
 

@@ -866,7 +866,7 @@ class LauncherApp:
         except Exception:
             _has_files = False
 
-        # Toolbar
+        # Toolbar — γραμμή 1: Λήψη | Εκπ/κοί | Σχολικές Μονάδες | Ενημερωτικό
         toolbar = tk.Frame(self.root, bg=C['bg2'], pady=6)
         toolbar.pack(fill='x')
         _dl_btn_bg = C['bg2'] if _has_files else C['btn_bg']
@@ -899,30 +899,39 @@ class LauncherApp:
                   padx=14, pady=4, cursor='hand2',
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
                   command=self._open_inform_email).pack(side='left', padx=(0, 0))
-        tk.Button(toolbar, text='📊  Έλεγχος Ε.Ε.Α.',
+
+        # Toolbar — γραμμή 2: ΕΕΑ | Τοποθετήσεις | PANIC
+        toolbar2 = tk.Frame(self.root, bg=C['bg2'], pady=2)
+        toolbar2.pack(fill='x')
+        tk.Button(toolbar2, text='📊  Έλεγχος Ε.Ε.Α.',
                   bg=C['bg2'], fg=C['hdr_bg'],
                   font=('Arial', 9, 'bold'), relief='flat',
                   padx=14, pady=4, cursor='hand2',
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
-                  command=self._open_smeae).pack(side='left', padx=(0, 0))
-
-        # Κουμπί Τοποθετήσεις
-        tk.Button(toolbar, text='👥  Τοποθετήσεις',
+                  command=self._open_smeae).pack(side='left', padx=(6, 0))
+        tk.Button(toolbar2, text='👥  Τοποθετήσεις',
                   bg=C['bg2'], fg=C['hdr_bg'],
                   font=('Arial', 9, 'bold'), relief='flat',
                   padx=14, pady=4, cursor='hand2',
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
                   command=self._open_placements).pack(side='left', padx=(0, 0))
-
-        # Κουμπί PANIC — dropdown με Έναρξη / Λήξη
-        tk.Label(toolbar, text='|', bg=C['bg2'], fg=C['desc'],
+        tk.Label(toolbar2, text='|', bg=C['bg2'], fg=C['desc'],
                  font=('Arial', 9)).pack(side='left', padx=4)
-        _panic_btn = tk.Button(toolbar, text='⚠  PANIC',
+        _panic_btn = tk.Button(toolbar2, text='⚠  PANIC',
                   bg='#B71C1C', fg='white',
                   font=('Arial', 9, 'bold'), relief='flat',
                   padx=14, pady=4, cursor='hand2',
                   activebackground='#D32F2F', activeforeground='white')
         _panic_btn.pack(side='left', padx=(0, 0))
+
+        tk.Label(toolbar2, text='|', bg=C['bg2'], fg=C['desc'],
+                 font=('Arial', 9)).pack(side='left', padx=4)
+        tk.Button(toolbar2, text='🏛  ΔΙ.Π.Ε.Αν.Θ.',
+                  bg=C['bg2'], fg=C['hdr_bg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=14, pady=4, cursor='hand2',
+                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
+                  command=self._open_dipe).pack(side='left', padx=(0, 0))
 
         _panic_menu = tk.Menu(self.root, tearoff=0,
                               bg='white', fg='#1A1A1A',
@@ -1113,6 +1122,14 @@ class LauncherApp:
 
     def _open_placements(self):
         PlacementsDialog(self.root)
+
+    def _open_dipe(self):
+        from tkinter import simpledialog
+        pwd = simpledialog.askstring('ΔΙ.Π.Ε.Αν.Θ.', 'Κωδικός:', show='*', parent=self.root)
+        if pwd == '199888':
+            DipeDialog(self.root)
+        elif pwd is not None:
+            messagebox.showerror('Σφάλμα', 'Λανθασμένος κωδικός.', parent=self.root)
 
     def _open_editor(self):
         EditorDialog(self.root)
@@ -2979,6 +2996,134 @@ class MonadaDialog(tk.Toplevel):
             w.destroy()
 
 
+class DipeDialog(tk.Toplevel):
+    """Επεξεργασία αρχικού αρχείου τοποθετήσεων — μόνο για Δ/νση Π.Ε. Αν. Θεσσαλονίκης."""
+
+    _SEC_BG = '#F0F4F8'
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title('ΔΙ.Π.Ε.Αν.Θ. — Επεξεργασία αρχείου τοποθετήσεων')
+        self.configure(bg=C['bg'])
+        self.resizable(False, False)
+        self.transient(parent)
+        self._raw_var = tk.StringVar()
+
+        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
+        if os.path.exists(ico):
+            try: self.iconbitmap(ico)
+            except Exception: pass
+
+        self._build()
+        self.update_idletasks()
+        self.geometry('560x340')
+        pw = parent.winfo_x() + (parent.winfo_width()  - self.winfo_width())  // 2
+        ph = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f'+{pw}+{ph}')
+
+    def _build(self):
+        from tkinter import scrolledtext as st2
+
+        hdr = tk.Frame(self, bg='#1F4E79', pady=10)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='🏛  ΔΙ.Π.Ε.Αν.Θ. — Επεξεργασία αρχείου τοποθετήσεων',
+                 bg='#1F4E79', fg='white',
+                 font=('Arial', 12, 'bold')).pack()
+        tk.Label(hdr, text='μόνο για χρήση από Δ/νση Π.Ε. Αν. Θεσσαλονίκης',
+                 bg='#1F4E79', fg='#A8C4D8',
+                 font=('Arial', 8, 'italic')).pack()
+
+        body = tk.Frame(self, bg=C['bg'], padx=16, pady=12)
+        body.pack(fill='both', expand=True)
+        body.columnconfigure(0, weight=1)
+
+        sec = tk.LabelFrame(body,
+                            text='  Επεξεργασία αρχικού αρχείου',
+                            bg=self._SEC_BG, fg='#1F4E79',
+                            font=('Arial', 9, 'bold'),
+                            bd=1, relief='groove', padx=10, pady=8)
+        sec.grid(row=0, column=0, sticky='ew', pady=(0, 6))
+        sec.columnconfigure(0, weight=1)
+
+        f1 = tk.Frame(sec, bg=self._SEC_BG)
+        f1.grid(row=0, column=0, sticky='ew')
+        f1.columnconfigure(0, weight=1)
+        tk.Entry(f1, textvariable=self._raw_var, font=('Arial', 9),
+                 relief='solid', bd=1).pack(side='left', fill='x', expand=True)
+        tk.Button(f1, text='📂', bg=self._SEC_BG, relief='flat',
+                  font=('Arial', 11), cursor='hand2',
+                  command=self._browse_raw).pack(side='left', padx=(4, 0))
+
+        self._conv_btn = tk.Button(sec,
+                  text='Επεξεργασία & άνοιγμα  →',
+                  bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=10, pady=4, cursor='hand2',
+                  command=self._convert)
+        self._conv_btn.grid(row=1, column=0, sticky='e', pady=(6, 0))
+
+        self._status_var = tk.StringVar(value='')
+        tk.Label(body, textvariable=self._status_var,
+                 bg=C['bg'], fg=C['status_run'],
+                 font=('Arial', 8), anchor='w').grid(row=1, column=0, sticky='w', pady=(0, 4))
+
+        tk.Label(body, text='Αρχείο καταγραφής:',
+                 bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold')).grid(row=2, column=0, sticky='w', pady=(4, 2))
+        self._log = st2.ScrolledText(body, height=6, font=('Consolas', 8),
+                                      relief='solid', bd=1, state='disabled',
+                                      bg='#F5F5F5', wrap=tk.WORD)
+        self._log.grid(row=3, column=0, sticky='nsew', pady=(0, 4))
+        body.rowconfigure(3, weight=1)
+
+    def _browse_raw(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            parent=self,
+            title='Επιλογή αρχικού αρχείου τοποθετήσεων',
+            filetypes=[('Excel', '*.xlsx *.xls'), ('Όλα', '*.*')])
+        if path:
+            self._raw_var.set(path)
+
+    def _log_msg(self, msg):
+        def _do():
+            self._log.configure(state='normal')
+            self._log.insert(tk.END, msg + '\n')
+            self._log.see(tk.END)
+            self._log.configure(state='disabled')
+        self.after(0, _do)
+
+    def _convert(self):
+        import threading as _th
+        src = self._raw_var.get().strip()
+        if not src:
+            messagebox.showwarning('Προσοχή', 'Επίλεξε πρώτα το αρχικό αρχείο τοποθετήσεων.', parent=self)
+            return
+        self._conv_btn.configure(state='disabled', text='Μετατροπή...')
+        self._log_msg('→ Μετατροπή αρχείου...')
+        def _do():
+            try:
+                import placements
+                dest, n = placements.convert_raw_file(src)
+                def _after():
+                    self._conv_btn.configure(state='normal', text='Επεξεργασία & άνοιγμα  →')
+                    self._log_msg(f'✓ Δημιουργήθηκε: {os.path.basename(dest)} ({n} γραμμές)')
+                    self._log_msg('  Άνοιγμα Excel — συμπλήρωσε τα πορτοκαλί κελιά και αποθήκευσε.')
+                    self._status_var.set('✓ Μετατροπή ολοκληρώθηκε. Συμπλήρωσε τα κενά πεδία στο Excel.')
+                    try:
+                        os.startfile(dest)
+                    except Exception:
+                        pass
+                self.after(0, _after)
+            except Exception as exc:
+                def _err():
+                    self._conv_btn.configure(state='normal', text='Επεξεργασία & άνοιγμα  →')
+                    self._log_msg(f'❌ Σφάλμα μετατροπής: {exc}')
+                    self._status_var.set(f'❌ {exc}')
+                self.after(0, _err)
+        _th.Thread(target=_do, daemon=True).start()
+
+
 class PlacementsDialog(tk.Toplevel):
     """Παράθυρο αυτόματης καταχώρησης τοποθετήσεων."""
 
@@ -2990,12 +3135,11 @@ class PlacementsDialog(tk.Toplevel):
         super().__init__(parent)
         self.title('Τοποθετήσεις — Αυτόματη Καταχώρηση')
         self.configure(bg=C['bg'])
-        self.resizable(True, True)
+        self.resizable(False, False)
         self.transient(parent)
         self._driver    = None
         self._running   = False
-        self._raw_var   = tk.StringVar()   # Βήμα 1: αρχικό αρχείο ΠΔΕ
-        self._excel_var = tk.StringVar()   # Βήμα 2: έτοιμο αρχείο τοποθετήσεων
+        self._excel_var = tk.StringVar()   # έτοιμο αρχείο τοποθετήσεων
 
         ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
         if os.path.exists(ico):
@@ -3004,7 +3148,7 @@ class PlacementsDialog(tk.Toplevel):
 
         self._build()
         self.update_idletasks()
-        self.geometry('600x580')
+        self.geometry('600x480')
         pw = parent.winfo_x() + (parent.winfo_width()  - self.winfo_width())  // 2
         ph = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
         self.geometry(f'+{pw}+{ph}')
@@ -3024,43 +3168,13 @@ class PlacementsDialog(tk.Toplevel):
         body.pack(fill='both', expand=True)
         body.columnconfigure(0, weight=1)
 
-        # ── Βήμα 1 ───────────────────────────────────────────────────────────
-        sec1 = tk.LabelFrame(body,
-                             text='  Βήμα 1 — Επεξεργασία αρχικού αρχείου  (μόνο για χρήση από Δ/νση Π.Ε. Αν. Θεσσαλονίκης)',
-                             bg=self._SEC_BG, fg=self._LBL_STEP,
-                             font=('Arial', 9, 'bold'),
-                             bd=1, relief='groove', padx=10, pady=8)
-        sec1.grid(row=0, column=0, sticky='ew', pady=(0, 6))
-        sec1.columnconfigure(0, weight=1)
-
-        f1 = tk.Frame(sec1, bg=self._SEC_BG)
-        f1.grid(row=0, column=0, sticky='ew')
-        f1.columnconfigure(0, weight=1)
-        tk.Entry(f1, textvariable=self._raw_var, font=('Arial', 9),
-                 relief='solid', bd=1).pack(side='left', fill='x', expand=True)
-        tk.Button(f1, text='📂', bg=self._SEC_BG, relief='flat',
-                  font=('Arial', 11), cursor='hand2',
-                  command=self._browse_raw).pack(side='left', padx=(4, 0))
-
-        self._conv_btn = tk.Button(sec1,
-                  text='Επεξεργασία & άνοιγμα  →',
-                  bg=C['btn_bg'], fg=C['btn_fg'],
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=10, pady=4, cursor='hand2',
-                  command=self._convert_with_auth)
-        self._conv_btn.grid(row=1, column=0, sticky='e', pady=(6, 0))
-
-        # ── Διαχωριστής ──────────────────────────────────────────────────────
-        tk.Label(body, text='↓', bg=C['bg'], fg='#888888',
-                 font=('Arial', 14)).grid(row=1, column=0, pady=2)
-
-        # ── Βήμα 2 ───────────────────────────────────────────────────────────
+        # ── Εκτέλεση καταχώρησης ─────────────────────────────────────────────
         sec2 = tk.LabelFrame(body,
-                             text='  Βήμα 2 — Εκτέλεση καταχώρησης',
+                             text='  Εκτέλεση καταχώρησης',
                              bg=C['bg'], fg=self._LBL_STEP,
                              font=('Arial', 9, 'bold'),
                              bd=1, relief='groove', padx=10, pady=8)
-        sec2.grid(row=2, column=0, sticky='ew', pady=(0, 8))
+        sec2.grid(row=0, column=0, sticky='ew', pady=(0, 8))
         sec2.columnconfigure(0, weight=1)
 
         # Links γραμμή
@@ -3173,72 +3287,21 @@ class PlacementsDialog(tk.Toplevel):
         self._status_var = tk.StringVar(value='Επίλεξε αρχείο Excel και πάτα Εκτέλεση.')
         tk.Label(body, textvariable=self._status_var,
                  bg=C['bg'], fg=C['status_run'],
-                 font=('Arial', 8), anchor='w').grid(row=3, column=0, sticky='w', pady=(0, 4))
+                 font=('Arial', 8), anchor='w').grid(row=1, column=0, sticky='w', pady=(0, 4))
 
         # Log
         tk.Label(body, text='Αρχείο καταγραφής:',
                  bg=C['bg'], fg=C['hdr_bg'],
-                 font=('Arial', 9, 'bold')).grid(row=4, column=0, sticky='w', pady=(4, 2))
+                 font=('Arial', 9, 'bold')).grid(row=2, column=0, sticky='w', pady=(4, 2))
         self._log = st2.ScrolledText(body, height=10, font=('Consolas', 8),
                                       relief='solid', bd=1, state='disabled',
                                       bg='#F5F5F5', wrap=tk.WORD)
-        self._log.grid(row=5, column=0, sticky='nsew', pady=(0, 4))
-        body.rowconfigure(5, weight=1)
+        self._log.grid(row=3, column=0, sticky='nsew', pady=(0, 4))
+        body.rowconfigure(3, weight=1)
 
         self.protocol('WM_DELETE_WINDOW', self._on_close)
 
-    # ── Βήμα 1: μετατροπή ────────────────────────────────────────────────────
-
-    def _browse_raw(self):
-        from tkinter import filedialog
-        path = filedialog.askopenfilename(
-            parent=self,
-            title='Επιλογή αρχικού αρχείου τοποθετήσεων',
-            filetypes=[('Excel', '*.xlsx *.xls'), ('Όλα', '*.*')])
-        if path:
-            self._raw_var.set(path)
-
-    def _convert_with_auth(self):
-        from tkinter import simpledialog
-        pw = simpledialog.askstring('Κωδικός', 'Εισάγετε κωδικό πρόσβασης:', show='*', parent=self)
-        if pw != '199888':
-            if pw is not None:
-                messagebox.showwarning('Σφάλμα', 'Λάθος κωδικός.', parent=self)
-            return
-        self._convert()
-
-    def _convert(self):
-        import threading as _th
-        src = self._raw_var.get().strip()
-        if not src:
-            messagebox.showwarning('Προσοχή', 'Επίλεξε πρώτα το αρχικό αρχείο τοποθετήσεων.', parent=self)
-            return
-        self._conv_btn.configure(state='disabled', text='Μετατροπή...')
-        self._log_msg('→ Μετατροπή αρχείου...')
-        def _do():
-            try:
-                import placements
-                dest, n = placements.convert_raw_file(src)
-                def _after():
-                    self._excel_var.set(dest)
-                    self._conv_btn.configure(state='normal', text='Μετατροπή & άνοιγμα  →')
-                    self._log_msg(f'✓ Δημιουργήθηκε: {os.path.basename(dest)} ({n} γραμμές)')
-                    self._log_msg('  Άνοιγμα Excel — συμπλήρωσε τα πορτοκαλί κελιά και αποθήκευσε.')
-                    self._status_var.set('✓ Μετατροπή ολοκληρώθηκε. Συμπλήρωσε τα κενά πεδία στο Excel.')
-                    try:
-                        os.startfile(dest)
-                    except Exception:
-                        pass
-                self.after(0, _after)
-            except Exception as exc:
-                def _err():
-                    self._conv_btn.configure(state='normal', text='Μετατροπή & άνοιγμα  →')
-                    self._log_msg(f'❌ Σφάλμα μετατροπής: {exc}')
-                    self._status_var.set(f'❌ {exc}')
-                self.after(0, _err)
-        _th.Thread(target=_do, daemon=True).start()
-
-    # ── Βήμα 2: σύνδεση / εκτέλεση ──────────────────────────────────────────
+    # ── Σύνδεση / εκτέλεση ───────────────────────────────────────────────────
 
     def _browse(self):
         from tkinter import filedialog
@@ -3309,7 +3372,7 @@ class EditorDialog(tk.Toplevel):
         super().__init__(parent)
         self.title('Editor — Επεξεργασία Καρτέλας Εκπαιδευτικού')
         self.configure(bg=C['bg'])
-        self.resizable(True, True)
+        self.resizable(False, False)
         self.transient(parent)
         self._driver   = None
         self._file_var = tk.StringVar()
@@ -3446,7 +3509,7 @@ class PanicEndDialog(tk.Toplevel):
         super().__init__(parent)
         self.title('PANIC — Λήξη')
         self.configure(bg=C['bg'])
-        self.resizable(True, True)
+        self.resizable(False, False)
         self.transient(parent)
         self._driver   = None
         self._file_var = tk.StringVar()
