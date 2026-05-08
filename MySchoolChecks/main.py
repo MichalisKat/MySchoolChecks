@@ -3283,6 +3283,12 @@ class PlacementsDialog(tk.Toplevel):
             def _after():
                 self._run_btn.configure(state='normal', bg=C['btn_bg'])
                 self._status_var.set('✓ Ολοκλήρωση.')
+                messagebox.showinfo(
+                    'Ολοκλήρωση',
+                    '✓ Η καταχώρηση τοποθετήσεων ολοκληρώθηκε.\n\n'
+                    'Ελέγξτε τις στήλες OK και ΣΧΟΛΙΟ στο Excel για λεπτομέρειες.',
+                    parent=self)
+                self._on_close()
             self.after(0, _after)
         _th.Thread(target=_do, daemon=True).start()
 

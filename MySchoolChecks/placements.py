@@ -302,14 +302,26 @@ def _fill_form(driver, afm, sch_code, date_from, date_to, hours, type_text, wait
 
 def _read_row(row):
     try:
-        str_cols = ['ΕΙΔΟΣ ΤΟΠΟΘΕΤΗΣΗΣ', 'ΑΜ', 'Α.Φ.Μ.', 'ΕΠΙΘΕΤΟ', 'ΟΝΟΜΑ',
+        str_cols = ['ΕΙΔΟΣ ΤΟΠΟΘΕΤΗΣΗΣ', 'ΕΠΙΘΕΤΟ', 'ΟΝΟΜΑ',
                     'ΚΩΔ. ΣΧΟΛΕΙΟΥ', 'ΣΧΟΛΕΙΟ', 'ΑΠΟ', 'ΕΩΣ', 'OK', 'ΣΧΟΛΙΟ']
         for col in str_cols:
             if isinstance(row[col], (float, int)):
                 row[col] = ''
 
-        afm = str(row['Α.Φ.Μ.']).strip()
-        am  = str(row['ΑΜ']).strip()
+        # ΑΦΜ/ΑΜ: Excel αποθηκεύει αριθμούς ως float — μετατροπή σε string
+        def _to_str(val):
+            if val is None:
+                return ''
+            s = str(val).strip()
+            if s in ('', 'nan', 'None', 'NaN'):
+                return ''
+            try:
+                return str(int(float(s)))
+            except Exception:
+                return s
+
+        afm = _to_str(row['Α.Φ.Μ.'])
+        am  = _to_str(row['ΑΜ'])
 
         if not afm and am:
             return [False, 'ΑΦΜ κενό — καταχωρήστε ΑΦΜ απευθείας στο Excel']
