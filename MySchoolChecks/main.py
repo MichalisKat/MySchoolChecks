@@ -906,6 +906,14 @@ class LauncherApp:
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
                   command=self._open_smeae).pack(side='left', padx=(0, 0))
 
+        # Κουμπί Τοποθετήσεις
+        tk.Button(toolbar, text='👥  Τοποθετήσεις',
+                  bg=C['bg2'], fg=C['hdr_bg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=14, pady=4, cursor='hand2',
+                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
+                  command=self._open_placements).pack(side='left', padx=(0, 0))
+
         # Κουμπί PANIC — dropdown με Έναρξη / Λήξη
         tk.Label(toolbar, text='|', bg=C['bg2'], fg=C['desc'],
                  font=('Arial', 9)).pack(side='left', padx=4)
@@ -929,29 +937,6 @@ class LauncherApp:
             _panic_menu.tk_popup(x, y)
 
         _panic_btn.configure(command=_show_panic_menu)
-
-        # Κουμπί Plus — dropdown με τις νέες λειτουργίες
-        tk.Label(toolbar, text='|', bg=C['bg2'], fg=C['desc'],
-                 font=('Arial', 9)).pack(side='left', padx=4)
-        _plus_btn = tk.Button(toolbar, text='＋  Plus',
-                  bg='#C62828', fg='white',
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=14, pady=4, cursor='hand2',
-                  activebackground='#E53935', activeforeground='white')
-        _plus_btn.pack(side='left', padx=(0, 0))
-
-        _plus_menu = tk.Menu(self.root, tearoff=0,
-                             bg='white', fg='#1A1A1A',
-                             activebackground='#C62828', activeforeground='white',
-                             font=('Arial', 10), relief='flat', bd=1)
-        _plus_menu.add_command(label='👥  Τοποθετήσεις',  command=self._open_placements)
-
-        def _show_plus_menu(event=None):
-            x = _plus_btn.winfo_rootx()
-            y = _plus_btn.winfo_rooty() + _plus_btn.winfo_height()
-            _plus_menu.tk_popup(x, y)
-
-        _plus_btn.configure(command=_show_plus_menu)
 
         # Body — label row (σταθερό)
         body_top = tk.Frame(self.root, bg=C['bg'], padx=18, pady=8)
@@ -3043,7 +3028,7 @@ class PlacementsDialog(tk.Toplevel):
 
         # ── Βήμα 1 ───────────────────────────────────────────────────────────
         sec1 = tk.LabelFrame(body,
-                             text='  Βήμα 1 — Μετατροπή αρχείου ΠΔΕ / Υπουργείου  (προαιρετικό)',
+                             text='  Βήμα 1 — Μετατροπή/επεξεργασία αρχικού αρχείου  (μόνο για χρήση από Δ/νση Π.Ε. Αν. Θεσσαλονίκης)',
                              bg=self._SEC_BG, fg=self._LBL_STEP,
                              font=('Arial', 9, 'bold'),
                              bd=1, relief='groove', padx=10, pady=8)
@@ -3094,23 +3079,16 @@ class PlacementsDialog(tk.Toplevel):
 
         btn_row = tk.Frame(sec2, bg=C['bg'])
         btn_row.grid(row=1, column=0, sticky='w', pady=(8, 0))
-        self._conn_btn = tk.Button(btn_row,
-                  text='🔗  Σύνδεση στο MySchool',
+        self._run_btn = tk.Button(btn_row,
+                  text='▶  Εκτέλεση καταχώρησης',
                   bg=C['btn_bg'], fg=C['btn_fg'],
                   font=('Arial', 9, 'bold'), relief='flat',
                   padx=12, pady=5, cursor='hand2',
-                  command=self._connect)
-        self._conn_btn.pack(side='left')
-        self._run_btn = tk.Button(btn_row,
-                  text='▶  Εκτέλεση καταχώρησης',
-                  bg=C['btn_dis'], fg='white',
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=12, pady=5, cursor='hand2',
-                  state='disabled', command=self._run)
-        self._run_btn.pack(side='left', padx=(8, 0))
+                  command=self._run)
+        self._run_btn.pack(side='left')
 
         # Status
-        self._status_var = tk.StringVar(value='Επίλεξε αρχείο και κάνε Σύνδεση.')
+        self._status_var = tk.StringVar(value='Επίλεξε αρχείο Excel και πάτα Εκτέλεση.')
         tk.Label(body, textvariable=self._status_var,
                  bg=C['bg'], fg=C['status_run'],
                  font=('Arial', 8), anchor='w').grid(row=3, column=0, sticky='w', pady=(0, 4))
@@ -3133,7 +3111,7 @@ class PlacementsDialog(tk.Toplevel):
         from tkinter import filedialog
         path = filedialog.askopenfilename(
             parent=self,
-            title='Επιλογή αρχικού αρχείου ΠΔΕ/Υπουργείου',
+            title='Επιλογή αρχικού αρχείου τοποθετήσεων',
             filetypes=[('Excel', '*.xlsx *.xls'), ('Όλα', '*.*')])
         if path:
             self._raw_var.set(path)
@@ -3142,7 +3120,7 @@ class PlacementsDialog(tk.Toplevel):
         import threading as _th
         src = self._raw_var.get().strip()
         if not src:
-            messagebox.showwarning('Προσοχή', 'Επίλεξε πρώτα το αρχικό αρχείο ΠΔΕ.', parent=self)
+            messagebox.showwarning('Προσοχή', 'Επίλεξε πρώτα το αρχικό αρχείο τοποθετήσεων.', parent=self)
             return
         self._conv_btn.configure(state='disabled', text='Μετατροπή...')
         self._log_msg('→ Μετατροπή αρχείου...')
@@ -3188,38 +3166,28 @@ class PlacementsDialog(tk.Toplevel):
             self._log.configure(state='disabled')
         self.after(0, _do)
 
-    def _connect(self):
-        import threading as _th
-        self._conn_btn.configure(state='disabled', text='Συνδέομαι...')
-        self._log_msg('→ Εκκίνηση σύνδεσης...')
-        def _do():
-            import placements
-            drv = placements.connect(log=self._log_msg)
-            def _after():
-                if drv:
-                    self._driver = drv
-                    self._run_btn.configure(state='normal', bg=C['btn_bg'])
-                    self._conn_btn.configure(text='✓  Συνδεδεμένο', bg='#2E7D32')
-                    self._status_var.set('Συνδεδεμένο. Πάτα Εκτέλεση.')
-                else:
-                    self._conn_btn.configure(state='normal', text='🔗  Σύνδεση στο MySchool')
-                    self._status_var.set('❌ Αποτυχία σύνδεσης — έλεγξε credentials στις Ρυθμίσεις.')
-            self.after(0, _after)
-        _th.Thread(target=_do, daemon=True).start()
-
     def _run(self):
         import threading as _th
         path = self._excel_var.get().strip()
         if not path:
             messagebox.showwarning('Προσοχή', 'Επίλεξε αρχείο Excel πρώτα.', parent=self)
             return
-        if not self._driver:
-            messagebox.showwarning('Προσοχή', 'Κάνε πρώτα Σύνδεση στο MySchool.', parent=self)
-            return
         self._run_btn.configure(state='disabled', bg=C['btn_dis'])
-        self._status_var.set('Εκτέλεση καταχώρησης...')
+        self._status_var.set('Σύνδεση στο MySchool...')
         def _do():
             import placements
+            if not self._driver:
+                self._log_msg('→ Εκκίνηση σύνδεσης...')
+                drv = placements.connect(log=self._log_msg)
+                if not drv:
+                    def _fail():
+                        self._run_btn.configure(state='normal', bg=C['btn_bg'])
+                        self._status_var.set('❌ Αποτυχία σύνδεσης — έλεγξε credentials στις Ρυθμίσεις.')
+                    self.after(0, _fail)
+                    return
+                self._driver = drv
+            self._log_msg('→ Εκτέλεση καταχώρησης...')
+            self.after(0, lambda: self._status_var.set('Εκτέλεση καταχώρησης...'))
             placements.run({'excel_path': path}, self._driver, callback=self._log_msg)
             def _after():
                 self._run_btn.configure(state='normal', bg=C['btn_bg'])
