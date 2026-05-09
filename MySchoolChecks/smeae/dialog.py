@@ -110,7 +110,7 @@ class SmeaeDialog(tk.Toplevel):
         # Header
         hdr = tk.Frame(self, bg='#0F6E56', pady=10)
         hdr.pack(fill='x')
-        tk.Label(hdr, text='📊  Έλεγγος Ε.Ε.Α. — Στατιστικά Ειδικών Εκπαιδευτικών Αναγκών',
+        tk.Label(hdr, text='📊  Έλεγχος Ε.Ε.Α. — Στατιστικά Ειδικών Εκπαιδευτικών Αναγκών',
                  bg='#0F6E56', fg='white',
                  font=('Arial', 11, 'bold')).pack()
 

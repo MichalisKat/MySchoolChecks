@@ -1746,7 +1746,7 @@ class EidikotitaDialog(tk.Toplevel):
                  font=('Arial', 12, 'bold')).pack()
         tk.Label(hdr, text='για αποστολή στοιχείων ενδεικτικά σε Συμβούλους Εκπ/σης  (Απαιτούνται: Τοποθετήσεις, 2.1, 4.1, 4.2, 4.16)',
                  bg='#0F6E56', fg='#A8D8C8',
-                 font=('Arial', 8, 'italic'), wraplength=700, justify='center').pack()
+                 font=('Arial', 8, 'italic'), wraplength=580, justify='center').pack()
 
         # Προειδοποίηση αν λείπουν κρίσιμα αρχεία
         missing = []
