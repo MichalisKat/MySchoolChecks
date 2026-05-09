@@ -1280,7 +1280,7 @@ class LauncherApp:
         dlg.geometry(f'+{x}+{y}')
 
     def _open_help(self):
-        """Παράθυρο βοήθειας — εμφανίζει το README.md."""
+        """Ανοίγει τον οδηγό χρήσης (PDF) με τον προεπιλεγμένο viewer."""
         _show_help(self.root)
 
     def _open_settings(self):
@@ -1746,7 +1746,7 @@ class EidikotitaDialog(tk.Toplevel):
                  font=('Arial', 12, 'bold')).pack()
         tk.Label(hdr, text='για αποστολή στοιχείων ενδεικτικά σε Συμβούλους Εκπ/σης  (Απαιτούνται: Τοποθετήσεις, 2.1, 4.1, 4.2, 4.16)',
                  bg='#0F6E56', fg='#A8D8C8',
-                 font=('Arial', 8, 'italic')).pack()
+                 font=('Arial', 8, 'italic'), wraplength=700, justify='center').pack()
 
         # Προειδοποίηση αν λείπουν κρίσιμα αρχεία
         missing = []
@@ -3148,7 +3148,7 @@ class PlacementsDialog(tk.Toplevel):
 
         self._build()
         self.update_idletasks()
-        self.geometry('600x480')
+        self.geometry('600x560')
         pw = parent.winfo_x() + (parent.winfo_width()  - self.winfo_width())  // 2
         ph = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
         self.geometry(f'+{pw}+{ph}')
@@ -3298,6 +3298,14 @@ class PlacementsDialog(tk.Toplevel):
                                       bg='#F5F5F5', wrap=tk.WORD)
         self._log.grid(row=3, column=0, sticky='nsew', pady=(0, 4))
         body.rowconfigure(3, weight=1)
+
+        # Footer με κουμπί κλεισίματος
+        foot = tk.Frame(self, bg=C['bg2'], pady=8)
+        foot.pack(fill='x')
+        tk.Button(foot, text='Κλείσιμο',
+                  bg=C['bg2'], fg=C['desc'],
+                  font=('Arial', 10), relief='flat', padx=12, pady=4,
+                  cursor='hand2', command=self._on_close).pack(side='right', padx=16)
 
         self.protocol('WM_DELETE_WINDOW', self._on_close)
 

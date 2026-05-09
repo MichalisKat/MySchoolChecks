@@ -18,7 +18,7 @@ class SmeaeDialog(tk.Toplevel):
         self._base_dir = base_dir
         self._C        = C
 
-        self.title('ΣΜΕΑΕ — Στατιστικά ΕΕΑ')
+        self.title('Έλεγχος Ε.Ε.Α. — Στατιστικά')
         self.configure(bg=C['bg'])
         self.resizable(False, False)
         self.grab_set()
@@ -35,7 +35,7 @@ class SmeaeDialog(tk.Toplevel):
 
         self._build()
         self.update_idletasks()
-        self.geometry('600x560')
+        self.geometry('600x640')
         pw = parent.winfo_x() + (parent.winfo_width()  - self.winfo_width())  // 2
         ph = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
         self.geometry(f'+{pw}+{ph}')
@@ -108,10 +108,10 @@ class SmeaeDialog(tk.Toplevel):
         C = self._C
 
         # Header
-        hdr = tk.Frame(self, bg=C['hdr_bg'], pady=10)
+        hdr = tk.Frame(self, bg='#0F6E56', pady=10)
         hdr.pack(fill='x')
-        tk.Label(hdr, text='📊  ΣΜΕΑΕ — Στατιστικά Ειδικών Εκπαιδευτικών Αναγκών',
-                 bg=C['hdr_bg'], fg=C['hdr_fg'],
+        tk.Label(hdr, text='📊  Έλεγγος Ε.Ε.Α. — Στατιστικά Ειδικών Εκπαιδευτικών Αναγκών',
+                 bg='#0F6E56', fg='white',
                  font=('Arial', 11, 'bold')).pack()
 
         # Notebook
