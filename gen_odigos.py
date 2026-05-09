@@ -79,6 +79,11 @@ S = {
 def _hf(canvas, doc):
     canvas.saveState()
     if doc.page == 1:
+        # Ημερομηνία στο κάτω μέρος του εξώφυλλου
+        w, h = A4
+        canvas.setFont('Arial', 9)
+        canvas.setFillColor(DESC)
+        canvas.drawCentredString(w / 2, 2*cm, f'Μάιος 2026  ·  v{VERSION}')
         canvas.restoreState()
         return
     w, h = A4
@@ -222,24 +227,20 @@ def build():
 
     # Icon της εφαρμογής
     _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app_icon.png')
-    _icon_img  = Image(_icon_path, width=2*cm, height=2*cm) if os.path.exists(_icon_path) else _sp(2)
+    _icon_img  = Image(_icon_path, width=3*cm, height=3*cm) if os.path.exists(_icon_path) else _sp(2)
     _icon_tbl  = Table([[_icon_img]], colWidths=[15*cm])
     _icon_tbl.setStyle(TableStyle([('ALIGN', (0,0), (-1,-1), 'CENTER')]))
 
     story += [
         _hdr_tbl,
-        _sp(0.6),
+        _sp(1.5),
         Paragraph('Αυτοματοποιημένοι Έλεγχοι Δεδομένων MySchool',
             ParagraphStyle('_cd', fontName='Arial', fontSize=13, leading=18,
                            textColor=ACCENT, alignment=TA_CENTER)),
-        _sp(0.5),
+        _sp(1.2),
         Table([[_info_tbl]], colWidths=[15*cm], style=[('ALIGN',(0,0),(-1,-1),'CENTER')]),
-        _sp(0.6),
+        _sp(1.8),
         _icon_tbl,
-        _sp(4),
-        Paragraph(f'Μάιος 2026  ·  v{VERSION}',
-            ParagraphStyle('_cv', fontName='Arial', fontSize=9,
-                           textColor=DESC, alignment=TA_CENTER)),
         PageBreak(),
     ]
 
