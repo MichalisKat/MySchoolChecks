@@ -17,7 +17,7 @@ from reportlab.lib.units import cm
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
 from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
-                                 TableStyle, PageBreak, HRFlowable, KeepTogether)
+                                 TableStyle, PageBreak, HRFlowable, KeepTogether, Image)
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import os
@@ -29,12 +29,14 @@ pdfmetrics.registerFont(TTFont('Arial-Bold',   os.path.join(_FDIR, 'arialbd.ttf'
 pdfmetrics.registerFont(TTFont('Arial-Italic', os.path.join(_FDIR, 'ariali.ttf')))
 
 # ── Σταθερές ──────────────────────────────────────────────────────────────────
-VERSION = '2.0.0'
-AUTHOR  = 'Μιχάλης Κατσιρντάκης'
-EMAIL   = 'itdipea@sch.gr'
-TEL     = '2310 954145'
-ORG     = 'Διεύθυνση Π.Ε. Ανατολικής Θεσσαλονίκης'
-OUTPUT  = 'MySchoolChecks_Odigos.pdf'
+VERSION     = '2.0.0'
+AUTHOR      = 'Μιχάλης Κατσιρντάκης'
+AUTHOR_FULL = 'Μιχάλης Κατσιρντάκης, MEng, MSc'
+DEPT        = "Τμήμα Γ' Προσωπικού"
+EMAIL       = 'itdipea@sch.gr'
+TEL         = '2310 954145'
+ORG         = 'Διεύθυνση Π.Ε. Ανατολικής Θεσσαλονίκης'
+OUTPUT      = 'MySchoolChecks_Odigos.pdf'
 
 # ── Χρώματα ───────────────────────────────────────────────────────────────────
 HDR    = colors.HexColor('#1A237E')
@@ -155,6 +157,28 @@ def _sp(n=0.3): return Spacer(1, n*cm)
 def _hr(): return HRFlowable(width='100%', color=ACCENT, thickness=1, spaceAfter=10)
 
 
+def _cover_screenshot():
+    """Εικόνα εφαρμογής στο εξώφυλλο — με border."""
+    img_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cover_screenshot.png')
+    if not os.path.exists(img_path):
+        return _sp(4)
+    # Χωράει σε 11cm πλάτος (centered) — διατηρεί αναλογίες
+    img = Image(img_path, width=11*cm, height=11.4*cm)
+    t = Table([[img]], colWidths=[11*cm])
+    t.setStyle(TableStyle([
+        ('BOX', (0,0), (-1,-1), 1, BORDER),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+        ('LEFTPADDING', (0,0), (-1,-1), 3),
+        ('RIGHTPADDING', (0,0), (-1,-1), 3),
+    ]))
+    # Κεντράρισμα στη σελίδα
+    outer = Table([[t]], colWidths=[15*cm])
+    outer.setStyle(TableStyle([('ALIGN', (0,0), (-1,-1), 'CENTER')]))
+    return outer
+
+
 # ── Κατασκευή PDF ─────────────────────────────────────────────────────────────
 def build():
     doc = SimpleDocTemplate(OUTPUT, pagesize=A4,
@@ -163,39 +187,80 @@ def build():
     story = []
 
     # ── Εξώφυλλο ──────────────────────────────────────────────────────────────
-    story += [
-        _sp(3),
-        Paragraph('MySchool Checks', ParagraphStyle('_ct', fontName='Arial-Bold',
-            fontSize=32, leading=40, textColor=HDR, alignment=TA_CENTER)),
-        _sp(0.3),
-        Paragraph('Οδηγός Χρήστη', ParagraphStyle('_cs', fontName='Arial',
-            fontSize=18, leading=24, textColor=ACCENT, alignment=TA_CENTER)),
-        _sp(0.4),
-        HRFlowable(width='60%', color=ACCENT, thickness=2, spaceAfter=14),
-        Paragraph('Αυτοματοποιημένοι Έλεγχοι Δεδομένων MySchool',
-            ParagraphStyle('_cd', fontName='Arial', fontSize=13, leading=18,
-                           textColor=TEXT, alignment=TA_CENTER)),
-        _sp(0.3),
-        Paragraph(ORG, ParagraphStyle('_co', fontName='Arial-Bold', fontSize=11,
-            leading=16, textColor=HDR, alignment=TA_CENTER)),
-        _sp(4),
-    ]
+    # Μπλε header bar
+    _hdr_tbl = Table([
+        [Paragraph('MySchool Checks', ParagraphStyle('_ct', fontName='Arial-Bold',
+            fontSize=28, leading=36, textColor=colors.white, alignment=TA_CENTER))],
+        [Paragraph('Οδηγός Χρήστη', ParagraphStyle('_cs', fontName='Arial-Italic',
+            fontSize=14, leading=20, textColor=colors.HexColor('#B0BEC5'), alignment=TA_CENTER))],
+    ], colWidths=[15*cm])
+    _hdr_tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), HDR),
+        ('TOPPADDING',    (0,0), (0,0), 18),
+        ('BOTTOMPADDING', (-1,-1), (-1,-1), 16),
+        ('LEFTPADDING',  (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 0),
+    ]))
 
-    info = Table([
-        [Paragraph(f'<b>{AUTHOR}</b>', S['ctr'])],
-        [Paragraph(f'{EMAIL}  ·  {TEL}', S['ctr'])],
-        [Paragraph(f'Μάιος 2026  ·  v{VERSION}', ParagraphStyle('_cv',
-            fontName='Arial', fontSize=9, textColor=DESC, alignment=TA_CENTER))],
-    ], colWidths=[11*cm])
-    info.setStyle(TableStyle([
+    # Info box με org/τμήμα/author/email
+    _ctr_style = ParagraphStyle('_ci', fontName='Arial', fontSize=10.5,
+                                 leading=16, alignment=TA_CENTER, textColor=HDR)
+    _info_tbl = Table([
+        [Paragraph(f'<b>{ORG}</b>',  _ctr_style)],
+        [Paragraph(DEPT,             _ctr_style)],
+        [Paragraph(AUTHOR_FULL,      _ctr_style)],
+        [Paragraph(f'{EMAIL}  ·  {TEL}', ParagraphStyle('_ci2', fontName='Arial',
+            fontSize=10, leading=15, alignment=TA_CENTER, textColor=DESC))],
+    ], colWidths=[13*cm])
+    _info_tbl.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), LIGHT),
         ('BOX', (0,0), (-1,-1), 1, ACCENT),
-        ('TOPPADDING', (0,0), (-1,-1), 8), ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+        ('TOPPADDING',    (0,0), (-1,-1), 8),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
     ]))
-    story.append(Table([[info]], colWidths=[15*cm],
-                        style=[('ALIGN',(0,0),(-1,-1),'CENTER')]))
-    story.append(PageBreak())
+
+    # Icon της εφαρμογής
+    _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app_icon.png')
+    _icon_img  = Image(_icon_path, width=2*cm, height=2*cm) if os.path.exists(_icon_path) else _sp(2)
+    _icon_tbl  = Table([[_icon_img]], colWidths=[15*cm])
+    _icon_tbl.setStyle(TableStyle([('ALIGN', (0,0), (-1,-1), 'CENTER')]))
+
+    story += [
+        _hdr_tbl,
+        _sp(0.6),
+        Paragraph('Αυτοματοποιημένοι Έλεγχοι Δεδομένων MySchool',
+            ParagraphStyle('_cd', fontName='Arial', fontSize=13, leading=18,
+                           textColor=ACCENT, alignment=TA_CENTER)),
+        _sp(0.5),
+        Table([[_info_tbl]], colWidths=[15*cm], style=[('ALIGN',(0,0),(-1,-1),'CENTER')]),
+        _sp(0.6),
+        _icon_tbl,
+        _sp(4),
+        Paragraph(f'Μάιος 2026  ·  v{VERSION}',
+            ParagraphStyle('_cv', fontName='Arial', fontSize=9,
+                           textColor=DESC, alignment=TA_CENTER)),
+        PageBreak(),
+    ]
+
+    # ── Σελίδα 2: εικόνα εφαρμογής + πινακάκι features ───────────────────────
+    _feat_tbl = _ftable([
+        ('Έλεγχοι',          '9 αυτοματοποιημένοι έλεγχοι δεδομένων MySchool'),
+        ('Ειδικότητες',      'Εξαγωγή λίστας εκπαιδευτικών ανά ειδικότητα σε Excel'),
+        ('Σχολικές Μονάδες', 'Εξαγωγή στοιχείων σχολείων ανά Δήμο σε Excel'),
+        ('Στατιστικά',       'Αυτόματο κατέβασμα αρχείων από το MySchool'),
+        ('Αποτελέσματα',     'Αρχεία Excel στον φάκελο Έγγραφα → MySchoolChecks'),
+        ('Email',            'Αποστολή ανά σχολείο ή σε test mode'),
+        ('Ε.Ε.Α.',           'Σύγκριση Στατιστικών Ειδικών Εκπαιδευτικών Αναγκών'),
+        ('PANIC',            'Διαχείριση σε ιδιάζουσες περιπτώσεις για επιβεβαίωση δεδομένων'),
+    ])
+    story += [
+        _sp(1.5),
+        _cover_screenshot(),
+        _sp(0.6),
+        _feat_tbl,
+        PageBreak(),
+    ]
 
     # ── Πίνακας Περιεχομένων ──────────────────────────────────────────────────
     story += [Paragraph('Πίνακας Περιεχομένων', S['h1']), _hr()]
