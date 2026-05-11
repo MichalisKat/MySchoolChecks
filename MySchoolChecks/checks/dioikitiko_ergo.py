@@ -163,11 +163,12 @@ def is_pde(parat):
 
 def process(df412, adynatountes):
     """
-    Επιστρέφει (df_pde, df_no_pde, summary1, summary2).
-    df_pde    : DataFrame Περίπτωσης 1 (αποκλίσεις)
-    df_no_pde : DataFrame Περίπτωσης 2 (χωρίς έγκυρη απόφαση)
-    summary1  : str — περίληψη φύλλου 1 για email body
-    summary2  : str — περίληψη φύλλου 2 για email body
+    Επιστρέφει (df_pde, df_no_pde, df_pde_raw, summary1, summary2).
+    df_pde     : DataFrame Περίπτωσης 1 (αποκλίσεις ανά ειδικότητα)
+    df_no_pde  : DataFrame Περίπτωσης 2 (χωρίς έγκυρη απόφαση)
+    df_pde_raw : DataFrame Περίπτωσης 3 (αναλυτικά με απόφαση ΠΔΕ)
+    summary1   : str — περίληψη φύλλου 1 για email body
+    summary2   : str — περίληψη φύλλου 2 για email body
     """
     # Φίλτρο: μόνο μη-μηδενική Γραμματειακή
     df = df412[df412[COL_GRAM] > 0].copy()
@@ -194,7 +195,7 @@ def process(df412, adynatountes):
         rows_p1.append({
             'Κωδικός Ειδικότητας': eid,
             'Πλήθος 4.12':         cnt_412,
-            'Πλήθος Αδυνατούντων': cnt_ady,
+            'Πλήθος 4.26/4.27':    cnt_ady,
             'Διαφορά':             diff,
             'Κατάσταση':           status,
         })
@@ -209,7 +210,7 @@ def process(df412, adynatountes):
         lines = []
         for _, r in diffs.iterrows():
             lines.append(f"  - {r['Κωδικός Ειδικότητας']}: 4.12={r['Πλήθος 4.12']}, "
-                         f"Αδυνατούντες={r['Πλήθος Αδυνατούντων']}, "
+                         f"Αδυνατούντες={r['Πλήθος 4.26/4.27']}, "
                          f"Διαφορά={r['Διαφορά']:+d}")
         summary1 = ('Φύλλο 1 (ΠΔΕ αποφάσεις): Αποκλίσεις σε '
                     f'{len(diffs)} ειδικότητες:\n' + '\n'.join(lines))
@@ -218,7 +219,7 @@ def process(df412, adynatountes):
     if COL_EIDOS in df_nopde.columns:
         before = len(df_nopde)
         df_nopde = df_nopde[df_nopde[COL_EIDOS].str.strip() != 'Ιδιωτικά Σχολεία'].copy()
-        print(f'  Εξαιρέθηκαν {before - len(df_nopde)} εγγραφές Ιδιωτικών Σχολείων')
+        print(f'  Εξαιρέθηκαν {before - len(df_nopde)} εγγραφές Ιδιωτικών Σχολείων (χωρίς ΠΔΕ)')
     df_nopde = df_nopde.sort_values(COL_GRAM)
 
     # Στήλη σήμανσης
@@ -231,7 +232,13 @@ def process(df412, adynatountes):
                 f'εκ των οποίων {cnt_full} με πλήρες διοικητικό '
                 f'(Γραμματειακή = Ώρες Φορέα).')
 
-    return df_p1, df_nopde, summary1, summary2
+    # ── Περίπτωση 3: αναλυτικά Με Απόφαση ΠΔΕ ──────────────────────────
+    if COL_EIDOS in df_pde_raw.columns:
+        df_pde_raw = df_pde_raw[df_pde_raw[COL_EIDOS].str.strip() != 'Ιδιωτικά Σχολεία'].copy()
+    df_pde_raw = df_pde_raw.sort_values(COL_GRAM)
+    df_pde_raw['_full'] = df_pde_raw[COL_GRAM] == df_pde_raw[COL_ORES]
+
+    return df_p1, df_nopde, df_pde_raw, summary1, summary2
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -250,7 +257,7 @@ def _cell(ws, row, col, value, font=None, fill=None, align=None, border=None):
     if border: c.border = border
     return c
 
-def build_workbook(df_p1, df_p2, today, out_path):
+def build_workbook(df_p1, df_p2, df_p3, today, out_path):
     wb  = Workbook()
     brd = _brd()
     ctr = Alignment(horizontal='center', vertical='center', wrap_text=True)
@@ -265,7 +272,7 @@ def build_workbook(df_p1, df_p2, today, out_path):
     cols1 = [
         ('Κωδικός Ειδικότητας', 20),
         ('Πλήθος 4.12',         14),
-        ('Πλήθος Αδυνατούντων', 20),
+        ('Πλήθος 4.26/4.27',    18),
         ('Διαφορά',             12),
         ('Κατάσταση',           16),
     ]
@@ -304,7 +311,7 @@ def build_workbook(df_p1, df_p2, today, out_path):
             fill_c = COLOR_DIFF_ALT
         fill = PatternFill('solid', start_color=fill_c)
         vals = [row['Κωδικός Ειδικότητας'], row['Πλήθος 4.12'],
-                row['Πλήθος Αδυνατούντων'], row['Διαφορά'], row['Κατάσταση']]
+                row['Πλήθος 4.26/4.27'], row['Διαφορά'], row['Κατάσταση']]
         for ci, val in enumerate(vals, 1):
             c = ws1.cell(row=ri, column=ci, value=val)
             c.font      = Font(name='Arial', size=10,
@@ -390,6 +397,76 @@ def build_workbook(df_p1, df_p2, today, out_path):
 
     ws2.freeze_panes = 'A4'
     ws2.auto_filter.ref = f'A3:{get_column_letter(ncols2)}3'
+
+    # ══════════════════════════════════════════════════
+    # ΦΥΛΛΟ 3 — Με Απόφαση ΠΔΕ (αναλυτικά)
+    # ══════════════════════════════════════════════════
+    ws3 = wb.create_sheet('Με Απόφαση ΠΔΕ')
+
+    sxol_col3 = COL_SXOL_ALT if COL_SXOL_ALT in df_p3.columns else COL_SXOL
+    base_cols3 = [
+        (COL_KWD,    14, 'Κωδικός Σχολείου'),
+        (sxol_col3,  42, 'Ονομασία Σχολείου'),
+        (COL_AM,     11, 'ΑΜ'),
+        (COL_EPWN,   18, 'Επώνυμο'),
+        (COL_ONOM,   14, 'Όνομα'),
+        (COL_EID,    14, 'Ειδικότητα'),
+        (COL_ORES,   14, 'Ώρες Φορέα'),
+        (COL_GRAM,   16, 'Γραμματειακή Υποστήριξη'),
+        (COL_PARAT,  40, 'Παρατηρήσεις'),
+    ]
+    cols3   = [(src, w, lbl) for src, w, lbl in base_cols3 if src in df_p3.columns or src == sxol_col3]
+    ncols3  = len(cols3)
+    COLOR_HDR_PDE = '1F4E79'   # σκούρο μπλε για το φύλλο ΠΔΕ
+
+    ws3.merge_cells(f'A1:{get_column_letter(ncols3)}1')
+    ws3['A1'] = f'{CHECK_TITLE}  —  Με Απόφαση ΠΔΕ  —  {today.strftime("%d/%m/%Y")}'
+    ws3['A1'].font      = Font(name='Arial', bold=True, size=12, color='FFFFFF')
+    ws3['A1'].fill      = PatternFill('solid', start_color=COLOR_HDR_PDE)
+    ws3['A1'].alignment = ctr
+    ws3.row_dimensions[1].height = 24
+
+    cnt_full3 = df_p3['_full'].sum()
+    ws3.merge_cells(f'A2:{get_column_letter(ncols3)}2')
+    ws3['A2'] = (f'Σύνολο εγγραφών: {len(df_p3)}  |  '
+                 f'Πλήρες διοικητικό (Γραμματειακή = Ώρες Φορέα): {cnt_full3}  '
+                 f'— χρωματισμένες γραμμές')
+    ws3['A2'].font      = Font(name='Arial', italic=True, size=9)
+    ws3['A2'].fill      = PatternFill('solid', start_color=COLOR_SUB)
+    ws3['A2'].alignment = ctr
+    ws3.row_dimensions[2].height = 16
+
+    for ci, (_, width, label) in enumerate(cols3, 1):
+        c = ws3.cell(row=3, column=ci, value=label)
+        c.font      = Font(name='Arial', bold=True, color='FFFFFF', size=10)
+        c.fill      = PatternFill('solid', start_color=COLOR_HDR_PDE)
+        c.alignment = ctr
+        c.border    = brd
+        ws3.column_dimensions[get_column_letter(ci)].width = width
+    ws3.row_dimensions[3].height = 28
+
+    for ri, (_, row) in enumerate(df_p3.iterrows(), start=4):
+        is_full  = bool(row.get('_full', False))
+        if is_full:
+            fill_color = COLOR_FULL if ri % 2 == 0 else COLOR_FULL_ALT
+        else:
+            fill_color = COLOR_ALT if ri % 2 == 0 else 'FFFFFF'
+        fill = PatternFill('solid', start_color=fill_color)
+
+        for ci, (src_col, _, _) in enumerate(cols3, 1):
+            val = row.get(src_col, '')
+            if hasattr(val, 'item'):
+                val = val.item()
+            c = ws3.cell(row=ri, column=ci, value=val)
+            c.font      = Font(name='Arial', size=9,
+                               bold=is_full and src_col == COL_GRAM)
+            c.fill      = fill
+            c.alignment = ctr if src_col in (COL_AM, COL_EID, COL_ORES, COL_GRAM, COL_KWD) else lft
+            c.border    = brd
+        ws3.row_dimensions[ri].height = 16
+
+    ws3.freeze_panes = 'A4'
+    ws3.auto_filter.ref = f'A3:{get_column_letter(ncols3)}3'
 
     wb.save(out_path)
 
@@ -487,9 +564,10 @@ def run(config):
 
     # Επεξεργασία
     print('\nΕπεξεργασία...')
-    df_p1, df_p2, summary1, summary2 = process(df412, adyn)
-    print(f'  ✓ Φύλλο 1 (ΠΔΕ)            : {len(df_p1)} ειδικότητες')
-    print(f'  ✓ Φύλλο 2 (χωρίς απόφαση) : {len(df_p2)} εγγραφές')
+    df_p1, df_p2, df_p3, summary1, summary2 = process(df412, adyn)
+    print(f'  ✓ Φύλλο 1 (ΠΔΕ vs 4.26/4.27) : {len(df_p1)} ειδικότητες')
+    print(f'  ✓ Φύλλο 2 (χωρίς απόφαση)    : {len(df_p2)} εγγραφές')
+    print(f'  ✓ Φύλλο 3 (με απόφαση ΠΔΕ)   : {len(df_p3)} εγγραφές')
 
     # Αποθήκευση
     _docs = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks')
@@ -499,7 +577,7 @@ def run(config):
 
     out_path = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_DIOIKITIKO.xlsx')
     try:
-        build_workbook(df_p1, df_p2, today, out_path)
+        build_workbook(df_p1, df_p2, df_p3, today, out_path)
         print(f'\n  ✓ Αποθηκεύτηκε: {os.path.basename(out_path)}')
     except PermissionError:
         import tkinter.messagebox as _mb
