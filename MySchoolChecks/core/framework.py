@@ -844,7 +844,7 @@ def run_check(check_module, config):
     ctx = check_module.ask_inputs()
 
     # Αν κάποιο αρχείο δεν βρέθηκε (None), σταματάμε με χρήσιμο μήνυμα
-    missing_keys = [k for k in ctx if k == 'path' or k.endswith('_path') or k == 'paths']
+    missing_keys = [k for k in ctx if k == 'path' or k.endswith('_path') or k.startswith('path_') or k == 'paths']
     for k in missing_keys:
         val = ctx[k]
         if val is None or (isinstance(val, list) and None in val):
@@ -852,7 +852,7 @@ def run_check(check_module, config):
             _missing_file_dialog(title, required)
             return
 
-    today     = ctx.get('today', datetime.today().replace(hour=0, minute=0, second=0, microsecond=0))
+    today     = ctx.get('today') or datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
     test_mode = False
     do_send   = False
 
