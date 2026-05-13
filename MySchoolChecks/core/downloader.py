@@ -42,7 +42,7 @@ REPORTS = [
     ('4.1',  'Οργανικές τοποθετήσεις',         '/Statistics/Management.stat.wrkCatalogue.aspx?parentId=5',                   'stat4_1',             60, 60, False),
     ('4.2',  'Αποσπασμένοι εκπαιδευτικοί',     '/Statistics/Management.stat.wrkDetachedCatalogue.aspx?parentId=5',           'stat4_2',             60, 60, False),
     ('4.8',  'Ωράριο εκπαιδευτικών',           '/Statistics/Management.stat.TchHoursCatalogue.aspx?parentId=5',              '4.8_Ωραριο',          30, 40, False),
-    ('4.9',  'Παρόντες εκπαιδευτικοί',         '/Statistics/Management.stat.TchHoursCatalogueUnqWrk.aspx?parentId=5',       '4.9_Παροντες',        60, 40, False),
+    ('4.9',  'Παρόντες εκπαιδευτικοί',         '/Statistics/Management.stat.TchHoursCatalogueUnqWrk.aspx?parentId=5',       '4.9_Παροντες',        69, 46, False),
     ('4.11', 'Μείωση ωραρίου',                  '/Statistics/Management.stat.MeiwseisCatalogue.aspx?parentId=5',              '4.11_Meiwseis',       30, 40, False),
     ('4.12', 'Συμπλήρωση ωραρίου',             '/Statistics/Management.stat.SymplirwseisCatalogue.aspx?parentId=5',          '4.12_Symplirwseis',   30, 40, False),
     ('4.16', 'Αιτιολόγηση απουσίας',           '/Statistics/Management.stat.wrkAbsenteesFromUnitCatalogue.aspx?parentId=5', 'stat4_16',            60, 60, False),
@@ -211,29 +211,42 @@ class MySchoolDownloader:
                 _local = next((p for p in _candidates if os.path.isfile(p)), None)
 
                 self._log('  Αυτόματη εύρεση/λήψη ChromeDriver...')
+
+                # Προσπάθεια 1: Selenium built-in driver manager (Selenium 4.6+)
+                # Δεν χρειάζεται εξωτερική βιβλιοθήκη — το Selenium κατεβάζει μόνο του
                 try:
-                    from webdriver_manager.chrome import ChromeDriverManager
-                    _wdm_path = ChromeDriverManager().install()
-                    driver = webdriver.Chrome(service=ChromeService(_wdm_path), options=options)
-                    self._log('  ChromeDriver OK (webdriver-manager).')
-                except Exception as _wdm_err:
-                    if _local:
-                        self._log('  webdriver-manager απέτυχε — δοκιμάζω τοπικό driver...')
-                        try:
-                            driver = webdriver.Chrome(service=ChromeService(_local), options=options)
-                            self._log('  Τοπικός driver OK.')
-                        except Exception as _local_err:
+                    driver = webdriver.Chrome(options=options)
+                    self._log('  ChromeDriver OK (Selenium built-in).')
+                except Exception as _builtin_err:
+                    self._log(f'  Selenium built-in απέτυχε: {_builtin_err}')
+
+                    # Προσπάθεια 2: webdriver-manager
+                    try:
+                        from webdriver_manager.chrome import ChromeDriverManager
+                        _wdm_path = ChromeDriverManager().install()
+                        driver = webdriver.Chrome(service=ChromeService(_wdm_path), options=options)
+                        self._log('  ChromeDriver OK (webdriver-manager).')
+                    except Exception as _wdm_err:
+                        self._log(f'  webdriver-manager απέτυχε: {_wdm_err}')
+
+                        # Προσπάθεια 3: τοπικό bundled driver
+                        if _local:
+                            self._log('  Δοκιμάζω τοπικό driver...')
+                            try:
+                                driver = webdriver.Chrome(service=ChromeService(_local), options=options)
+                                self._log('  Τοπικός driver OK.')
+                            except Exception as _local_err:
+                                raise RuntimeError(
+                                    f'Δεν ήταν δυνατή η εκκίνηση του ChromeDriver.\n\n'
+                                    f'Βεβαιώσου ότι ο Chrome είναι εγκατεστημένος και ενημερωμένος\n'
+                                    f'και ότι υπάρχει σύνδεση internet για αυτόματη λήψη driver.'
+                                ) from _local_err
+                        else:
                             raise RuntimeError(
                                 f'Δεν ήταν δυνατή η εκκίνηση του ChromeDriver.\n\n'
                                 f'Βεβαιώσου ότι ο Chrome είναι εγκατεστημένος και ενημερωμένος\n'
                                 f'και ότι υπάρχει σύνδεση internet για αυτόματη λήψη driver.'
-                            ) from _local_err
-                    else:
-                        raise RuntimeError(
-                            f'Δεν ήταν δυνατή η εκκίνηση του ChromeDriver.\n\n'
-                            f'Βεβαιώσου ότι ο Chrome είναι εγκατεστημένος και ενημερωμένος\n'
-                            f'και ότι υπάρχει σύνδεση internet για αυτόματη λήψη driver.'
-                        ) from _wdm_err
+                            ) from _wdm_err
 
             wait = WebDriverWait(driver, 20)
 
