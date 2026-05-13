@@ -23,6 +23,8 @@ MySchoolChecksPlus/downloads/
 # ── Markers εγκατάστασης (τοπικά) ────────────────────────────────────────
 MySchoolChecksPlus/.libs_ok
 MySchoolChecksPlus/.shortcut_ok
+MySchoolChecks/.libs_ok
+MySchoolChecks/.shortcut_ok
 
 # ── Αποτελέσματα ελέγχων ──────────────────────────────────────────────────
 MySchoolChecksPlus/results_*/
