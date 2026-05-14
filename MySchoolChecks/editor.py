@@ -224,7 +224,7 @@ def run(ctx, driver, callback=None):
     if not records:
         return
 
-    today_str = date.today().strftime('%d/%m/%Y')
+    today_str = ctx.get('date', date.today().strftime('%d/%m/%Y'))
     total     = len(records)
     log(f'  {total} εγγραφές  |  Ημερομηνία: {today_str}')
 

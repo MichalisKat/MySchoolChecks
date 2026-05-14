@@ -1671,7 +1671,7 @@ class EidikotitaDialog(tk.Toplevel):
         'Email στο ΠΣΔ', 'Email', 'Κινητό',
         'Σχέση εργασίας', 'Σχέση τοποθέτησης',
         'Κατάσταση',
-        'Φορέας τοποθέτησης',
+        'Φορέας τοποθέτησης', 'Δήμος',
         'Τηλέφωνο', 'e-mail',
         'ΑΠΟΥΣΙΑ', 'Από', 'Έως',
     ]
@@ -2107,6 +2107,7 @@ class EidikotitaDialog(tk.Toplevel):
             gc_phone = self._fc(df_g, 'τηλ')                or df_g.columns[15]
             gc_email = self._fc(df_g, 'e-mail', 'email')    or df_g.columns[17]
             gc_area  = self._fc(df_g, 'περιοχ', 'τοποθεσ') or df_g.columns[18]
+            gc_dimos = self._fc(df_g, 'δήμ', 'δημ')
 
             # Φίλτρα gridResults
             gc_eidos = self._fc(df_g, 'είδος', 'ειδος')
@@ -2114,9 +2115,13 @@ class EidikotitaDialog(tk.Toplevel):
                 df_g = df_g[df_g[gc_eidos].fillna('').astype(str).str.strip() != 'Ιδιωτικά Σχολεία'].copy()
 
             df_g['_code'] = self._norm_code(df_g[gc_code])
-            df_g_lu = df_g[['_code', gc_name, gc_phone, gc_email, gc_area]] \
-                          .drop_duplicates('_code').copy()
-            df_g_lu.columns = ['_code', '_school_name', '_phone', '_school_email', '_area']
+            _g_cols = ['_code', gc_name, gc_phone, gc_email, gc_area]
+            _g_names = ['_code', '_school_name', '_phone', '_school_email', '_area']
+            if gc_dimos:
+                _g_cols.append(gc_dimos)
+                _g_names.append('_dimos')
+            df_g_lu = df_g[_g_cols].drop_duplicates('_code').copy()
+            df_g_lu.columns = _g_names
             df_g_lu['_phone'] = df_g_lu['_phone'].fillna('').astype(str) \
                                     .str.replace(r'\.0$', '', regex=True).str.strip()
 
@@ -2166,13 +2171,8 @@ class EidikotitaDialog(tk.Toplevel):
             if not df_s16.empty:
                 # stat4_16: col16 labeled "Α.Μ." αλλά έχει ΑΦΜ δεδομένα (9 ψηφία, ="..." format)
                 # → join με ΑΦΜ (ίδιο key με Topothetiseis col1 και stat4_1/4_2 col0)
-                s16_afm_col = None
-                for col in df_s16.columns:
-                    c = str(col).lower().strip()
-                    if 'α.μ' in c and 'φ' not in c:
-                        s16_afm_col = col; break
-                if s16_afm_col is None:
-                    s16_afm_col = df_s16.columns[16]
+                # 1-column shift: header[17]='Α.Μ.' → data[16] — χρήση absolute index
+                s16_afm_col = df_s16.columns[16]
                 # col shift: header[i] περιγράφει data[i-1]
                 # header[45]='Αιτιολόγηση Απουσίας' → data[44]
                 # header[47]='Από'                   → data[46]
@@ -2259,6 +2259,7 @@ class EidikotitaDialog(tk.Toplevel):
             out['Σχέση τοποθέτησης'] = gcol(topoth_col)
             out['Κατάσταση']         = gcol(status_col)
             out['Φορέας τοποθέτησης']= gcol(school_name_col)
+            out['Δήμος']             = df_t['_dimos'].fillna('') if '_dimos' in df_t.columns else ''
             out['Τηλέφωνο']          = df_t['_phone'].fillna('')
             out['e-mail']            = df_t['_school_email'].fillna('')
             out['ΑΠΟΥΣΙΑ']           = df_t['_apoysia'].fillna('')
@@ -3384,6 +3385,8 @@ class EditorDialog(tk.Toplevel):
         self.transient(parent)
         self._driver   = None
         self._file_var = tk.StringVar()
+        from datetime import date as _date
+        self._date_var = tk.StringVar(value=_date.today().strftime('%d/%m/%Y'))
 
         ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
         if os.path.exists(ico):
@@ -3428,9 +3431,20 @@ class EditorDialog(tk.Toplevel):
                  bg=C['bg'], fg='#666666', font=('Arial', 8), anchor='w', wraplength=520, justify='left')
         note.grid(row=2, column=0, sticky='w', pady=(0, 10))
 
+        # Ημερομηνία
+        tk.Label(body, text='Ημερομηνία καταχώρησης (ΗΗ/ΜΜ/ΕΕΕΕ):',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).grid(row=3, column=0, sticky='w', pady=(0, 3))
+        date_row = tk.Frame(body, bg=C['bg'])
+        date_row.grid(row=4, column=0, sticky='w', pady=(0, 10))
+        tk.Entry(date_row, textvariable=self._date_var, font=('Arial', 9),
+                 relief='solid', bd=1, width=14).pack(side='left')
+        tk.Label(date_row, text='  (προεπιλογή: σήμερα)',
+                 bg=C['bg'], fg='#888888', font=('Arial', 8)).pack(side='left')
+
         # Κουμπί ενοποιημένο
         btn_row = tk.Frame(body, bg=C['bg'])
-        btn_row.grid(row=3, column=0, sticky='w', pady=(0, 8))
+        btn_row.grid(row=5, column=0, sticky='w', pady=(0, 8))
         self._conn_btn = tk.Button(btn_row,
                   text='▶  Σύνδεση & Εκτέλεση',
                   bg=C['btn_bg'], fg=C['btn_fg'],
@@ -3443,17 +3457,17 @@ class EditorDialog(tk.Toplevel):
         self._status_var = tk.StringVar(value='Επίλεξε αρχείο και πάτα Σύνδεση & Εκτέλεση.')
         tk.Label(body, textvariable=self._status_var,
                  bg=C['bg'], fg=C['status_run'],
-                 font=('Arial', 8), anchor='w').grid(row=4, column=0, sticky='w', pady=(0, 4))
+                 font=('Arial', 8), anchor='w').grid(row=6, column=0, sticky='w', pady=(0, 4))
 
         # Log
         tk.Label(body, text='Αρχείο καταγραφής:',
                  bg=C['bg'], fg=self._LBL_CLR,
-                 font=('Arial', 9, 'bold')).grid(row=5, column=0, sticky='w', pady=(4, 2))
+                 font=('Arial', 9, 'bold')).grid(row=7, column=0, sticky='w', pady=(4, 2))
         self._log = st2.ScrolledText(body, height=12, font=('Consolas', 8),
                                       relief='solid', bd=1, state='disabled',
                                       bg='#F5F5F5', wrap=tk.WORD)
-        self._log.grid(row=6, column=0, sticky='nsew', pady=(0, 4))
-        body.rowconfigure(6, weight=1)
+        self._log.grid(row=8, column=0, sticky='nsew', pady=(0, 4))
+        body.rowconfigure(8, weight=1)
 
         self.protocol('WM_DELETE_WINDOW', self._on_close)
 
@@ -3493,7 +3507,7 @@ class EditorDialog(tk.Toplevel):
                 return
             self._driver = drv
             self.after(0, lambda: self._status_var.set('Εκτέλεση...'))
-            editor.run({'file_path': path}, drv, callback=self._log_msg)
+            editor.run({'file_path': path, 'date': self._date_var.get().strip()}, drv, callback=self._log_msg)
             def _after():
                 self._conn_btn.configure(state='normal', text='▶  Σύνδεση & Εκτέλεση')
                 self._status_var.set('Ολοκλήρωση.')
@@ -4092,6 +4106,13 @@ def main():
                 time.sleep(remaining)
 
         except Exception as _e:
+            import traceback as _tb2
+            try:
+                _elog = os.path.join(os.path.expanduser('~'), 'Desktop', 'startup_error.log')
+                with open(_elog, 'w', encoding='utf-8') as _ef:
+                    _ef.write(_tb2.format_exc())
+            except Exception:
+                pass
             checks_result.append([])
         finally:
             done_flag.set()

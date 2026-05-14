@@ -164,18 +164,26 @@ class MySchoolDownloader:
                     'text/csv,application/csv,application/octet-stream')
                 ff_options.set_preference('pdfjs.disabled', True)
 
+                # Προσπάθεια 1: Selenium built-in (4.6+) — χωρίς internet
                 try:
-                    from webdriver_manager.firefox import GeckoDriverManager
-                    _gecko_path = GeckoDriverManager().install()
-                    driver = webdriver.Firefox(
-                        service=FirefoxService(_gecko_path), options=ff_options)
-                    self._log('  GeckoDriver OK (webdriver-manager).')
-                except Exception as _ff_err:
-                    raise RuntimeError(
-                        f'Δεν ήταν δυνατή η εκκίνηση του Firefox.\n\n'
-                        f'Βεβαιώσου ότι ο Firefox είναι εγκατεστημένος\n'
-                        f'και ότι υπάρχει σύνδεση internet για αυτόματη λήψη GeckoDriver.'
-                    ) from _ff_err
+                    driver = webdriver.Firefox(options=ff_options)
+                    self._log('  GeckoDriver OK (Selenium built-in).')
+                except Exception as _builtin_err:
+                    self._log(f'  Selenium built-in απέτυχε: {_builtin_err}')
+
+                    # Προσπάθεια 2: webdriver-manager
+                    try:
+                        from webdriver_manager.firefox import GeckoDriverManager
+                        _gecko_path = GeckoDriverManager().install()
+                        driver = webdriver.Firefox(
+                            service=FirefoxService(_gecko_path), options=ff_options)
+                        self._log('  GeckoDriver OK (webdriver-manager).')
+                    except Exception as _ff_err:
+                        raise RuntimeError(
+                            f'Δεν ήταν δυνατή η εκκίνηση του Firefox.\n\n'
+                            f'Βεβαιώσου ότι ο Firefox είναι εγκατεστημένος\n'
+                            f'και ότι υπάρχει σύνδεση internet για αυτόματη λήψη GeckoDriver.'
+                        ) from _ff_err
 
             else:
                 # ── Chrome (default) ──────────────────────────────────
