@@ -1715,8 +1715,17 @@ class EidikotitaDialog(tk.Toplevel):
 
     @staticmethod
     def _auto_find(prefix):
-        """Ψάχνει το αρχείο στους φακέλους downloads (νεότερος πρώτα), μετά ~/Downloads."""
-        import glob as _glob
+        """Ψάχνει το αρχείο στους φακέλους downloads (νεότερος πρώτα), μετά ~/Downloads.
+        Το αρχείο πρέπει να αρχίζει ΑΚΡΙΒΩΣσε prefix και ο αμέσως επόμενος χαρακτήρας
+        δεν πρέπει να είναι αλφαριθμητικός — ώστε π.χ. 'stat4_1' να μην ταιριάζει 'stat4_16'.
+        """
+        import glob as _glob, re as _re
+        _exact = _re.compile(r'(?i)' + _re.escape(prefix) + r'[^a-zA-Z0-9]')
+
+        def _ok(f):
+            return (not f.endswith('.tmp') and not f.endswith('.crdownload')
+                    and _exact.match(os.path.basename(f)))
+
         dl_base = os.path.join(_docs_base(), 'downloads')
         if os.path.isdir(dl_base):
             folders = sorted([
@@ -1725,13 +1734,11 @@ class EidikotitaDialog(tk.Toplevel):
                 if os.path.isdir(os.path.join(dl_base, d))
             ], reverse=True)
             for folder in folders:
-                matches = [f for f in _glob.glob(os.path.join(folder, f'{prefix}*'))
-                           if not f.endswith('.tmp') and not f.endswith('.crdownload')]
+                matches = [f for f in _glob.glob(os.path.join(folder, f'{prefix}*')) if _ok(f)]
                 if matches:
                     return sorted(matches)[-1]
         dl_user = os.path.join(os.path.expanduser('~'), 'Downloads')
-        matches = [f for f in _glob.glob(os.path.join(dl_user, f'*{prefix}*'))
-                   if not f.endswith('.tmp') and not f.endswith('.crdownload')]
+        matches = [f for f in _glob.glob(os.path.join(dl_user, f'*{prefix}*')) if _ok(f)]
         return sorted(matches)[-1] if matches else ''
 
     # ── Κύρια φόρμα ──────────────────────────────────────────────────────────
@@ -1758,6 +1765,15 @@ class EidikotitaDialog(tk.Toplevel):
                 bg='#FFF3E0', fg='#E65100', font=('Arial', 8), anchor='w', padx=10, pady=5,
                 wraplength=560, justify='left')
             warn.pack(fill='x', padx=18, pady=(0, 6))
+        missing_opt = []
+        if not self._stat41_path: missing_opt.append('4.1')
+        if not self._stat42_path: missing_opt.append('4.2')
+        if missing_opt:
+            warn2 = tk.Label(self,
+                text=f'ℹ  Δεν βρέθηκαν: {", ".join(missing_opt)} — οι στήλες Email ΠΣΔ / Email / Κινητό θα είναι κενές.',
+                bg='#E3F2FD', fg='#1565C0', font=('Arial', 8), anchor='w', padx=10, pady=5,
+                wraplength=560, justify='left')
+            warn2.pack(fill='x', padx=18, pady=(0, 6))
 
         # ── Διεύθυνση ────────────────────────────────────────────────────────
         tk.Label(self, text='Διεύθυνση:', bg=C['bg'], fg=C['hdr_bg'],
@@ -2145,6 +2161,11 @@ class EidikotitaDialog(tk.Toplevel):
             def _read_csv_enc(path):
                 if not path: return pd.DataFrame()
                 import zipfile as _zf, io as _io
+                if path.endswith(('.xlsx', '.xls')):
+                    try:
+                        return pd.read_excel(path, header=0, dtype=str)
+                    except Exception:
+                        return pd.DataFrame()
                 if path.endswith('.zip'):
                     try:
                         with _zf.ZipFile(path) as z:
