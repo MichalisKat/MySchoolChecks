@@ -1693,7 +1693,7 @@ class EidikotitaDialog(tk.Toplevel):
         # Αν τα αποθηκευμένα δεν έχουν placeholder, reset στα defaults
         if '{specialty}' not in self._saved_subject:
             self._saved_subject = self._DEFAULT_SUBJECT
-        if '{specialty}' not in self._saved_body:
+        if '{specialty}' not in self._saved_body or '{date}' not in self._saved_body:
             self._saved_body = self._DEFAULT_BODY
 
         # Αυτόματη εύρεση αρχείων από downloads
@@ -2359,9 +2359,13 @@ class EidikotitaDialog(tk.Toplevel):
 
         # ── 8. Αποθήκευση ρυθμίσεων ──────────────────────────────────────────
         s = _load_local_settings()
-        # Αποθήκευση με placeholder {specialty} ώστε να αντικαθίσταται σωστά την επόμενη φορά
+        # Αποθήκευση με placeholders {specialty} και {date} ώστε να αντικαθίστανται σωστά την επόμενη φορά
+        from datetime import datetime as _dt_save
+        _today_save = _dt_save.today().strftime('%d/%m/%Y')
         body_to_save    = body_text.replace(specialty, '{specialty}') if specialty else body_text
+        body_to_save    = body_to_save.replace(_today_save, '{date}')
         subject_to_save = subject.replace(specialty, '{specialty}')   if specialty else subject
+        subject_to_save = subject_to_save.replace(_today_save, '{date}')
         self._saved_body    = body_to_save
         self._saved_subject = subject_to_save
         s[self._SETTINGS_KEY] = {
