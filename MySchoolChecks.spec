@@ -5,6 +5,7 @@ datas = [
     ('MySchoolChecks\\checks', 'checks'),
     ('MySchoolChecks\\core', 'core'),
     ('MySchoolChecks\\smeae', 'smeae'),
+    ('MySchoolChecks\\data', 'data'),
     ('MySchoolChecks\\config.py', '.'),
     ('MySchoolChecks\\editor.py', '.'),
     ('MySchoolChecks\\placements.py', '.'),

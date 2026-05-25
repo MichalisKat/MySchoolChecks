@@ -6,7 +6,7 @@ Python εφαρμογή Windows για αυτοματοποιημένους ελ
 
 **Repo:** https://github.com/MichalisKat/myschool-checks  
 **Υπεύθυνος:** Μιχάλης Κατσιρντάκης  
-**Τρέχουσα έκδοση:** 1.0.0
+**Τρέχουσα έκδοση:** 2.6.0
 
 ---
 
@@ -109,7 +109,8 @@ myschool-checks/
 - Κουμπί toolbar: **«🏫 Σχολικές Μονάδες»**
 - Πηγές: stat3_1 (primary — κατανομή τάξεων) + CSV/stat2_2 (secondary — επικοινωνία, Διευθυντής)
 - Φίλτρα: Δημοτικά + Νηπιαγωγεία, εξαιρεί Ιδιωτικά/Ξένα και Αναστολή=NAI (col48 CSV)
-- **CSV 1-column shift**: col10=Είδος, col11=Κωδ., col12=Ονομασία, col16=Τηλ., col18=email, col20=Διεύθ., col48=Αναστολή, col55=Διευθυντής, col58=Κινητό, col59=Email, col60=Email ΠΣΔ
+- **CSV 1-column shift**: col10=Είδος, col11=Κωδ., col12=Ονομασία, col16=Τηλ., col18=email, col20=Διεύθ., col48=Αναστολή, col53=ΑΜ Δ/ντή, col54=ΑΦΜ Δ/ντή, col55=Ονομ/μο Δ/ντή, col58=Κινητό Δ/ντή, col59=Email Δ/ντή, col60=Email ΠΣΔ Δ/ντή
+- **ΑΦΜ Διευθυντή** — προαιρετική στήλη (checkbox, default=OFF) — **col54** (λόγω shift: header «Α.Φ.Μ.» βρίσκεται στο col55 αλλά τα data ΑΦΜ είναι στο col54 με format `="XXXXXXXXX"`)
 - stat3_1 trailing semicolons: `strip_trailing_sep=True` στο `_read_zip_csv`
 - Join: clean_code (lstrip '0', strip `="..."`) στα codes stat3_1 col4 ↔ CSV col11
 - **Ανά Τάξη**: flat rows + subtotal μόνο για Δημοτικά (Νηπιαγωγεία χωρίς subtotal)
@@ -163,9 +164,9 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 Τρέξε μόνο βήματα 3 → 4 → 5 → 6. Το `build_executable.bat` δεν χρειάζεται.
 
 ### Versioning
-- Τρέχουσα: `1.0.0`
-- Επόμενη: `1.0.1` (bugfixes) ή `1.1.0` (νέα features)
-- Αλλαγή version: στο `myschool-checks.nsi` (`APP_VERSION`), στο `compile_installer.bat` **και** στο `MySchoolChecksPlus/config.py` (`APP_VERSION`)
+- Τρέχουσα: `2.6.0`
+- Επόμενη: `2.6.1` (bugfixes) ή `2.7.0` (νέα features)
+- Αλλαγή version: στο `myschool-checks.nsi` (`APP_VERSION`), στο `compile_installer.bat` **και** στο `MySchoolChecks/config.py` (`APP_VERSION`)
 
 ### Backup credentials
 Το `build_executable.bat` κρατάει αυτόματα τα credentials:
@@ -212,6 +213,14 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 - [ ] Επαλήθευση λήψης 3.1 με pre_search_labels (DevExpress checkboxes) — πρώτο run in production
 
 ## Αλλαγές ανά έκδοση
+
+### v2.6.0
+- **MonadaDialog**: προαιρετική στήλη **ΑΦΜ Διευθυντή** (checkbox, default=OFF) — col54 CSV (λόγω 1-column shift: header «Α.Φ.Μ.» βρίσκεται στο col55, τα data στο col54 με format `="XXXXXXXXX"`)
+- **SMEAE — JSON mappings fix**: `('MySchoolChecks\\data', 'data')` προστέθηκε στο `.spec` datas — το `smeae_column_mappings.json` πλέον bundlάρεται σωστά στο frozen exe
+- **SMEAE — KeyError(0) fix**: `_first()` helper με `.iloc[0]` αντί `[0]` — αποφεύγει crash σε MultiIndex slaves
+- **SMEAE — Αρχείο 10**: εξαιρείται από τη σύγκριση slave (δεν ξεκινά με "1." αλλά διαφορετική δομή από το master 1.)
+- **SMEAE — Sheet names**: `SHEET_NAMES` dict με σύντομες ονομασίες ανά sheet — format `"N. ΣύντομοΌνομα"` (max 31 χαρ.)
+- **SMEAE — Re-run fix**: διαγραφή παλιού `differences_YEAR_TODAY.xlsx` στην αρχή κάθε σύγκρισης — αποφεύγει `"Worksheet X does not exist"` error
 
 ### v1.0.0
 - **Νέος έλεγχος `adies_missing_421.py`**: εντοπίζει εκπαιδευτικούς με ΜΑΚΡΟΧΡΟΝΙΑ ΑΔΕΙΑ στο 4.16 χωρίς αντίστοιχη ενεργή άδεια στο 4.21 (εξαιρεί ΑΑ, ΣΔΕΥ, Ιδιωτικά) — αλγόριθμος: τύπος άδειας 4.21 ⊆ Εξειδ.Αιτιολόγησης 4.16 + σήμερα εντός και των δύο διαστημάτων

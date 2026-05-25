@@ -275,8 +275,11 @@ class SmeaeDialog(tk.Toplevel):
                 )
                 master_files = [f for f in all_xls
                                 if os.path.basename(f).startswith('1.')]
+                # Αποκλεισμός αρχείου 10. (Βασικά Στοιχεία Σχολικών Μονάδων)
+                # — έχει τελείως διαφορετική δομή από τα ΕΕΑ στατιστικά
                 slave_files  = [f for f in all_xls
-                                if not os.path.basename(f).startswith('1.')]
+                                if not os.path.basename(f).startswith('1.')
+                                and not os.path.basename(f).startswith('10.')]
 
                 if not master_files:
                     raise RuntimeError(
@@ -293,6 +296,17 @@ class SmeaeDialog(tk.Toplevel):
                 dfm = open_xlsx(master_file)
                 dfm.dropna(how='any', inplace=True)
                 on_log(f'  {len(dfm)} εγγραφές master.')
+
+                # Διαγραφή παλιού αρχείου αποτελεσμάτων — κάθε run ξεκινά fresh
+                import glob as _gl2
+                from datetime import datetime as _dt2
+                _today = _dt2.now().strftime('%Y%m%d')
+                for _old in _gl2.glob(os.path.join(out_dir, f'differences_{year}_{_today}.xlsx')):
+                    try:
+                        os.remove(_old)
+                        on_log(f'  (Διαγράφηκε παλιό αρχείο: {os.path.basename(_old)})')
+                    except Exception:
+                        pass
 
                 for sf in slave_files:
                     sname = os.path.basename(sf)

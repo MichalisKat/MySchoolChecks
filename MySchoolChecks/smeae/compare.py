@@ -42,6 +42,26 @@ COLUMN_NAMES = {
         "Κατ' οίκον",
 }
 
+# Σύντομα ονόματα φύλλων Excel (max 31 chars συμπεριλαμβανομένου "N. ")
+SHEET_NAMES = {
+    "Συγκεντρωτικά Στοιχεία μαθητών-μαθητριών με ΕΕΑ που υποστηρίζονται από τον-την εκπαιδευτικό της τάξης":
+        "Εκπαιδευτικός τάξης",
+    "Συγκεντρωτικά Στοιχεία Ειδικών Εκπαιδευτικών Αναγκών σε Τμήματα Ένταξης με κοινό και εξειδικευμένο πρόγραμμα":
+        "ΤΕ κοινό & εξειδικευμένο",
+    "Συγκεντρωτικά Στοιχεία Ειδικών Εκπαιδευτικών Αναγκών σε Τμήματα Ένταξης διευρυμένου ωραρίου":
+        "ΤΕ διευρυμένου ωραρίου",
+    "Συγκεντρωτικά Στοιχεία Ειδικών Εκπαιδευτικών Αναγκών σε Παράλληλη Στήριξη":
+        "Παράλληλη Στήριξη",
+    "Συγκεντρωτικά Στοιχεία Ειδικών Εκπαιδευτικών Αναγκών με Ειδικό Βοηθητικό Προσωπικό":
+        "Ειδικό Βοηθητικό Προσωπικό",
+    "Συγκεντρωτικά Στοιχεία Ειδικών Εκπαιδευτικών Αναγκών με Σχολικό Νοσηλευτή":
+        "Σχολικός Νοσηλευτής",
+    "Συγκεντρωτικά Στοιχεία Ειδικών Εκπαιδευτικών Αναγκών με ειδικό βοηθό (που διαθέτει η οικογένεια)":
+        "Ειδικός βοηθός οικογένειας",
+    "Συγκεντρωτικά Στοιχεία Ειδικών Εκπαιδευτικών Αναγκών Μαθητών που υποστηρίζονται Κατ' οίκον":
+        "Κατ' οίκον",
+}
+
 _IGNORE = '-------- Αγνόησε τη στήλη --------'
 
 
@@ -106,6 +126,14 @@ def compare_xlsx(master_path, slave_path, dfm, dfs, col_l1, col_l2):
     return _compare_rows(master_name, slave_name, dfm, dfs, common, col_l1, col_l2)
 
 
+def _first(s):
+    """Ασφαλής πρόσβαση στο πρώτο στοιχείο Series/MultiIndex — αποφεύγει KeyError(0)."""
+    try:
+        return s.iloc[0]
+    except Exception:
+        return s
+
+
 def _compare_rows(master_name, slave_name, dfm, dfs, common, col_l1, col_l2):
     s2m = {sc: mc for sc, mc in col_l1.items() if mc != _IGNORE}
     differences = {}
@@ -122,9 +150,9 @@ def _compare_rows(master_name, slave_name, dfm, dfs, common, col_l1, col_l2):
                     if c2 in sr[sc] and c2 in mr[mc]:
                         if sr[sc][c2] != mr[mc][c2]:
                             differences[count] = {
-                                'school'      : sr['Ονομασία Μονάδας'][0],
-                                'schCode'     : sr['Κωδικός Υπουργείου'][0],
-                                'class'       : sr['Τάξη'][0],
+                                'school'      : _first(sr['Ονομασία Μονάδας']),
+                                'schCode'     : _first(sr['Κωδικός Υπουργείου']),
+                                'class'       : _first(sr['Τάξη']),
                                 'col_l1'      : sc,
                                 'col_l2'      : c2,
                                 'slave_value' : sr[sc][c2],
@@ -144,9 +172,9 @@ def _compare_rows(master_name, slave_name, dfm, dfs, common, col_l1, col_l2):
             if not non_zero:
                 continue
             differences[count] = {
-                'school'      : sr['Ονομασία Μονάδας'][0],
-                'schCode'     : sr['Κωδικός Υπουργείου'][0],
-                'class'       : sr['Τάξη'][0],
+                'school'      : _first(sr['Ονομασία Μονάδας']),
+                'schCode'     : _first(sr['Κωδικός Υπουργείου']),
+                'class'       : _first(sr['Τάξη']),
                 'col_l1'      : '',
                 'col_l2'      : '',
                 'slave_value' : f"Υπάρχει στο '{COLUMN_NAMES.get(slave_name, slave_name)}'",
@@ -160,9 +188,9 @@ def _compare_rows(master_name, slave_name, dfm, dfs, common, col_l1, col_l2):
             for sc, mc in s2m.items():
                 if any(mr[mc][c2] != 0 for c2 in col_l2 if c2 != 'Σ' and c2 in mr[mc]):
                     differences[count] = {
-                        'school'      : mr['Ονομασία Μονάδας'][0],
-                        'schCode'     : mr['Κωδικός Υπουργείου'][0],
-                        'class'       : mr['Τάξη'][0],
+                        'school'      : _first(mr['Ονομασία Μονάδας']),
+                        'schCode'     : _first(mr['Κωδικός Υπουργείου']),
+                        'class'       : _first(mr['Τάξη']),
                         'col_l1'      : '',
                         'col_l2'      : '',
                         'slave_value' : f"Δεν υπάρχει στο '{slave_name}'",
@@ -196,8 +224,13 @@ def write_to_excel(differences, sheet_name, output_dir, school_year):
     date_str = datetime.now().strftime('%Y%m%d')
     filename = os.path.join(output_dir, f'differences_{school_year}_{date_str}.xlsx')
 
-    raw_sname = os.path.splitext(os.path.basename(sheet_name))[0].split('. ', 2)[-1]
-    sname = sanitize_filename(COLUMN_NAMES.get(raw_sname, raw_sname))[:31]
+    _bn       = os.path.splitext(os.path.basename(sheet_name))[0]
+    _num      = _bn.split('.')[0].strip()          # "2", "3", ... "9"
+    raw_sname = _bn.split('. ', 1)[-1] if '. ' in _bn else _bn
+    _short    = SHEET_NAMES.get(raw_sname,
+                    sanitize_filename(COLUMN_NAMES.get(raw_sname, raw_sname)))
+    # Prefix με αριθμό αρχείου: "2. Εκπαιδευτικός Τάξης"
+    sname     = (f'{_num}. {_short}' if _num.isdigit() else _short)[:31]
 
     mode = 'a' if os.path.exists(filename) else 'w'
     kw   = {'if_sheet_exists': 'replace'} if mode == 'a' else {}

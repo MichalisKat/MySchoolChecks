@@ -44,12 +44,12 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if exist "myschool-checks-2.5.0-setup.exe" (
+if exist "myschool-checks-2.6.0-setup.exe" (
     echo.
     echo ====================================================
     echo   [SUCCESS] Installer created!
     echo.
-    for %%A in ("myschool-checks-2.5.0-setup.exe") do echo   File: myschool-checks-2.5.0-setup.exe  (%%~zA bytes^)
+    for %%A in ("myschool-checks-2.6.0-setup.exe") do echo   File: myschool-checks-2.6.0-setup.exe  (%%~zA bytes^)
     echo.
     echo   Ready to distribute!
     echo ====================================================

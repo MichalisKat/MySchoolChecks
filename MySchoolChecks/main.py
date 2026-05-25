@@ -2448,7 +2448,7 @@ class MonadaDialog(tk.Toplevel):
 
         self._build_form()
         self.update_idletasks()
-        w, h = 630, 540
+        w, h = 630, 590
         x = parent.winfo_x() + (parent.winfo_width()  - w) // 2
         y = parent.winfo_y() + (parent.winfo_height() - h) // 2
         self.geometry(f'{w}x{h}+{x}+{y}')
@@ -2573,6 +2573,19 @@ class MonadaDialog(tk.Toplevel):
         tk.Radiobutton(mode_row, text='Ανά Τάξη', variable=self._mode_var,
                        value='taxh', bg=C['bg'], font=('Arial', 9),
                        activebackground=C['bg']).pack(side='left')
+
+        # ── Προαιρετικές στήλες ───────────────────────────────────────────────
+        tk.Label(self, text='Προαιρετικές στήλες:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
+        col_frame = tk.Frame(self, bg=C['bg'])
+        col_frame.pack(fill='x', padx=18, pady=(2, 6))
+        self._col_vars = {}
+        for col_name in ('ΑΦΜ Διευθυντή',):
+            var = tk.BooleanVar(value=False)
+            self._col_vars[col_name] = var
+            tk.Checkbutton(col_frame, text=col_name, variable=var,
+                           bg=C['bg'], font=('Arial', 9),
+                           activebackground=C['bg']).pack(side='left', padx=(0, 12))
 
         # ── Email ─────────────────────────────────────────────────────────────
         pad = dict(padx=18, pady=2)
@@ -2708,6 +2721,11 @@ class MonadaDialog(tk.Toplevel):
             c_dir_mob  = csv_df.columns[58]
             c_dir_mail = csv_df.columns[59]
             c_dir_psd  = csv_df.columns[60]
+            # ΑΦΜ Διευθυντή — col54
+            # Λόγω 1-column shift στα headers: το header "Α.Φ.Μ. Διευθυντή" βρίσκεται
+            # στο col55, αλλά τα πραγματικά ΑΦΜ δεδομένα (="XXXXXXXXX") είναι στο col54.
+            # Το col55 περιέχει το Ονοματεπώνυμο (χρησιμοποιείται ήδη ως c_dir_name).
+            c_dir_afm = csv_df.columns[54] if len(csv_df.columns) > 54 else None
 
             # Φίλτρο τύπου: εξαίρεση Ιδιωτικών / Ξένων
             eidos_ser = csv_df[c_eidos].fillna('').astype(str)
@@ -2743,6 +2761,7 @@ class MonadaDialog(tk.Toplevel):
                     'email':    self._s(row[c_email]),
                     'address':  self._s(row[c_address]),
                     'dir_name': self._s(row[c_dir_name]),
+                    'dir_afm':  self._s(row[c_dir_afm]) if c_dir_afm is not None else '',
                     'dir_mob':  self._s(row[c_dir_mob]),
                     'dir_mail': self._s(row[c_dir_mail]),
                     'dir_psd':  self._s(row[c_dir_psd]),
@@ -2814,15 +2833,19 @@ class MonadaDialog(tk.Toplevel):
 
             CLASS_RANK = {c: i for i, c in enumerate(self._CLASS_ORDER)}
 
+            _show_afm = self._col_vars.get('ΑΦΜ Διευθυντή', tk.BooleanVar(value=False)).get()
+
             if mode == 'taxh':
                 # ─── Ανά Τάξη ─────────────────────────────────────────────────
                 all_cols = [
                     'Είδος', 'Ονομασία', 'Τάξη', 'Τμήματα',
                     'Αγόρια', 'Κορίτσια', 'Σύνολο',
                     'Τηλέφωνο', 'e-mail σχολείου',
-                    'Ονομ/μο Διευθυντή', 'Κινητό Διευθυντή',
-                    'Email Διευθυντή', 'Email ΠΣΔ Διευθυντή',
+                    'Ονομ/μο Διευθυντή',
                 ]
+                if _show_afm:
+                    all_cols.append('ΑΦΜ Διευθυντή')
+                all_cols += ['Κινητό Διευθυντή', 'Email Διευθυντή', 'Email ΠΣΔ Διευθυντή']
 
                 for ci, col in enumerate(all_cols, 1):
                     _hdr_cell(ws, 1, ci, col)
@@ -2863,6 +2886,10 @@ class MonadaDialog(tk.Toplevel):
                             info.get('phone',    '') if first else '',
                             info.get('email',    '') if first else '',
                             info.get('dir_name', '') if first else '',
+                        ]
+                        if _show_afm:
+                            vals.append(info.get('dir_afm', '') if first else '')
+                        vals += [
                             info.get('dir_mob',  '') if first else '',
                             info.get('dir_mail', '') if first else '',
                             info.get('dir_psd',  '') if first else '',
@@ -2905,22 +2932,28 @@ class MonadaDialog(tk.Toplevel):
                 ws.cell(row=er, column=6, value=tot_ko_g)
                 ws.cell(row=er, column=7, value=tot_sy_g)
 
-                col_widths = [26, 40, 20, 10, 10, 12, 10, 16, 30, 28, 18, 32, 26]
-                for ci, w in enumerate(col_widths[:len(all_cols)], 1):
-                    ws.column_dimensions[get_column_letter(ci)].width = w
+                _cw = {
+                    'Είδος': 26, 'Ονομασία': 40, 'Τάξη': 20,
+                    'Τμήματα': 10, 'Αγόρια': 10, 'Κορίτσια': 12, 'Σύνολο': 10,
+                    'Τηλέφωνο': 16, 'e-mail σχολείου': 30,
+                    'Ονομ/μο Διευθυντή': 28, 'ΑΦΜ Διευθυντή': 14,
+                    'Κινητό Διευθυντή': 18, 'Email Διευθυντή': 32, 'Email ΠΣΔ Διευθυντή': 26,
+                }
+                for ci, col in enumerate(all_cols, 1):
+                    ws.column_dimensions[get_column_letter(ci)].width = _cw.get(col, 15)
 
             else:
                 # ─── Ανά Σχολική Μονάδα ──────────────────────────────────────
                 # Ομαδοποίηση stat3_1 ανά σχολείο + επικοινωνία από CSV
-                base_cols = [
+                all_cols = [
                     'Είδος', 'Ονομασία',
                     'Τμήματα', 'Αγόρια', 'Κορίτσια', 'Σύνολο',
                     'Τηλέφωνο', 'e-mail σχολείου', 'Ταχ. Διεύθυνση',
                     'Ονομ/μο Διευθυντή',
                 ]
-                all_cols = base_cols + [
-                    'Κινητό Διευθυντή', 'Email Διευθυντή', 'Email ΠΣΔ Διευθυντή',
-                ]
+                if _show_afm:
+                    all_cols.append('ΑΦΜ Διευθυντή')
+                all_cols += ['Κινητό Διευθυντή', 'Email Διευθυντή', 'Email ΠΣΔ Διευθυντή']
 
                 for ci, col in enumerate(all_cols, 1):
                     _hdr_cell(ws, 1, ci, col)
@@ -2945,6 +2978,10 @@ class MonadaDialog(tk.Toplevel):
                         info.get('email',    ''),
                         info.get('address',  ''),
                         info.get('dir_name', ''),
+                    ]
+                    if _show_afm:
+                        vals.append(info.get('dir_afm', ''))
+                    vals += [
                         info.get('dir_mob',  ''),
                         info.get('dir_mail', ''),
                         info.get('dir_psd',  ''),
@@ -2973,9 +3010,15 @@ class MonadaDialog(tk.Toplevel):
                 ws.cell(row=tot_row, column=5, value=tot_ko)
                 ws.cell(row=tot_row, column=6, value=tot_sy)
 
-                col_widths = [26, 40, 10, 10, 12, 10, 16, 30, 30, 28, 18, 32, 26]
-                for ci, w in enumerate(col_widths[:len(all_cols)], 1):
-                    ws.column_dimensions[get_column_letter(ci)].width = w
+                _cw = {
+                    'Είδος': 26, 'Ονομασία': 40,
+                    'Τμήματα': 10, 'Αγόρια': 10, 'Κορίτσια': 12, 'Σύνολο': 10,
+                    'Τηλέφωνο': 16, 'e-mail σχολείου': 30, 'Ταχ. Διεύθυνση': 30,
+                    'Ονομ/μο Διευθυντή': 28, 'ΑΦΜ Διευθυντή': 14,
+                    'Κινητό Διευθυντή': 18, 'Email Διευθυντή': 32, 'Email ΠΣΔ Διευθυντή': 26,
+                }
+                for ci, col in enumerate(all_cols, 1):
+                    ws.column_dimensions[get_column_letter(ci)].width = _cw.get(col, 15)
 
             ws.row_dimensions[1].height = 28
             ws.freeze_panes = 'A2'
