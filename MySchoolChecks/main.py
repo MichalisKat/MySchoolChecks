@@ -4045,30 +4045,6 @@ def _splash_log(log_txt, msg):
 
 
 
-def _play_startup_sound(path, on_finished):
-    """Παίζει MP3 μέσω MCI (blocking). Καλεί on_finished() μόνο αν το άνοιγμα
-    του αρχείου πέτυχε — ώστε αποτυχία MCI να μην προκαλεί πρόωρο launch."""
-    _opened = False
-    try:
-        import ctypes
-        mci = ctypes.windll.winmm.mciSendStringW
-        if mci(f'open "{path}" type mpegvideo alias splash_snd', None, 0, None) == 0:
-            _opened = True
-            mci('play splash_snd wait', None, 0, None)
-    except Exception:
-        pass
-    if _opened:
-        on_finished()
-
-
-def _stop_startup_sound():
-    try:
-        import ctypes
-        mci = ctypes.windll.winmm.mciSendStringW
-        mci('stop splash_snd', None, 0, None)
-        mci('close splash_snd', None, 0, None)
-    except Exception:
-        pass
 
 
 
@@ -4091,27 +4067,6 @@ def main():
 
     checks_result = []
     done_flag     = threading.Event()
-    launched      = [False]
-
-    def _do_launch():
-        if not launched[0]:
-            launched[0] = True
-            _stop_startup_sound()
-            # Περιμένουμε το done_flag (20s) πριν ανοίξουμε — σε περίπτωση
-            # που η μουσική τελειώσει νωρίτερα από τον χρονομετρητή
-            def _wait_ready():
-                if not done_flag.is_set():
-                    root.after(100, _wait_ready)
-                    return
-                checks = checks_result[0] if checks_result else []
-                _launch(root, checks, splash, pb)
-            root.after(0, _wait_ready)
-
-    _snd_path  = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'startup.mp3')
-    _has_sound = os.path.exists(_snd_path)
-    if _has_sound:
-        threading.Thread(target=_play_startup_sound,
-                         args=(_snd_path, _do_launch), daemon=True).start()
 
     def _startup():
         import subprocess as _sub
@@ -4126,8 +4081,6 @@ def main():
                 pass
 
         try:
-            _start_time = time.time()
-
             _splash_log(log_txt, f'✓ Python {sys.version.split()[0]}')
             time.sleep(0.3)
 
@@ -4168,11 +4121,6 @@ def main():
             _splash_log(log_txt, f'✓ {len(checks)} έλεγχοι φορτώθηκαν')
             time.sleep(0.4)
 
-            elapsed   = time.time() - _start_time
-            remaining = 20 - elapsed
-            if remaining > 0:
-                time.sleep(remaining)
-
         except Exception as _e:
             import traceback as _tb2
             try:
@@ -4204,9 +4152,8 @@ def main():
         pb.configure(style='SplashDone.Horizontal.TProgressbar',
                      mode='determinate', value=100)
         _splash_log(log_txt, '✓ Έτοιμο!')
-        ready_btn.configure(command=_do_launch)
-        ready_btn.pack(pady=(6, 4))
         splash.update()
+        root.after(600, lambda: _launch(root, checks, splash, pb))
 
     root.after(100, _poll_checks)
     root.mainloop()
