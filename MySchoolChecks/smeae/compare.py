@@ -315,9 +315,64 @@ def split_xlsx(file_path, output_dir, school_year):
     print(f'Διαχωρισμός ολοκληρώθηκε → {output_dir}')
 
 
+# ── Προεπιλεγμένα πρότυπα email ─────────────────────────────────────────────
+
+DEFAULT_SMEAE_SUBJECT = (
+    'Αποτελέσματα ελέγχου για το σχολικό έτος {school_year}, '
+    'των Στατιστικών Στοιχείων Ειδικών Εκπαιδευτικών Αναγκών '
+    'στο Πληροφοριακό Σύστημα Myschool'
+)
+
+DEFAULT_SMEAE_BODY = """\
+Προς τη Διεύθυνση του Σχολείου,
+
+Σας αποστέλλουμε με συνημμένο αρχείο τα αποτελέσματα του ελέγχου των \
+στατιστικών στοιχείων των Ειδικών Εκπαιδευτικών Αναγκών (ΕΕΑ) στο \
+Πληροφοριακό Σύστημα Myschool για το σχολικό έτος {school_year}.
+
+Ο έλεγχος αφορά τη σύγκριση μεταξύ του συγκεντρωτικού στατιστικού και \
+των επιμέρους στατιστικών στοιχείων των μαθητών/μαθητριών με ΕΕΑ. Συγκεκριμένα:
+- Εκπαιδευτικός τάξης
+- Τμήματα Ένταξης (κοινό/εξειδικευμένο & διευρυμένο)
+- Παράλληλη Στήριξη
+- Ειδικό Βοηθητικό Προσωπικό
+- Σχολικός Νοσηλευτής
+- Ειδικός βοηθός οικογένειας
+- Κατ' οίκον
+
+Παρακαλούμε βρείτε στο συνημμένο αρχείο τα αποτελέσματα και προβείτε \
+στις απαραίτητες διορθώσεις στο Myschool. Ιδιαίτερη προσοχή στις στήλες \
+«Όνομα γενικής στήλης» και «Όνομα στήλης μαθητών».
+
+Σημειώνεται ότι όταν ένας μαθητής/μαθήτρια έχει περισσότερες από μία ΕΕΑ, \
+μια μικρή απόκλιση θεωρείται αναμενόμενη.
+
+Με εκτίμηση,
+Ομάδα Myschool
+Διεύθυνση Πρωτοβάθμιας Εκπαίδευσης Ανατολικής Θεσσαλονίκης"""
+
+
+def _plain_to_html(text):
+    """Μετατρέπει απλό κείμενο σε HTML για αποστολή email."""
+    import html as _html
+    paragraphs = text.split('\n\n')
+    html_parts = []
+    for para in paragraphs:
+        lines = para.split('\n')
+        escaped_lines = []
+        for line in lines:
+            esc = _html.escape(line)
+            if esc.startswith('- '):
+                esc = '&bull; ' + esc[2:]
+            escaped_lines.append(esc)
+        html_parts.append('<br>'.join(escaped_lines))
+    return '<html><body><p>' + '</p><p>'.join(html_parts) + '</p></body></html>'
+
+
 def send_emails(output_dir, school_year, email_from, username, password,
                 smtp_host, school_dir_path, dry_run=False,
-                send_only_one=False, callback=None):
+                send_only_one=False, callback=None,
+                custom_subject=None, custom_body_text=None):
     """Αποστολή email με συνημμένο αρχείο σε κάθε σχολείο."""
     log = callback or print
 
@@ -344,17 +399,19 @@ def send_emails(output_dir, school_year, email_from, username, password,
 
         school_name, email_to = info
         send_email_with_attachment(
-            receiver_email=email_to,
-            attachment_path=os.path.join(output_dir, fname),
-            dry_run=dry_run,
-            sender_email=email_from,
-            username=username,
-            password=password,
-            smtp_host=smtp_host,
-            first_email=first,
-            school_name=school_name,
-            school_year=school_year,
-            callback=log,
+            receiver_email   = email_to,
+            attachment_path  = os.path.join(output_dir, fname),
+            dry_run          = dry_run,
+            sender_email     = email_from,
+            username         = username,
+            password         = password,
+            smtp_host        = smtp_host,
+            first_email      = first,
+            school_name      = school_name,
+            school_year      = school_year,
+            callback         = log,
+            custom_subject   = custom_subject,
+            custom_body_text = custom_body_text,
         )
         first = False
 
@@ -362,18 +419,30 @@ def send_emails(output_dir, school_year, email_from, username, password,
 def send_email_with_attachment(receiver_email, attachment_path, dry_run,
                                 sender_email, username, password, smtp_host,
                                 first_email, school_name, school_year,
-                                callback=None):
+                                callback=None,
+                                custom_subject=None, custom_body_text=None):
     log = callback or print
+    _log_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')),
+                            'MySchoolChecks')
+    os.makedirs(_log_dir, exist_ok=True)
     logging.basicConfig(
-        filename='email_sender.log', level=logging.ERROR,
+        filename=os.path.join(_log_dir, 'email_sender.log'), level=logging.ERROR,
         format='%(asctime)s - %(levelname)s - %(message)s')
 
+    # Subject
+    if custom_subject:
+        _subject = custom_subject.replace('{school_year}', school_year)
+    else:
+        _subject = DEFAULT_SMEAE_SUBJECT.replace('{school_year}', school_year)
+
+    # Body
+    if custom_body_text:
+        html_body = _plain_to_html(custom_body_text.replace('{school_year}', school_year))
+    else:
+        html_body = _plain_to_html(DEFAULT_SMEAE_BODY.replace('{school_year}', school_year))
+
     msg = MIMEMultipart()
-    msg['Subject'] = (
-        f'Αποτελέσματα ελέγχου για το σχολικό έτος {school_year}, '
-        'των Στατιστικών Στοιχείων Ειδικών Εκπαιδευτικών Αναγκών '
-        'στο Πληροφοριακό Σύστημα Myschool'
-    )
+    msg['Subject'] = _subject
     msg['From']  = formataddr((
         str(Header(
             'Πρόγραμμα Ελέγχου Στατιστικών Στοιχείων ΕΕΑ — ΔΙΠΕ Ανατολικής Θεσ/νίκης',
@@ -382,34 +451,6 @@ def send_email_with_attachment(receiver_email, attachment_path, dry_run,
     ))
     msg['To']   = formataddr((str(Header(school_name, 'utf-8')), receiver_email))
     msg['Date'] = formatdate(localtime=True)
-
-    html_body = f"""
-    <html><body>
-        <p>Προς τη Διεύθυνση του Σχολείου,</p>
-        <p>Σας αποστέλλουμε με συνημμένο αρχείο τα αποτελέσματα του ελέγχου των στατιστικών
-        στοιχείων των Ειδικών Εκπαιδευτικών Αναγκών (ΕΕΑ) στο Πληροφοριακό Σύστημα Myschool
-        <strong>για το σχολικό έτος {school_year}</strong>.</p>
-        <p>Ο έλεγχος αφορά τη σύγκριση μεταξύ του συγκεντρωτικού στατιστικού και των επιμέρους
-        στατιστικών στοιχείων των μαθητών/μαθητριών με ΕΕΑ. Συγκεκριμένα:</p>
-        <ul>
-            <li><strong>Συγκεντρωτικό στατιστικό:</strong> Σύνολο μαθητών/μαθητριών με ΕΕΑ.</li>
-            <li><strong>Επιμέρους στατιστικά:</strong> εκπαιδευτικός τάξης, Τμήματα Ένταξης
-            (κοινό/εξειδικευμένο &amp; διευρυμένο), Παράλληλη Στήριξη, Ειδικό Βοηθητικό
-            Προσωπικό, Σχολικός Νοσηλευτής, ειδικός βοηθός οικογένειας, κατ' οίκον.</li>
-        </ul>
-        <p>Παρακαλούμε βρείτε στο συνημμένο αρχείο τα αποτελέσματα και προβείτε στις απαραίτητες
-        διορθώσεις στο Myschool. Ιδιαίτερη προσοχή στις στήλες
-        <strong>'Όνομα γενικής στήλης'</strong> και
-        <strong>'Όνομα στήλης μαθητών'</strong>.</p>
-        <p>Σημειώνεται ότι όταν ένας μαθητής/μαθήτρια έχει περισσότερες από μία ΕΕΑ,
-        μια μικρή απόκλιση θεωρείται αναμενόμενη.</p>
-        <p>Με εκτίμηση,<br>
-        <strong>Ομάδα Myschool</strong><br>
-        Διεύθυνση Πρωτοβάθμιας Εκπαίδευσης Ανατολικής Θεσσαλονίκης</p>
-        <hr>
-        <p><em>Αυτοματοποιημένο μήνυμα — παρακαλούμε μην απαντήσετε απευθείας.</em></p>
-    </body></html>
-    """
     msg.attach(MIMEText(html_body, 'html'))
 
     with open(attachment_path, 'rb') as fh:

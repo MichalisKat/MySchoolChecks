@@ -54,6 +54,27 @@ class SmeaeDialog(tk.Toplevel):
     def _mappings_path(self):
         return os.path.join(self._base_dir, 'data', 'smeae_column_mappings.json')
 
+    def _settings_path(self):
+        return os.path.join(self._base_dir, 'data', 'local_settings.json')
+
+    def _load_settings(self):
+        import json
+        p = self._settings_path()
+        if not os.path.exists(p):
+            return {}
+        try:
+            with open(p, encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_settings(self, data):
+        import json
+        p = self._settings_path()
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
     def _guess_year(self):
         now = datetime.now()
         return f'{now.year}-{now.year + 1}' if now.month >= 9 else f'{now.year - 1}-{now.year}'
@@ -448,6 +469,17 @@ class SmeaeDialog(tk.Toplevel):
     def _build_email(self, body):
         C = self._C
         self._email_year = tk.StringVar(value=self._guess_year())
+
+        # Κουμπί πρότυπου email
+        tmpl_row = tk.Frame(body, bg=C['bg'])
+        tmpl_row.pack(fill='x', pady=(0, 8))
+        tk.Button(tmpl_row, text='✉  Πρότυπο Email (Θέμα & Κείμενο)',
+                  bg=C['bg2'], fg=C['hdr_bg'],
+                  font=('Arial', 9), relief='flat',
+                  padx=10, pady=4, cursor='hand2',
+                  command=self._open_email_template_editor
+                  ).pack(side='left')
+
         self._section_lbl(body, 'Σχολικό έτος:')
         self._year_field(body, self._email_year)
 
@@ -477,6 +509,84 @@ class SmeaeDialog(tk.Toplevel):
         br = tk.Frame(body, bg=C['bg'])
         br.pack(fill='x')
         self._email_btn = self._run_btn(br, '✉  Αποστολή Email', self._start_emails)
+
+    def _open_email_template_editor(self):
+        """Dialog επεξεργασίας θέματος & κειμένου email ΣΜΕΑΕ."""
+        from smeae.compare import DEFAULT_SMEAE_SUBJECT, DEFAULT_SMEAE_BODY
+        C = self._C
+
+        settings = self._load_settings()
+        tmpl     = settings.get('smeae_email', {})
+        cur_subj = tmpl.get('subject', DEFAULT_SMEAE_SUBJECT)
+        cur_body = tmpl.get('body',    DEFAULT_SMEAE_BODY)
+
+        dlg = tk.Toplevel(self)
+        dlg.title('Πρότυπο Email — Έλεγχος ΕΕΑ')
+        dlg.configure(bg=C['bg'])
+        dlg.resizable(True, False)
+        dlg.grab_set()
+        dlg.transient(self)
+
+        pad = dict(padx=14, pady=5)
+
+        tk.Label(dlg, text='Θέμα:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **pad)
+        subj_var = tk.StringVar(value=cur_subj)
+        tk.Entry(dlg, textvariable=subj_var, font=('Arial', 9),
+                 width=70).pack(fill='x', padx=14, pady=(0, 8))
+
+        tk.Label(dlg, text='Κείμενο email:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **pad)
+        txt = tk.Text(dlg, font=('Arial', 9), width=70, height=16,
+                      wrap='word', relief='solid', bd=1)
+        txt.pack(fill='x', padx=14, pady=(0, 4))
+        txt.insert('1.0', cur_body)
+
+        tk.Label(dlg,
+                 text='Χρησιμοποιήστε {school_year} για το σχολικό έτος (αντικαθίσταται αυτόματα).',
+                 bg=C['bg'], fg=C['desc'], font=('Arial', 8),
+                 anchor='w').pack(fill='x', padx=14, pady=(0, 10))
+
+        def _save():
+            new_subj = subj_var.get().strip()
+            new_body = txt.get('1.0', 'end-1c')
+            s = self._load_settings()
+            s['smeae_email'] = {'subject': new_subj, 'body': new_body}
+            self._save_settings(s)
+            dlg.destroy()
+            messagebox.showinfo('Αποθήκευση', 'Το πρότυπο email αποθηκεύτηκε.', parent=self)
+
+        def _reset():
+            if messagebox.askyesno('Επαναφορά', 'Να επανέλθει το προεπιλεγμένο κείμενο;',
+                                   parent=dlg):
+                s = self._load_settings()
+                s.pop('smeae_email', None)
+                self._save_settings(s)
+                dlg.destroy()
+
+        btn_row = tk.Frame(dlg, bg=C['bg'])
+        btn_row.pack(pady=(0, 12))
+        tk.Button(btn_row, text='Αποθήκευση',
+                  bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=14, pady=5, cursor='hand2',
+                  command=_save).pack(side='left', padx=4)
+        tk.Button(btn_row, text='Επαναφορά προεπιλογής',
+                  bg=C['bg2'], fg=C['hdr_bg'],
+                  font=('Arial', 9), relief='flat',
+                  padx=14, pady=5, cursor='hand2',
+                  command=_reset).pack(side='left', padx=4)
+        tk.Button(btn_row, text='Άκυρο',
+                  bg=C['bg2'], fg=C['desc'],
+                  font=('Arial', 9), relief='flat',
+                  padx=14, pady=5, cursor='hand2',
+                  command=dlg.destroy).pack(side='left', padx=4)
+
+        dlg.update_idletasks()
+        w, h = dlg.winfo_width(), dlg.winfo_height()
+        x = self.winfo_x() + (self.winfo_width()  - w) // 2
+        y = self.winfo_y() + (self.winfo_height() - h) // 2
+        dlg.geometry(f'+{x}+{y}')
 
     def _start_emails(self):
         C    = self._C
@@ -525,6 +635,11 @@ class SmeaeDialog(tk.Toplevel):
             split_out  = None
             diff_file  = diff_files[-1]  # πιο πρόσφατο
 
+        # Φόρτωση custom template (αν υπάρχει)
+        _tmpl         = self._load_settings().get('smeae_email', {})
+        _cust_subject = _tmpl.get('subject') or None
+        _cust_body    = _tmpl.get('body')    or None
+
         self._email_btn.configure(state='disabled', bg=C['btn_dis'], text='Αποστολή...')
 
         def on_log(msg):
@@ -535,31 +650,35 @@ class SmeaeDialog(tk.Toplevel):
                 from smeae.compare import send_emails, send_email_with_attachment
                 if mode == 'schools':
                     send_emails(
-                        output_dir      = split_out,
-                        school_year     = year,
-                        email_from      = cfg.FROM_EMAIL,
-                        username        = cfg.FROM_EMAIL,
-                        password        = cfg.FROM_PASSWORD,
-                        smtp_host       = cfg.SMTP_HOST,
-                        school_dir_path = sch_path,
-                        dry_run         = False,
-                        send_only_one   = False,
-                        callback        = on_log,
+                        output_dir       = split_out,
+                        school_year      = year,
+                        email_from       = cfg.FROM_EMAIL,
+                        username         = cfg.FROM_EMAIL,
+                        password         = cfg.FROM_PASSWORD,
+                        smtp_host        = cfg.SMTP_HOST,
+                        school_dir_path  = sch_path,
+                        dry_run          = False,
+                        send_only_one    = False,
+                        callback         = on_log,
+                        custom_subject   = _cust_subject,
+                        custom_body_text = _cust_body,
                     )
                 else:
                     on_log(f'Test mode — αποστολή συνολικού αρχείου στο {cfg.FROM_EMAIL}')
                     send_email_with_attachment(
-                        receiver_email  = cfg.FROM_EMAIL,
-                        attachment_path = diff_file,
-                        dry_run         = False,
-                        sender_email    = cfg.FROM_EMAIL,
-                        username        = cfg.FROM_EMAIL,
-                        password        = cfg.FROM_PASSWORD,
-                        smtp_host       = cfg.SMTP_HOST,
-                        first_email     = True,
-                        school_name     = 'Test',
-                        school_year     = year,
-                        callback        = on_log,
+                        receiver_email   = cfg.FROM_EMAIL,
+                        attachment_path  = diff_file,
+                        dry_run          = False,
+                        sender_email     = cfg.FROM_EMAIL,
+                        username         = cfg.FROM_EMAIL,
+                        password         = cfg.FROM_PASSWORD,
+                        smtp_host        = cfg.SMTP_HOST,
+                        first_email      = True,
+                        school_name      = 'Test',
+                        school_year      = year,
+                        callback         = on_log,
+                        custom_subject   = _cust_subject,
+                        custom_body_text = _cust_body,
                     )
                 on_log('\n✓ Αποστολή ολοκληρώθηκε!')
                 self.after(0, lambda: [

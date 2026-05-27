@@ -6,7 +6,7 @@ Python εφαρμογή Windows για αυτοματοποιημένους ελ
 
 **Repo:** https://github.com/MichalisKat/myschool-checks  
 **Υπεύθυνος:** Μιχάλης Κατσιρντάκης  
-**Τρέχουσα έκδοση:** 2.6.0
+**Τρέχουσα έκδοση:** 2.6.1
 
 ---
 
@@ -164,8 +164,8 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 Τρέξε μόνο βήματα 3 → 4 → 5 → 6. Το `build_executable.bat` δεν χρειάζεται.
 
 ### Versioning
-- Τρέχουσα: `2.6.0`
-- Επόμενη: `2.6.1` (bugfixes) ή `2.7.0` (νέα features)
+- Τρέχουσα: `2.6.1`
+- Επόμενη: `2.6.2` (bugfixes) ή `2.7.0` (νέα features)
 - Αλλαγή version: στο `myschool-checks.nsi` (`APP_VERSION`), στο `compile_installer.bat` **και** στο `MySchoolChecks/config.py` (`APP_VERSION`)
 
 ### Backup credentials
@@ -213,6 +213,10 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 - [ ] Επαλήθευση λήψης 3.1 με pre_search_labels (DevExpress checkboxes) — πρώτο run in production
 
 ## Αλλαγές ανά έκδοση
+
+### v2.6.1
+- **SMEAE — Permission denied fix**: `email_sender.log` γράφεται πλέον στο `%LOCALAPPDATA%\MySchoolChecks\` αντί για τον φάκελο του exe (Program Files read-only)
+- **Splash**: αφαίρεση μουσικής εκκίνησης, αυτόματο κλείσιμο αμέσως μετά τη φόρτωση (χωρίς 20s αναμονή)
 
 ### v2.6.0
 - **MonadaDialog**: προαιρετική στήλη **ΑΦΜ Διευθυντή** (checkbox, default=OFF) — col54 CSV (λόγω 1-column shift: header «Α.Φ.Μ.» βρίσκεται στο col55, τα data στο col54 με format `="XXXXXXXXX"`)
