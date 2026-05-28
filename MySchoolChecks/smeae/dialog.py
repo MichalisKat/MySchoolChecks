@@ -113,15 +113,20 @@ class SmeaeDialog(tk.Toplevel):
         tk.Label(parent, text=text, bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold')).pack(anchor='w', pady=(0, 3))
 
+    def _year_options(self):
+        """Τρέχον σχολικό έτος + 2 προηγούμενα."""
+        current = self._guess_year()
+        # Βγάζουμε το πρώτο έτος (π.χ. 2025 από "2025-2026")
+        start = int(current.split('-')[0])
+        return [f'{y}-{y+1}' for y in range(start, start - 3, -1)]
+
     def _year_field(self, parent, var):
         C = self._C
         row = tk.Frame(parent, bg=C['bg'])
         row.pack(anchor='w', pady=(4, 10))
-        tk.Entry(row, textvariable=var, width=12,
-                 font=('Arial', 10), relief='solid', bd=1).pack(side='left')
-        tk.Label(row, text='  (π.χ. 2024-2025)',
-                 bg=C['bg'], fg=C['footer'],
-                 font=('Arial', 8)).pack(side='left')
+        ttk.Combobox(row, textvariable=var, values=self._year_options(),
+                     width=10, font=('Arial', 10),
+                     state='readonly').pack(side='left')
 
     # ── Build ─────────────────────────────────────────────────────────────────
 
@@ -212,7 +217,7 @@ class SmeaeDialog(tk.Toplevel):
         def task():
             try:
                 from smeae.downloader import SmeaeDownloader
-                dl = SmeaeDownloader(usr, pw, dest, callback=on_log)
+                dl = SmeaeDownloader(usr, pw, dest, callback=on_log, school_year=year)
                 results = dl.run()
                 ok = sum(1 for v in results.values() if v)
                 self.after(0, lambda: [
@@ -513,12 +518,18 @@ class SmeaeDialog(tk.Toplevel):
     def _open_email_template_editor(self):
         """Dialog επεξεργασίας θέματος & κειμένου email ΣΜΕΑΕ."""
         from smeae.compare import DEFAULT_SMEAE_SUBJECT, DEFAULT_SMEAE_BODY
+        import config as _cfg
         C = self._C
 
         settings = self._load_settings()
         tmpl     = settings.get('smeae_email', {})
         cur_subj = tmpl.get('subject', DEFAULT_SMEAE_SUBJECT)
-        cur_body = tmpl.get('body',    DEFAULT_SMEAE_BODY)
+        if 'body' in tmpl:
+            cur_body = tmpl['body']
+        else:
+            # Πρώτη φορά: default κείμενο + υπογραφή από Ρυθμίσεις
+            sig = getattr(_cfg, 'EMAIL_SIGNATURE', '').strip()
+            cur_body = DEFAULT_SMEAE_BODY + ('\n\n' + sig if sig else '')
 
         dlg = tk.Toplevel(self)
         dlg.title('Πρότυπο Email — Έλεγχος ΕΕΑ')

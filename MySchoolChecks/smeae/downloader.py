@@ -64,14 +64,65 @@ class SmeaeDownloader:
     ίδιο pattern με MySchoolDownloader.
     """
 
-    def __init__(self, username, password, dest_dir, callback=None):
-        self.username = username
-        self.password = password
-        self.dest_dir = str(Path(dest_dir).resolve())
-        self.callback = callback or print
+    def __init__(self, username, password, dest_dir, callback=None, school_year=None):
+        self.username    = username
+        self.password    = password
+        self.dest_dir    = str(Path(dest_dir).resolve())
+        self.callback    = callback or print
+        self.school_year = school_year  # π.χ. '2024-2025'
 
     def _log(self, msg):
         self.callback(msg)
+
+    def _set_academic_year(self, driver, wait):
+        """
+        Αλλάζει το ενεργό σχολικό έτος στο Default.aspx του MySchool.
+        Θέτει την τιμή στο input και καλεί την aspxETextChanged που
+        ορίζεται στο onchange του combobox.
+        """
+        if not self.school_year:
+            return
+
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.common.exceptions import TimeoutException
+
+        INPUT_ID = 'ctl00_ContentData_cmbActiveAcadYear_I'
+        CTL_NAME = 'ctl00_ContentData_cmbActiveAcadYear'
+
+        self._log(f'  Ορισμός σχολικού έτους: {self.school_year}')
+        try:
+            driver.get(BASE_URL + '/Default.aspx')
+            time.sleep(2)
+
+            inp = wait.until(EC.presence_of_element_located((By.ID, INPUT_ID)))
+
+            # Έλεγχος αν το έτος ήδη είναι σωστό
+            current = inp.get_attribute('value') or ''
+            if current.strip() == self.school_year.strip():
+                self._log(f'  Σχολικό έτος ήδη: {current} — παράλειψη.')
+                return
+
+            # Άμεση αλλαγή τιμής + trigger του onchange handler
+            driver.execute_script(
+                "arguments[0].value = arguments[1];"
+                "aspxETextChanged(arguments[2]);",
+                inp, self.school_year, CTL_NAME
+            )
+            time.sleep(3)  # αναμονή postback
+
+            # Επαλήθευση
+            inp = driver.find_element(By.ID, INPUT_ID)
+            new_val = inp.get_attribute('value') or ''
+            if new_val.strip() == self.school_year.strip():
+                self._log(f'  ✓ Σχολικό έτος ορίστηκε: {new_val}')
+            else:
+                self._log(f'  ⚠ Αναμενόμενο: {self.school_year} | Τρέχον: {new_val}')
+
+        except TimeoutException:
+            self._log(f'  ⚠ Input ακαδημαϊκού έτους δεν βρέθηκε στη σελίδα.')
+        except Exception as e:
+            self._log(f'  ⚠ Αδυναμία αλλαγής σχολικού έτους: {e}')
 
     def run(self):
         try:
@@ -163,6 +214,9 @@ class SmeaeDownloader:
 
             if 'sso.sch.gr' in driver.current_url and 'error' in driver.current_url.lower():
                 raise RuntimeError('Λανθασμένα στοιχεία σύνδεσης MySchool.')
+
+            # ── Ορισμός σχολικού έτους ───────────────────────────────────────
+            self._set_academic_year(driver, wait)
 
             # ── Λήψη κάθε αρχείου ────────────────────────────────────────────
             for (num, label, url_path, fname_base, wait_submit, wait_dl) in SMEAE_REPORTS:

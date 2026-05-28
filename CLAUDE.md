@@ -6,7 +6,7 @@ Python εφαρμογή Windows για αυτοματοποιημένους ελ
 
 **Repo:** https://github.com/MichalisKat/myschool-checks  
 **Υπεύθυνος:** Μιχάλης Κατσιρντάκης  
-**Τρέχουσα έκδοση:** 2.6.1
+**Τρέχουσα έκδοση:** 2.7.0
 
 ---
 
@@ -213,6 +213,10 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 - [ ] Επαλήθευση λήψης 3.1 με pre_search_labels (DevExpress checkboxes) — πρώτο run in production
 
 ## Αλλαγές ανά έκδοση
+
+### v2.7.0
+- **ΕΕΑ — Ορισμός σχολικού έτους**: `SmeaeDownloader` δέχεται πλέον `school_year` παράμετρο — μετά το login πηγαίνει στο `Default.aspx` και αλλάζει το ενεργό ακαδημαϊκό έτος μέσω `aspxETextChanged` (DevExpress combobox `cmbActiveAcadYear`) πριν κατεβάσει τα στατιστικά
+- **ΕΕΑ — Dropdown σχολικού έτους**: Το πεδίο σχολικού έτους σε όλες τις καρτέλες (Λήψη, Σύγκριση, Διαχωρισμός, Email) είναι πλέον `ttk.Combobox` με 3 επιλογές: τρέχον έτος + 2 προηγούμενα — δεν απαιτείται πληκτρολόγηση
 
 ### v2.6.1
 - **SMEAE — Permission denied fix**: `email_sender.log` γράφεται πλέον στο `%LOCALAPPDATA%\MySchoolChecks\` αντί για τον φάκελο του exe (Program Files read-only)
