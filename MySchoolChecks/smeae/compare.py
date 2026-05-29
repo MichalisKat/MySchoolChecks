@@ -378,6 +378,9 @@ def send_emails(output_dir, school_year, email_from, username, password,
         school_map[row['Κωδικός Υπουργείου']] = (row['Ονομασία'], row['e-mail'])
 
     first = True
+    sent_schools = []   # λίστα (ονομασία, email) που εστάλησαν επιτυχώς
+    failed_schools = [] # λίστα (ονομασία, email) που απέτυχαν
+
     for fname in sorted(os.listdir(output_dir)):
         if not fname.endswith('.xlsx'):
             continue
@@ -394,6 +397,15 @@ def send_emails(output_dir, school_year, email_from, username, password,
             continue
 
         school_name, email_to = info
+
+        # Ανίχνευση επιτυχίας μέσω callback wrapper
+        _success = [True]
+        _orig_log = log
+        def _tracked_log(msg, _name=school_name, _email=email_to):
+            _orig_log(msg)
+            if '✗' in msg:
+                _success[0] = False
+
         send_email_with_attachment(
             receiver_email   = email_to,
             attachment_path  = os.path.join(output_dir, fname),
@@ -405,11 +417,79 @@ def send_emails(output_dir, school_year, email_from, username, password,
             first_email      = first,
             school_name      = school_name,
             school_year      = school_year,
-            callback         = log,
+            callback         = _tracked_log,
             custom_subject   = custom_subject,
             custom_body_text = custom_body_text,
         )
+
+        if _success[0]:
+            sent_schools.append((school_name, email_to))
+        else:
+            failed_schools.append((school_name, email_to))
+
         first = False
+
+    # ── Επιβεβαιωτικό summary email στο FROM_EMAIL ───────────────────────────
+    if not dry_run and sent_schools:
+        _send_smeae_summary(
+            email_from   = email_from,
+            username     = username,
+            password     = password,
+            smtp_host    = smtp_host,
+            school_year  = school_year,
+            sent         = sent_schools,
+            failed       = failed_schools,
+            callback     = log,
+        )
+
+
+def _send_smeae_summary(email_from, username, password, smtp_host,
+                        school_year, sent, failed, callback=None):
+    """Αποστολή επιβεβαιωτικού summary email μετά την ολοκλήρωση της αποστολής."""
+    log = callback or print
+    now_str = datetime.now().strftime('%d/%m/%Y %H:%M')
+
+    sent_lines   = '\n'.join(f'  ✓  {name}  ({email})' for name, email in sorted(sent))
+    failed_lines = ('\n'.join(f'  ✗  {name}  ({email})' for name, email in sorted(failed))
+                    if failed else '  —')
+
+    body_plain = (
+        f'Αποστολή email ΕΕΑ — {now_str}\n'
+        f'Σχολικό έτος: {school_year}\n\n'
+        f'Εστάλησαν επιτυχώς: {len(sent)} σχολεία\n'
+        f'{sent_lines}\n\n'
+        + (f'Αποτυχίες ({len(failed)}):\n{failed_lines}\n' if failed else '')
+    )
+    html_body = _plain_to_html(body_plain)
+
+    subject = (
+        f'[ΣΜΕΑΕ] Αποστολή {school_year} ολοκληρώθηκε — '
+        f'{len(sent)} σχολεία ✓'
+        + (f', {len(failed)} αποτυχίες ✗' if failed else '')
+    )
+
+    msg = MIMEMultipart()
+    msg['Subject'] = subject
+    msg['From']    = formataddr((
+        str(Header('Πρόγραμμα Ελέγχου ΕΕΑ', 'utf-8')), email_from))
+    msg['To']      = email_from
+    msg['Date']    = formatdate(localtime=True)
+    msg.attach(MIMEText(html_body, 'html'))
+
+    log(f'\n  ✉ Αποστολή επιβεβαιωτικού summary → {email_from}')
+    try:
+        context = ssl.create_default_context()
+        server  = smtplib.SMTP(smtp_host, 587)
+        server.starttls(context=context)
+        result = server.login(username, password)
+        if result[0] == 235:
+            server.sendmail(email_from, email_from, msg.as_string())
+            log(f'  ✓ Επιβεβαιωτικό εστάλη.')
+        else:
+            log(f'  ✗ Επιβεβαιωτικό: login απέτυχε.')
+        server.quit()
+    except Exception as e:
+        log(f'  ✗ Επιβεβαιωτικό: {e}')
 
 
 def send_email_with_attachment(receiver_email, attachment_path, dry_run,
