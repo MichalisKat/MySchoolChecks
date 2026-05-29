@@ -6,7 +6,7 @@ Python εφαρμογή Windows για αυτοματοποιημένους ελ
 
 **Repo:** https://github.com/MichalisKat/myschool-checks  
 **Υπεύθυνος:** Μιχάλης Κατσιρντάκης  
-**Τρέχουσα έκδοση:** 2.7.0
+**Τρέχουσα έκδοση:** 2.7.1
 
 ---
 
@@ -213,6 +213,13 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 - [ ] Επαλήθευση λήψης 3.1 με pre_search_labels (DevExpress checkboxes) — πρώτο run in production
 
 ## Αλλαγές ανά έκδοση
+
+### v2.7.1
+- **SymbouloiDialog (ΔΙ.Π.Ε.Αν.Θ.)**: νέο εργαλείο εξαγωγής εκπαιδευτικών ανά ειδικότητα **και θέση Συμβούλου Εκπ/σης** — φιλτράρει βάσει κωδικών σχολείων από το αρχείο `symvouloi_ekpaidefsis.xlsx` (αποθηκεύεται στο `data/`, ανεπηρέαστο από updates)
+- **DipeDialog → menu**: το παράθυρο ΔΙ.Π.Ε.Αν.Θ. ξαναφτιάχτηκε ως καθαρό menu με δύο κάρτες-κουμπιά (Επεξεργασία αρχείου τοποθετήσεων / Εκπ/κοί ανά Ειδικότητα & Θέση) — κάθε εργαλείο ανοίγει σε ξεχωριστό dialog
+- **DipePlacementsDialog**: απόσχιση του file-processing UI από το DipeDialog σε αυτόνομη κλάση
+- **Κωδικός ΔΙ.Π.Ε.Αν.Θ.**: άλλαξε σε `0202027`
+- **Αφαίρεση `_require_password`**: νεκρός κώδικας που δεν καλούνταν πουθενά
 
 ### v2.7.0
 - **ΕΕΑ — Ορισμός σχολικού έτους**: `SmeaeDownloader` δέχεται πλέον `school_year` παράμετρο — μετά το login πηγαίνει στο `Default.aspx` και αλλάζει το ενεργό ακαδημαϊκό έτος μέσω `aspxETextChanged` (DevExpress combobox `cmbActiveAcadYear`) πριν κατεβάσει τα στατιστικά

@@ -1097,16 +1097,6 @@ class LauncherApp:
     def _open_monada_tool(self):
         MonadaDialog(self.root)
 
-    def _require_password(self):
-        """Εμφανίζει dialog κωδικού. Επιστρέφει True αν ο κωδικός είναι σωστός."""
-        from tkinter import simpledialog
-        pw = simpledialog.askstring('Κωδικός', 'Εισάγετε κωδικό πρόσβασης:',
-                                    show='*', parent=self.root)
-        if pw != '199888':
-            if pw is not None:
-                messagebox.showwarning('Σφάλμα', 'Λάθος κωδικός.', parent=self.root)
-            return False
-        return True
 
     def _open_smeae(self):
         import shutil
@@ -1126,7 +1116,7 @@ class LauncherApp:
     def _open_dipe(self):
         from tkinter import simpledialog
         pwd = simpledialog.askstring('ΔΙ.Π.Ε.Αν.Θ.', 'Κωδικός:', show='*', parent=self.root)
-        if pwd == '199888':
+        if pwd == '0202027':
             DipeDialog(self.root)
         elif pwd is not None:
             messagebox.showerror('Σφάλμα', 'Λανθασμένος κωδικός.', parent=self.root)
@@ -2411,6 +2401,579 @@ class EidikotitaDialog(tk.Toplevel):
             w.destroy()
 
 
+
+class SymbouloiDialog(tk.Toplevel):
+    """Εκπ/κοί ανά Ειδικότητα & Θέση Συμβούλου — μόνο για ΔΙ.Π.Ε.Αν.Θ."""
+
+    _SETTINGS_KEY    = 'symvouloi_tool'
+    _DEFAULT_BODY    = (
+        'Αποτύπωση Myschool {date}.\n\n'
+        'Καλημέρα σας,\n\n'
+        'Επισυνάπτεται πίνακας excel με τους εκπαιδευτικούς ειδικότητας {specialty} '
+        'που υπηρετούν στη Δ/νση μας σύμφωνα με τα καταχωρημένα '
+        'στοιχεία στο myschool.\n\n\n'
+        'Στη διάθεσή σας για οποιαδήποτε πληροφορία'
+    )
+    _DEFAULT_SUBJECT = 'Στοιχεία τοποθετήσεων εκπ/κών "{specialty}" — {thesi}'
+
+    _OUT_COLS = [
+        'ΑΜ',
+        'Επώνυμο', 'Όνομα', 'Κύρια Ειδικ.',
+        'Email στο ΠΣΔ', 'Email', 'Κινητό',
+        'Σχέση εργασίας', 'Σχέση τοποθέτησης',
+        'Κατάσταση',
+        'Φορέας τοποθέτησης', 'Δήμος',
+        'Τηλέφωνο', 'e-mail',
+        'ΑΠΟΥΣΙΑ', 'Από', 'Έως',
+    ]
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title('Εκπ/κοί ανά Ειδικότητα & Θέση')
+        self.configure(bg=C['bg'])
+        self.resizable(False, False)
+        self.grab_set()
+        self.transient(parent)
+        self._parent = parent
+
+        s = _load_local_settings().get(self._SETTINGS_KEY, {})
+        self._saved_subject = s.get('subject',       self._DEFAULT_SUBJECT)
+        self._saved_body    = s.get('body',          self._DEFAULT_BODY)
+        self._saved_email   = s.get('advisor_email', '')
+        self._saved_dir     = s.get('direction',     '')
+        if '{specialty}' not in self._saved_subject:
+            self._saved_subject = self._DEFAULT_SUBJECT
+        if '{specialty}' not in self._saved_body or '{date}' not in self._saved_body:
+            self._saved_body = self._DEFAULT_BODY
+
+        self._topoth_path = EidikotitaDialog._auto_find('Topothetiseis')
+        self._grid_path   = EidikotitaDialog._auto_find('gridResults')
+        self._stat_path   = EidikotitaDialog._auto_find('stat4_16')
+        self._stat41_path = EidikotitaDialog._auto_find('stat4_1')
+        self._stat42_path = EidikotitaDialog._auto_find('stat4_2')
+
+        self._symv = {}
+        self._load_symvouloi_data()
+
+        self._build_form()
+        self.update_idletasks()
+        w = 640
+        h = self.winfo_reqheight()
+        x = parent.winfo_x() + (parent.winfo_width()  - w) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - h) // 2
+        self.geometry(f'{w}x{h}+{x}+{y}')
+
+    @staticmethod
+    def _get_symvouloi_path():
+        return os.path.join(_app_base(), 'data', 'symvouloi_ekpaidefsis.xlsx')
+
+    def _load_symvouloi_data(self):
+        path = self._get_symvouloi_path()
+        if not os.path.exists(path):
+            return
+        try:
+            import openpyxl as _oxl
+            wb = _oxl.load_workbook(path, read_only=True, data_only=True)
+            for sheet_name in wb.sheetnames:
+                if sheet_name.upper() == 'ΑΠΟΡΙΑ':
+                    continue
+                ws = wb[sheet_name]
+                rows = list(ws.iter_rows(values_only=True))
+                if len(rows) < 2:
+                    continue
+                title    = str(rows[0][0] or sheet_name)
+                parts    = title.split(' — ', 1)
+                spec_pos = parts[0].strip()
+                advisor  = parts[1].strip() if len(parts) > 1 else ''
+                words    = spec_pos.split()
+                spec     = words[0]
+                pos_label = ' '.join(words[1:])
+                display  = f'{pos_label} — {advisor}' if pos_label else f'(ενιαία) — {advisor}'
+                codes = set()
+                for row in rows[2:]:
+                    val = row[1]
+                    if val is not None:
+                        codes.add(str(val).strip().lstrip('0')
+                                  .replace('.0', '').replace('="', '').replace('"', ''))
+                if spec not in self._symv:
+                    self._symv[spec] = []
+                self._symv[spec].append({'label': display, 'codes': codes})
+            wb.close()
+        except Exception as e:
+            print(f'[SymbouloiDialog] Σφάλμα: {e}')
+
+    def _build_form(self):
+        self._clear()
+        HDR = '#1F4E79'
+        hdr = tk.Frame(self, bg=HDR, pady=10)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='📋  Εκπ/κοί ανά Ειδικότητα & Θέση Συμβούλου',
+                 bg=HDR, fg='white', font=('Arial', 12, 'bold')).pack()
+        tk.Label(hdr,
+                 text='μόνο για χρήση από Δ/νση Π.Ε. Αν. Θεσσαλονίκης  '
+                      '(Απαιτούνται: Τοποθετήσεις, 2.1, 4.1, 4.2, 4.16)',
+                 bg=HDR, fg='#A8C4D8',
+                 font=('Arial', 8, 'italic'), wraplength=600, justify='center').pack()
+
+        symv_path = self._get_symvouloi_path()
+        if not self._symv:
+            wf = tk.Frame(self, bg='#FFF3E0')
+            wf.pack(fill='x', padx=18, pady=(6, 0))
+            tk.Label(wf,
+                     text=f'⚠  Δεν βρέθηκε το αρχείο Συμβούλων Εκπ/σης. Αναμένεται: {symv_path}',
+                     bg='#FFF3E0', fg='#E65100', font=('Arial', 8),
+                     anchor='w', padx=10, pady=5, wraplength=500, justify='left').pack(side='left')
+            tk.Button(wf, text='📂 Εισαγωγή', bg='#E65100', fg='white', relief='flat',
+                      font=('Arial', 8, 'bold'), cursor='hand2', padx=6, pady=4,
+                      command=self._import_symvouloi).pack(side='right', padx=6, pady=4)
+
+        missing = []
+        if not self._topoth_path: missing.append('Τοποθετήσεις')
+        if not self._grid_path:   missing.append('Κατάλογος σχολείων (2.1)')
+        if missing:
+            tk.Label(self,
+                text=f'⚠  Δεν βρέθηκαν: {", ".join(missing)}. Κατέβασε τα από «Λήψη Δεδομένων».',
+                bg='#FFF3E0', fg='#E65100', font=('Arial', 8),
+                anchor='w', padx=28, pady=5, wraplength=580, justify='left').pack(fill='x')
+        missing_opt = []
+        if not self._stat41_path: missing_opt.append('4.1')
+        if not self._stat42_path: missing_opt.append('4.2')
+        if missing_opt:
+            tk.Label(self,
+                text=f'ℹ  Δεν βρέθηκαν: {", ".join(missing_opt)} — Email ΠΣΔ / Email / Κινητό θα είναι κενές.',
+                bg='#E3F2FD', fg='#1565C0', font=('Arial', 8),
+                anchor='w', padx=28, pady=5, wraplength=580, justify='left').pack(fill='x')
+
+        from tkinter import ttk as _ttk
+
+        tk.Label(self, text='Διεύθυνση:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(6, 0))
+        dir_row = tk.Frame(self, bg=C['bg'])
+        dir_row.pack(fill='x', padx=18, pady=(2, 4))
+        self._dir_var = tk.StringVar(value=self._saved_dir)
+        if self._saved_dir:
+            self._dir_combo = None
+            tk.Label(dir_row, textvariable=self._dir_var,
+                     bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9, 'bold')).pack(side='left')
+            tk.Button(dir_row, text='Αλλαγή', bg=C['bg'], fg=C['desc'],
+                      relief='flat', font=('Arial', 8), cursor='hand2',
+                      command=self._reset_direction).pack(side='left', padx=(10, 0))
+        else:
+            self._dir_combo = _ttk.Combobox(dir_row, textvariable=self._dir_var,
+                                             width=48, state='readonly')
+            self._dir_combo.pack(side='left')
+        self._dir_lbl = tk.Label(dir_row, text='', bg=C['bg'], fg=C['desc'], font=('Arial', 8))
+        self._dir_lbl.pack(side='left', padx=(10, 0))
+
+        tk.Label(self, text='Ειδικότητα:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
+        spec_row = tk.Frame(self, bg=C['bg'])
+        spec_row.pack(fill='x', padx=18, pady=(2, 4))
+        self._spec_var = tk.StringVar()
+        self._spec_combo = _ttk.Combobox(spec_row, textvariable=self._spec_var,
+                                          width=20, state='readonly')
+        self._spec_combo.pack(side='left')
+        self._spec_lbl = tk.Label(spec_row, text='Φόρτωση…', bg=C['bg'],
+                                   fg=C['desc'], font=('Arial', 8))
+        self._spec_lbl.pack(side='left', padx=(10, 0))
+        self._spec_var.trace_add('write', self._on_spec_change)
+
+        tk.Label(self, text='Θέση Συμβούλου:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
+        thesi_row = tk.Frame(self, bg=C['bg'])
+        thesi_row.pack(fill='x', padx=18, pady=(2, 6))
+        self._thesi_var = tk.StringVar()
+        self._thesi_combo = _ttk.Combobox(thesi_row, textvariable=self._thesi_var,
+                                           width=48, state='readonly')
+        self._thesi_combo.pack(side='left')
+        self._thesi_lbl = tk.Label(thesi_row, text='', bg=C['bg'],
+                                    fg=C['desc'], font=('Arial', 8))
+        self._thesi_lbl.pack(side='left', padx=(10, 0))
+
+        tk.Label(self, text='Προαιρετικές στήλες εξόδου:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 2))
+        col_frame = tk.Frame(self, bg=C['bg'])
+        col_frame.pack(fill='x', padx=18, pady=(0, 4))
+        self._col_vars = {}
+        for col_name in ('Email στο ΠΣΔ', 'Email', 'Κινητό'):
+            var = tk.BooleanVar(value=True)
+            self._col_vars[col_name] = var
+            tk.Checkbutton(col_frame, text=col_name, variable=var,
+                           bg=C['bg'], font=('Arial', 9),
+                           activebackground=C['bg']).pack(side='left', padx=(0, 12))
+
+        pad = dict(padx=18, pady=2)
+        tk.Label(self, text='Προς (email Συμβούλου):',
+                 bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9, 'bold'),
+                 anchor='w').pack(fill='x', **pad)
+        self._to_var = tk.StringVar(value=self._saved_email)
+        tk.Entry(self, textvariable=self._to_var, font=('Arial', 9)).pack(fill='x', padx=18, pady=(0, 4))
+
+        tk.Label(self, text='Θέμα:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **pad)
+        self._subj_var = tk.StringVar(value=self._saved_subject)
+        tk.Entry(self, textvariable=self._subj_var, font=('Arial', 9)).pack(fill='x', padx=18, pady=(0, 4))
+
+        tk.Label(self, text='Κείμενο email:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **pad)
+        self._body_txt = tk.Text(self, font=('Arial', 9), height=6, wrap='word', relief='solid', bd=1)
+        self._body_txt.pack(fill='x', padx=18, pady=(0, 4))
+        from datetime import datetime as _dt
+        self._body_txt.insert('1.0',
+            self._saved_body.replace('{date}', _dt.today().strftime('%d/%m/%Y'))
+                             .replace('{specialty}', '').replace('{thesi}', ''))
+
+        btn_row = tk.Frame(self, bg=C['bg'])
+        btn_row.pack(side='bottom', pady=10)
+        tk.Button(btn_row, text='Μόνο Excel (χωρίς email)',
+                  bg=C['bg2'], fg=C['hdr_bg'], relief='flat',
+                  font=('Arial', 9), padx=10, pady=5, cursor='hand2',
+                  command=lambda: self._execute(send=False)).pack(side='left', padx=4)
+        tk.Button(btn_row, text='▶  Δημιουργία & Αποστολή',
+                  bg=C['btn_bg'], fg=C['btn_fg'], relief='flat',
+                  font=('Arial', 9, 'bold'), padx=14, pady=5, cursor='hand2',
+                  command=lambda: self._execute(send=True)).pack(side='left', padx=4)
+
+        self.after(100, self._load_dir_and_specs)
+
+    def _reset_direction(self):
+        import json
+        s = _load_local_settings()
+        if self._SETTINGS_KEY in s:
+            s[self._SETTINGS_KEY].pop('direction', None)
+            with open(_get_local_settings_path(), 'w', encoding='utf-8') as f:
+                json.dump(s, f, ensure_ascii=False, indent=2)
+        self._saved_dir = ''
+        self._build_form()
+
+    def _on_spec_change(self, *_):
+        self._update_thesi(self._spec_var.get())
+        self._refresh_email_fields()
+
+    def _refresh_email_fields(self):
+        spec  = self._spec_var.get()
+        thesi = self._thesi_var.get()
+        if hasattr(self, '_subj_var'):
+            self._subj_var.set(
+                self._saved_subject.replace('{specialty}', spec).replace('{thesi}', thesi))
+        if hasattr(self, '_body_txt'):
+            from datetime import datetime as _dt
+            self._body_txt.delete('1.0', 'end')
+            self._body_txt.insert('1.0',
+                self._saved_body
+                    .replace('{date}',      _dt.today().strftime('%d/%m/%Y'))
+                    .replace('{specialty}', spec)
+                    .replace('{thesi}',     thesi))
+
+    def _update_thesi(self, spec):
+        if not hasattr(self, '_thesi_combo'):
+            return
+        entries = self._symv.get(spec, [])
+        labels  = [e['label'] for e in entries]
+        if not labels:
+            labels = ['(δεν βρέθηκε θέση — εμφανίζονται όλοι)']
+            self._thesi_lbl.config(text='ειδικότητα δεν βρέθηκε στο αρχείο Συμβούλων', fg='#CC0000')
+        else:
+            self._thesi_lbl.config(
+                text=f'{len(labels)} θέσ{"η" if len(labels)==1 else "εις"}', fg=C['desc'])
+        self._thesi_combo.config(values=labels)
+        self._thesi_var.set(labels[0] if labels else '')
+        self._thesi_combo.bind('<<ComboboxSelected>>', lambda _: self._refresh_email_fields())
+
+    def _load_dir_and_specs(self):
+        specs = sorted(self._symv.keys())
+        if not specs:
+            self._spec_lbl.config(text='Αρχείο Συμβούλων δεν φορτώθηκε.', fg='#CC0000')
+            return
+        self._spec_combo.config(values=specs)
+        self._spec_var.set(specs[0])
+
+        if self._topoth_path:
+            try:
+                import pandas as pd
+                df = pd.read_excel(self._topoth_path, header=0)
+                self._topoth_df = df
+                spec_col = EidikotitaDialog._fc(df, 'κλάδ', 'ειδικ') or df.columns[4]
+                self._topoth_spec_col = spec_col
+                area_col = EidikotitaDialog._fc(df, 'περιοχή μετάθεσης φορέα', 'μετάθεσης φορέα') or df.columns[19]
+                self._topoth_area_col = area_col
+                dirs = sorted(df[area_col].dropna().astype(str).str.strip()
+                              .replace('', pd.NA).dropna().unique())
+                if self._dir_combo is not None:
+                    self._dir_combo.config(values=dirs)
+                    if dirs and not self._dir_var.get():
+                        self._dir_var.set(dirs[0])
+                    self._dir_lbl.config(text=f'{len(dirs)} διευθύνσεις', fg=C['desc'])
+                self._dir_var.trace_add('write', lambda *_: None)
+            except Exception as e:
+                self._dir_lbl.config(text=f'Σφάλμα: {e}', fg='#CC0000')
+
+        self._spec_lbl.config(text=f'{len(specs)} ειδικότητες', fg=C['desc'])
+        self._update_thesi(specs[0])
+
+    def _import_symvouloi(self):
+        from tkinter import filedialog
+        import shutil
+        src = filedialog.askopenfilename(parent=self,
+            title='Επιλογή αρχείου Συμβούλων Εκπ/σης',
+            filetypes=[('Excel', '*.xlsx *.xls'), ('Όλα', '*.*')])
+        if not src:
+            return
+        dest = self._get_symvouloi_path()
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copy2(src, dest)
+        self._symv = {}
+        self._load_symvouloi_data()
+        self._build_form()
+
+    def _execute(self, send=True):
+        import json, pandas as pd
+        from datetime import datetime
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        specialty  = self._spec_var.get().strip()
+        thesi_lbl  = self._thesi_var.get().strip()
+        to_email   = self._to_var.get().strip()
+        subject    = self._subj_var.get().strip()
+        body_text  = self._body_txt.get('1.0', 'end-1c')
+        full_body  = body_text + '\n\n' + config.email_signature()
+
+        if send and not to_email:
+            messagebox.showwarning('Email', 'Εισάγετε email παραλήπτη.', parent=self); return
+        if not specialty:
+            messagebox.showwarning('Ειδικότητα', 'Επίλεξε ειδικότητα.', parent=self); return
+        if not self._topoth_path or not self._grid_path:
+            from core.framework import _missing_file_dialog
+            _missing_file_dialog('Εκπ/κοί ανά Ειδικότητα & Θέση',
+                ['Τοποθετήσεις εκπαιδευτικών (gridResults / 2.1)', 'Στατιστικά 4.1 / 4.2 / 4.16'])
+            return
+
+        _thesi_codes = None
+        for e in self._symv.get(specialty, []):
+            if e['label'] == thesi_lbl:
+                _thesi_codes = e['codes']; break
+
+        try:
+            df_t = pd.read_excel(self._topoth_path, header=0)
+            spec_col    = self._topoth_spec_col if hasattr(self, '_topoth_spec_col') \
+                          else (EidikotitaDialog._fc(df_t, 'κλάδ', 'ειδικ') or df_t.columns[4])
+            code_col    = EidikotitaDialog._fc(df_t, 'κωδικ')        or df_t.columns[7]
+            eponym_col  = EidikotitaDialog._fc(df_t, 'επώνυμ')       or df_t.columns[2]
+            org_col     = EidikotitaDialog._fc(df_t, 'σχέση εργ', 'οργαν') or df_t.columns[5]
+            topoth_col  = EidikotitaDialog._fc(df_t, 'σχέση τοποθ')  or df_t.columns[6]
+            school_name_col = EidikotitaDialog._fc(df_t, 'φορέας τοποθ', 'φορέας') or df_t.columns[8]
+            afm_col     = EidikotitaDialog._fc(df_t, 'α.φ.μ', 'αφμ') or df_t.columns[1]
+            am_col      = next((c for c in df_t.columns if 'α.μ' in str(c).lower() and 'φ' not in str(c).lower()), df_t.columns[0])
+            onoma_col   = next((c for c in df_t.columns if ('όνομ' in str(c).lower() or 'ονομ' in str(c).lower()) and 'ονομασ' not in str(c).lower() and 'σχολ' not in str(c).lower()), None)
+            status_col  = EidikotitaDialog._fc(df_t, 'κατάσταση', 'κατασταση') or df_t.columns[17]
+
+            df_t = df_t[df_t[status_col].fillna('').astype(str).str.strip() != 'ΠΑΡΗΛΘΕ'].copy()
+            _EXCL_ORG = r'Με άδεια διδασκαλίας για Ξένο Σχολείο|Αναπληρωτής Ιδιωτικής Εκπαίδευσης|Ιδιωτικού Δικαίου Αορίστου Χρόνου'
+            df_t = df_t[~df_t[org_col].fillna('').astype(str).str.contains(_EXCL_ORG, regex=True, na=False)].copy()
+
+            area_mt_col = self._topoth_area_col if hasattr(self, '_topoth_area_col') \
+                          else (EidikotitaDialog._fc(df_t, 'περιοχή μετάθεσης φορέα') or df_t.columns[19])
+            selected_dir = self._dir_var.get().strip()
+            if selected_dir:
+                df_t = df_t[df_t[area_mt_col].fillna('').astype(str).str.strip() == selected_dir].copy()
+
+            _EXCL_TOP = r'Υπερωριακά|Μερική Διάθεση|Τοποθέτηση Διοικητικού'
+            df_t = df_t[~df_t[topoth_col].fillna('').astype(str).str.contains(_EXCL_TOP, regex=True, na=False)].copy()
+
+            df_t['_code'] = EidikotitaDialog._norm_code(df_t[code_col])
+            df_t['_afm']  = df_t[afm_col].fillna('').astype(str).str.strip().str.replace(r'\.0$','',regex=True).str.zfill(9)
+            df_t['_am']   = df_t[am_col].fillna('').astype(str).str.strip().str.replace(r'\.0$','',regex=True)
+
+            df_g = pd.read_excel(self._grid_path, header=0)
+            gc_code  = EidikotitaDialog._fc(df_g, 'κωδικός', 'κωδ') or df_g.columns[11]
+            gc_name  = EidikotitaDialog._fc(df_g, 'ονομασ')          or df_g.columns[1]
+            gc_phone = EidikotitaDialog._fc(df_g, 'τηλ')             or df_g.columns[15]
+            gc_email = EidikotitaDialog._fc(df_g, 'e-mail', 'email') or df_g.columns[17]
+            gc_area  = EidikotitaDialog._fc(df_g, 'περιοχ', 'τοποθεσ') or df_g.columns[18]
+            gc_dimos = EidikotitaDialog._fc(df_g, 'δήμ', 'δημ')
+            gc_eidos = EidikotitaDialog._fc(df_g, 'είδος', 'ειδος')
+            if gc_eidos:
+                df_g = df_g[df_g[gc_eidos].fillna('').astype(str).str.strip() != 'Ιδιωτικά Σχολεία'].copy()
+            df_g['_code'] = EidikotitaDialog._norm_code(df_g[gc_code])
+            _gc = ['_code', gc_name, gc_phone, gc_email, gc_area]
+            _gn = ['_code', '_school_name', '_phone', '_school_email', '_area']
+            if gc_dimos: _gc.append(gc_dimos); _gn.append('_dimos')
+            df_g_lu = df_g[_gc].drop_duplicates('_code').copy()
+            df_g_lu.columns = _gn
+            df_g_lu['_phone'] = df_g_lu['_phone'].fillna('').astype(str).str.replace(r'\.0$','',regex=True).str.strip()
+            valid_codes = set(df_g_lu['_code'])
+
+            _is_pe = 'Π.Ε' in selected_dir or not selected_dir
+            if _is_pe:
+                df_t = df_t[df_t['_code'].isin(valid_codes)].copy()
+            df_t = df_t[df_t[spec_col].astype(str).str.upper().str.startswith(specialty.upper())].copy()
+            if _thesi_codes:
+                df_t = df_t[df_t['_code'].isin(_thesi_codes)].copy()
+
+            if df_t.empty:
+                messagebox.showwarning('Αποτέλεσμα',
+                    f'Δεν βρέθηκαν εκπαιδευτικοί για "{specialty}" / "{thesi_lbl}".', parent=self)
+                return
+
+            def _read_csv_enc(path):
+                if not path: return pd.DataFrame()
+                import zipfile as _zf, io as _io
+                if path.endswith(('.xlsx', '.xls')):
+                    try: return pd.read_excel(path, header=0, dtype=str)
+                    except: return pd.DataFrame()
+                if path.endswith('.zip'):
+                    try:
+                        with _zf.ZipFile(path) as z:
+                            data = z.read([n for n in z.namelist() if n.endswith('.csv')][0])
+                    except: return pd.DataFrame()
+                    for enc in ['utf-8-sig','utf-8','iso-8859-7','cp1253']:
+                        try: return pd.read_csv(_io.BytesIO(data), sep=None, engine='python', encoding=enc, header=0, dtype=str)
+                        except: continue
+                    return pd.DataFrame()
+                for enc in ['utf-8-sig','utf-8','iso-8859-7','cp1253']:
+                    try: return pd.read_csv(path, sep=None, engine='python', encoding=enc, header=0, dtype=str)
+                    except: continue
+                return pd.DataFrame()
+
+            df_s16 = _read_csv_enc(self._stat_path)
+            if not df_s16.empty:
+                s16_afm = df_s16.columns[16]
+                s16_abs = df_s16.columns[44] if len(df_s16.columns)>44 else df_s16.columns[45]
+                s16_apo = df_s16.columns[46] if len(df_s16.columns)>46 else None
+                s16_eos = df_s16.columns[47] if len(df_s16.columns)>47 else None
+                df_s16['_afm'] = df_s16[s16_afm].apply(EidikotitaDialog._clean_afm).str.zfill(9)
+                keep16 = ['_afm', s16_abs] + ([s16_apo] if s16_apo else []) + ([s16_eos] if s16_eos else [])
+                df_s16_lu = df_s16[keep16].drop_duplicates('_afm').rename(columns={s16_abs:'_apoysia',**(({s16_apo:'_apo'} if s16_apo else {})),**(({s16_eos:'_eos'} if s16_eos else {}))}).copy()
+                if '_apo' not in df_s16_lu: df_s16_lu['_apo']=''
+                if '_eos' not in df_s16_lu: df_s16_lu['_eos']=''
+            else:
+                df_s16_lu = pd.DataFrame(columns=['_afm','_apoysia','_apo','_eos'])
+
+            frames = [_read_csv_enc(p) for p in [self._stat41_path, self._stat42_path] if p]
+            frames = [f for f in frames if not f.empty]
+            if frames:
+                df_41 = pd.concat(frames, ignore_index=True)
+                a0,a9,a11,a12 = df_41.columns[0], (df_41.columns[9] if len(df_41.columns)>9 else None), (df_41.columns[11] if len(df_41.columns)>11 else None), (df_41.columns[12] if len(df_41.columns)>12 else None)
+                df_41['_afm'] = df_41[a0].apply(EidikotitaDialog._clean_afm).str.zfill(9)
+                keep=[c for c in ['_afm',a12,a11,a9] if c]
+                df_41_lu = df_41[keep].drop_duplicates('_afm').rename(columns={k:v for k,v in {a12:'_email_psd',a11:'_email_personal',a9:'_kinito'}.items() if k}).copy()
+                for c in ('_email_psd','_email_personal','_kinito'):
+                    if c not in df_41_lu: df_41_lu[c]=''
+            else:
+                df_41_lu = pd.DataFrame(columns=['_afm','_email_psd','_email_personal','_kinito'])
+
+            df_t = df_t.merge(df_g_lu, on='_code', how='left')
+            df_t = df_t.merge(df_s16_lu, on='_afm', how='left')
+            df_t = df_t.merge(df_41_lu,  on='_afm', how='left')
+            df_t['_absent'] = df_t[status_col].fillna('').astype(str).str.strip()=='ΑΠΟΥΣΙΑ'
+
+            def gcol(c):
+                return df_t[c].fillna('').astype(str) if c is not None and c in df_t.columns else pd.Series(['']*len(df_t), index=df_t.index)
+
+            out = pd.DataFrame(index=df_t.index)
+            out['ΑΜ']                = df_t['_am'].fillna('')
+            out['Επώνυμο']            = gcol(eponym_col)
+            out['Όνομα']              = gcol(onoma_col)
+            out['Κύρια Ειδικ.']      = gcol(spec_col)
+            out['Email στο ΠΣΔ']     = df_t['_email_psd'].fillna('')
+            out['Email']             = df_t['_email_personal'].fillna('') if '_email_personal' in df_t.columns else ''
+            out['Κινητό']            = df_t['_kinito'].fillna('')
+            out['Σχέση εργασίας']    = gcol(org_col)
+            out['Σχέση τοποθέτησης'] = gcol(topoth_col)
+            out['Κατάσταση']         = gcol(status_col)
+            out['Φορέας τοποθέτησης']= gcol(school_name_col)
+            out['Δήμος']             = df_t['_dimos'].fillna('') if '_dimos' in df_t.columns else ''
+            out['Τηλέφωνο']          = df_t['_phone'].fillna('')
+            out['e-mail']            = df_t['_school_email'].fillna('')
+            out['ΑΠΟΥΣΙΑ']           = df_t['_apoysia'].fillna('')
+            out['Από']               = df_t['_apo'].fillna('') if '_apo' in df_t.columns else ''
+            out['Έως']               = df_t['_eos'].fillna('') if '_eos' in df_t.columns else ''
+            out['_absent']           = df_t['_absent']
+            out.loc[~out['_absent'], ['ΑΠΟΥΣΙΑ','Από','Έως']] = ''
+            out = out.sort_values('Επώνυμο', na_position='last').reset_index(drop=True)
+
+            today_str = datetime.today().strftime('%Y%m%d')
+            out_dir   = os.path.join(_docs_base(), f'results_{today_str}')
+            os.makedirs(out_dir, exist_ok=True)
+            def _sf(s): return s.replace('/','_').replace('\\','_').replace(' ','_')
+            out_path = os.path.join(out_dir, f'Εκπαιδευτικοί_{_sf(specialty)}_{_sf(thesi_lbl[:30])}_{today_str}.xlsx')
+
+            _disabled   = {c for c,v in getattr(self,'_col_vars',{}).items() if not v.get()}
+            active_cols = [c for c in self._OUT_COLS if c not in _disabled]
+
+            wb = Workbook(); ws = wb.active
+            ws.title = f'{specialty} {thesi_lbl}'[:31]
+            RED = 'FF0000'
+            thin   = Side(style='thin', color='CCCCCC')
+            border = Border(left=thin, right=thin, top=thin, bottom=thin)
+            for ci, col in enumerate(active_cols, 1):
+                cell = ws.cell(row=1, column=ci, value=col)
+                cell.font      = Font(name='Arial', bold=True, color='FFFFFF', size=9)
+                cell.fill      = PatternFill('solid', start_color='1F4E79')
+                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                cell.border    = border
+            alt_fill = PatternFill('solid', start_color='FFF0F0')
+            for ri, row in out.iterrows():
+                is_abs = bool(row.get('_absent', False))
+                for ci, col in enumerate(active_cols, 1):
+                    val = row.get(col, '')
+                    if pd.isna(val): val = ''
+                    cell = ws.cell(row=ri+2, column=ci, value=str(val) if val!='' else '')
+                    cell.font      = Font(name='Arial', size=9, color=RED if is_abs else '000000', bold=is_abs)
+                    cell.alignment = Alignment(horizontal='left', vertical='center')
+                    cell.border    = border
+                    if not is_abs and ri%2==1: cell.fill = alt_fill
+            for ci, col in enumerate(active_cols, 1):
+                vals = [str(out.iloc[r][col]) for r in range(min(len(out),50)) if col in out.columns and not pd.isna(out.iloc[r][col])]
+                ws.column_dimensions[get_column_letter(ci)].width = min(max([len(col)]+[len(v) for v in vals] if vals else [len(col)])+3, 42)
+            ws.row_dimensions[1].height = 30
+            ws.freeze_panes = 'A2'
+            wb.save(out_path)
+
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            messagebox.showerror('Σφάλμα', str(e), parent=self); return
+
+        s = _load_local_settings()
+        from datetime import datetime as _dts
+        td = _dts.today().strftime('%d/%m/%Y')
+        bts = body_text.replace(specialty,'{specialty}').replace(td,'{date}').replace(thesi_lbl,'{thesi}')
+        sts = subject.replace(specialty,'{specialty}').replace(td,'{date}').replace(thesi_lbl,'{thesi}')
+        s[self._SETTINGS_KEY] = {'subject':sts,'body':bts,'advisor_email':to_email,'direction':self._dir_var.get().strip()}
+        os.makedirs(os.path.dirname(_get_local_settings_path()), exist_ok=True)
+        with open(_get_local_settings_path(),'w',encoding='utf-8') as f:
+            json.dump(s, f, ensure_ascii=False, indent=2)
+
+        absent_count = int(out['_absent'].sum())
+        total_count  = len(out)
+
+        if not send:
+            from core.framework import _show_results_popup
+            _show_results_popup('Εκπ/κοί ανά Ειδικότητα & Θέση',
+                f'Αρχείο αποθηκεύτηκε.\n\nΕιδικότητα: {specialty}  |  Θέση: {thesi_lbl}\n'
+                f'Σύνολο: {total_count} εκπ/κοί  |  Απόντες: {absent_count}',
+                result_type='warn', excel_path=out_path)
+            self.destroy(); return
+
+        try:
+            from core.framework import send_email
+            send_email(config, to_email, subject, full_body, out_path)
+            from core.framework import _show_results_popup
+            _show_results_popup('Εκπ/κοί ανά Ειδικότητα & Θέση',
+                f'Email στάλθηκε: {to_email}\n\nΕιδικότητα: {specialty}  |  Θέση: {thesi_lbl}\n'
+                f'Σύνολο: {total_count} εκπ/κοί  |  Απόντες: {absent_count}',
+                result_type='ok', excel_path=out_path)
+            self.destroy()
+        except Exception as e:
+            messagebox.showerror('Σφάλμα αποστολής', str(e), parent=self)
+
+    def _clear(self):
+        for w in self.winfo_children():
+            w.destroy()
+
+
 class MonadaDialog(tk.Toplevel):
     """Εργαλείο εξαγωγής στοιχείων σχολικών μονάδων ανά Δήμο."""
 
@@ -3065,24 +3628,96 @@ class MonadaDialog(tk.Toplevel):
             w.destroy()
 
 
-class DipeDialog(tk.Toplevel):
-    """Επεξεργασία αρχικού αρχείου τοποθετήσεων — μόνο για Δ/νση Π.Ε. Αν. Θεσσαλονίκης."""
 
-    _SEC_BG = '#F0F4F8'
+class DipeDialog(tk.Toplevel):
+    """Κεντρικό menu ΔΙ.Π.Ε.Αν.Θ."""
+
+    _HDR   = '#1F4E79'
+    _CARD  = '#F0F4F8'
+    _HOVER = '#DDE6F0'
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.title('ΔΙ.Π.Ε.Αν.Θ. — Επεξεργασία αρχείου τοποθετήσεων')
+        self.title('ΔΙ.Π.Ε.Αν.Θ.')
         self.configure(bg=C['bg'])
         self.resizable(False, False)
         self.transient(parent)
-        self._raw_var = tk.StringVar()
-
         ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
         if os.path.exists(ico):
             try: self.iconbitmap(ico)
             except Exception: pass
+        self._build()
+        self.update_idletasks()
+        w, h = 480, self.winfo_reqheight()
+        pw = parent.winfo_x() + (parent.winfo_width()  - w) // 2
+        ph = parent.winfo_y() + (parent.winfo_height() - h) // 2
+        self.geometry(f'{w}x{h}+{pw}+{ph}')
 
+    def _build(self):
+        hdr = tk.Frame(self, bg=self._HDR, pady=12)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='🏛  ΔΙ.Π.Ε.Αν.Θ.',
+                 bg=self._HDR, fg='white', font=('Arial', 13, 'bold')).pack()
+        tk.Label(hdr, text='μόνο για χρήση από Δ/νση Π.Ε. Αν. Θεσσαλονίκης',
+                 bg=self._HDR, fg='#A8C4D8', font=('Arial', 8, 'italic')).pack()
+
+        body = tk.Frame(self, bg=C['bg'], padx=18, pady=14)
+        body.pack(fill='both', expand=True)
+
+        self._add_item(body,
+            icon='📁',
+            title='Επεξεργασία αρχείου τοποθετήσεων',
+            desc='Μετατροπή αρχικού αρχείου — συμπλήρωση πεδίων και άνοιγμα στο Excel.',
+            cmd=lambda: DipePlacementsDialog(self))
+
+        tk.Frame(body, bg='#D0D8E4', height=1).pack(fill='x', pady=10)
+
+        self._add_item(body,
+            icon='📋',
+            title='Εκπ/κοί ανά Ειδικότητα & Θέση Συμβούλου',
+            desc='Εξαγωγή εκπαιδευτικών φιλτραρισμένων ανά ειδικότητα και θέση Συμβούλου Εκπ/σης.',
+            cmd=lambda: SymbouloiDialog(self))
+
+    def _add_item(self, parent, icon, title, desc, cmd):
+        card = tk.Frame(parent, bg=self._CARD, bd=1, relief='solid', cursor='hand2')
+        card.pack(fill='x', pady=2)
+        card.columnconfigure(1, weight=1)
+        tk.Label(card, text=icon, bg=self._CARD,
+                 font=('Arial', 20), padx=12, pady=10).grid(row=0, column=0, rowspan=2, sticky='ns')
+        tk.Label(card, text=title, bg=self._CARD, fg=self._HDR,
+                 font=('Arial', 10, 'bold'), anchor='w').grid(row=0, column=1, sticky='w', pady=(8,0))
+        tk.Label(card, text=desc, bg=self._CARD, fg='#555555',
+                 font=('Arial', 8), anchor='w', wraplength=340,
+                 justify='left').grid(row=1, column=1, sticky='w', pady=(0,8))
+        tk.Label(card, text='›', bg=self._CARD, fg=self._HDR,
+                 font=('Arial', 18, 'bold'), padx=12).grid(row=0, column=2, rowspan=2, sticky='ns')
+        all_w = [card] + list(card.winfo_children())
+        def _on_enter(_): [w.configure(bg=self._HOVER) for w in all_w]
+        def _on_leave(_): [w.configure(bg=self._CARD)  for w in all_w]
+        def _on_click(_): cmd()
+        for w in all_w:
+            w.bind('<Enter>', _on_enter)
+            w.bind('<Leave>', _on_leave)
+            w.bind('<Button-1>', _on_click)
+
+
+class DipePlacementsDialog(tk.Toplevel):
+    """Επεξεργασία αρχικού αρχείου τοποθετήσεων."""
+
+    _SEC_BG = '#F0F4F8'
+    _HDR    = '#1F4E79'
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title('Επεξεργασία αρχείου τοποθετήσεων')
+        self.configure(bg=C['bg'])
+        self.resizable(False, False)
+        self.transient(parent)
+        self._raw_var = tk.StringVar()
+        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
+        if os.path.exists(ico):
+            try: self.iconbitmap(ico)
+            except Exception: pass
         self._build()
         self.update_idletasks()
         self.geometry('560x340')
@@ -3092,28 +3727,21 @@ class DipeDialog(tk.Toplevel):
 
     def _build(self):
         from tkinter import scrolledtext as st2
-
-        hdr = tk.Frame(self, bg='#1F4E79', pady=10)
+        hdr = tk.Frame(self, bg=self._HDR, pady=10)
         hdr.pack(fill='x')
-        tk.Label(hdr, text='🏛  ΔΙ.Π.Ε.Αν.Θ. — Επεξεργασία αρχείου τοποθετήσεων',
-                 bg='#1F4E79', fg='white',
-                 font=('Arial', 12, 'bold')).pack()
+        tk.Label(hdr, text='📁  Επεξεργασία αρχείου τοποθετήσεων',
+                 bg=self._HDR, fg='white', font=('Arial', 12, 'bold')).pack()
         tk.Label(hdr, text='μόνο για χρήση από Δ/νση Π.Ε. Αν. Θεσσαλονίκης',
-                 bg='#1F4E79', fg='#A8C4D8',
-                 font=('Arial', 8, 'italic')).pack()
-
+                 bg=self._HDR, fg='#A8C4D8', font=('Arial', 8, 'italic')).pack()
         body = tk.Frame(self, bg=C['bg'], padx=16, pady=12)
         body.pack(fill='both', expand=True)
         body.columnconfigure(0, weight=1)
-
         sec = tk.LabelFrame(body,
-                            text='  Επεξεργασία αρχικού αρχείου',
-                            bg=self._SEC_BG, fg='#1F4E79',
-                            font=('Arial', 9, 'bold'),
-                            bd=1, relief='groove', padx=10, pady=8)
-        sec.grid(row=0, column=0, sticky='ew', pady=(0, 6))
+                            text='  Επιλογή αρχικού αρχείου',
+                            bg=self._SEC_BG, fg=self._HDR,
+                            font=('Arial', 9, 'bold'), bd=1, relief='groove', padx=10, pady=8)
+        sec.grid(row=0, column=0, sticky='ew', pady=(0,6))
         sec.columnconfigure(0, weight=1)
-
         f1 = tk.Frame(sec, bg=self._SEC_BG)
         f1.grid(row=0, column=0, sticky='ew')
         f1.columnconfigure(0, weight=1)
@@ -3121,35 +3749,29 @@ class DipeDialog(tk.Toplevel):
                  relief='solid', bd=1).pack(side='left', fill='x', expand=True)
         tk.Button(f1, text='📂', bg=self._SEC_BG, relief='flat',
                   font=('Arial', 11), cursor='hand2',
-                  command=self._browse_raw).pack(side='left', padx=(4, 0))
-
+                  command=self._browse_raw).pack(side='left', padx=(4,0))
         self._conv_btn = tk.Button(sec,
                   text='Επεξεργασία & άνοιγμα  →',
                   bg=C['btn_bg'], fg=C['btn_fg'],
                   font=('Arial', 9, 'bold'), relief='flat',
-                  padx=10, pady=4, cursor='hand2',
-                  command=self._convert)
-        self._conv_btn.grid(row=1, column=0, sticky='e', pady=(6, 0))
-
+                  padx=10, pady=4, cursor='hand2', command=self._convert)
+        self._conv_btn.grid(row=1, column=0, sticky='e', pady=(6,0))
         self._status_var = tk.StringVar(value='')
-        tk.Label(body, textvariable=self._status_var,
-                 bg=C['bg'], fg=C['status_run'],
-                 font=('Arial', 8), anchor='w').grid(row=1, column=0, sticky='w', pady=(0, 4))
-
+        tk.Label(body, textvariable=self._status_var, bg=C['bg'], fg=C['status_run'],
+                 font=('Arial', 8), anchor='w').grid(row=1, column=0, sticky='w', pady=(0,4))
         tk.Label(body, text='Αρχείο καταγραφής:',
                  bg=C['bg'], fg=C['hdr_bg'],
-                 font=('Arial', 9, 'bold')).grid(row=2, column=0, sticky='w', pady=(4, 2))
+                 font=('Arial', 9, 'bold')).grid(row=2, column=0, sticky='w', pady=(4,2))
         self._log = st2.ScrolledText(body, height=6, font=('Consolas', 8),
                                       relief='solid', bd=1, state='disabled',
                                       bg='#F5F5F5', wrap=tk.WORD)
-        self._log.grid(row=3, column=0, sticky='nsew', pady=(0, 4))
+        self._log.grid(row=3, column=0, sticky='nsew', pady=(0,4))
         body.rowconfigure(3, weight=1)
 
     def _browse_raw(self):
         from tkinter import filedialog
-        path = filedialog.askopenfilename(
-            parent=self,
-            title='Επιλογή αρχικού αρχείου τοποθετήσεων',
+        path = filedialog.askopenfilename(parent=self,
+            title='Επιλογή αρχείου τοποθετήσεων',
             filetypes=[('Excel', '*.xlsx *.xls'), ('Όλα', '*.*')])
         if path:
             self._raw_var.set(path)
@@ -3166,7 +3788,8 @@ class DipeDialog(tk.Toplevel):
         import threading as _th
         src = self._raw_var.get().strip()
         if not src:
-            messagebox.showwarning('Προσοχή', 'Επίλεξε πρώτα το αρχικό αρχείο τοποθετήσεων.', parent=self)
+            messagebox.showwarning('Προσοχή',
+                'Επίλεξε πρώτα το αρχικό αρχείο.', parent=self)
             return
         self._conv_btn.configure(state='disabled', text='Μετατροπή...')
         self._log_msg('→ Μετατροπή αρχείου...')
@@ -3178,16 +3801,14 @@ class DipeDialog(tk.Toplevel):
                     self._conv_btn.configure(state='normal', text='Επεξεργασία & άνοιγμα  →')
                     self._log_msg(f'✓ Δημιουργήθηκε: {os.path.basename(dest)} ({n} γραμμές)')
                     self._log_msg('  Άνοιγμα Excel — συμπλήρωσε τα πορτοκαλί κελιά και αποθήκευσε.')
-                    self._status_var.set('✓ Μετατροπή ολοκληρώθηκε. Συμπλήρωσε τα κενά πεδία στο Excel.')
-                    try:
-                        os.startfile(dest)
-                    except Exception:
-                        pass
+                    self._status_var.set('✓ Μετατροπή ολοκληρώθηκε.')
+                    try: os.startfile(dest)
+                    except Exception: pass
                 self.after(0, _after)
             except Exception as exc:
                 def _err():
                     self._conv_btn.configure(state='normal', text='Επεξεργασία & άνοιγμα  →')
-                    self._log_msg(f'❌ Σφάλμα μετατροπής: {exc}')
+                    self._log_msg(f'❌ Σφάλμα: {exc}')
                     self._status_var.set(f'❌ {exc}')
                 self.after(0, _err)
         _th.Thread(target=_do, daemon=True).start()
