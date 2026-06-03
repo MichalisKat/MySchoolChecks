@@ -413,19 +413,6 @@ class SettingsDialog(tk.Toplevel):
                  bg=C['bg'], fg=C['footer'], font=('Arial', 8)).grid(
                  row=6, column=0, columnspan=2, sticky='w')
 
-        sep1b = tk.Frame(tab1, bg=C['border'], height=1)
-        sep1b.grid(row=7, column=0, columnspan=2, sticky='ew', pady=(16, 4))
-
-        self._section_label(tab1, 8, 'Λογαριασμός email (προαιρετικό):')
-        self._pw_var = tk.StringVar(value=self._cfg('FROM_PASSWORD'))
-        self._pw_row(tab1, 9, 'Κωδικός email:', self._pw_var)
-
-        hint = tk.Frame(tab1, bg='#E8F4FD',
-                        highlightbackground='#90CAF9', highlightthickness=1)
-        hint.grid(row=10, column=0, columnspan=2, sticky='ew', pady=(8, 0))
-        tk.Label(hint, text='ℹ  Συμπληρώστε μόνο αν επιθυμείτε αυτόματη αποστολή email.',
-                 bg='#E8F4FD', fg='#1565C0',
-                 font=('Arial', 8), padx=8, pady=4).pack(anchor='w')
 
         # ── Tab 2: Email (ταυτότητα αποστολέα) ───────────────────────────────
         self._section_label(tab2, 0, 'Στοιχεία αποστολέα:')
@@ -463,6 +450,19 @@ class SettingsDialog(tk.Toplevel):
                  bg=C['bg'], fg=C['footer'], font=('Arial', 8)).grid(
                  row=11, column=0, columnspan=2, sticky='w')
 
+        sep4 = tk.Frame(tab2, bg=C['border'], height=1)
+        sep4.grid(row=12, column=0, columnspan=2, sticky='ew', pady=(14, 4))
+
+        self._section_label(tab2, 13, 'Λογαριασμός email (προαιρετικό):')
+        self._pw_var = tk.StringVar(value=self._cfg('FROM_PASSWORD'))
+        self._pw_row(tab2, 14, 'Κωδικός email:', self._pw_var)
+
+        hint = tk.Frame(tab2, bg='#E8F4FD',
+                        highlightbackground='#90CAF9', highlightthickness=1)
+        hint.grid(row=15, column=0, columnspan=2, sticky='ew', pady=(8, 0))
+        tk.Label(hint, text='ℹ  Συμπληρώστε μόνο αν επιθυμείτε αυτόματη αποστολή email.',
+                 bg='#E8F4FD', fg='#1565C0',
+                 font=('Arial', 8), padx=8, pady=4).pack(anchor='w')
 
         # ── Tab 3: Αρχεία ─────────────────────────────────────────────────────
         self._section_label(tab3, 0, 'Αρχείο Αδυνατούντων (υπό έγκριση):')
@@ -4453,18 +4453,39 @@ class InformEmailDialog(tk.Toplevel):
                   command=self._save_recipients).grid(
                   row=6, column=1, sticky='nw', padx=(8, 0))
 
+        # ── Επισύναψη αρχείου ─────────────────────────────────────────────────
+        self._attach_path = None
+        att_row = tk.Frame(body, bg=C['bg'])
+        att_row.grid(row=7, column=0, columnspan=2, sticky='ew', pady=(2, 6))
+        tk.Button(att_row, text='📎 Επισύναψη αρχείου',
+                  bg=C['bg2'], fg=C['hdr_bg'],
+                  font=('Arial', 8), relief='flat',
+                  padx=8, pady=4, cursor='hand2',
+                  command=self._pick_attachment).pack(side='left')
+        self._attach_lbl = tk.Label(att_row, text='Κανένα αρχείο',
+                                     bg=C['bg'], fg='#888888',
+                                     font=('Arial', 8), anchor='w')
+        self._attach_lbl.pack(side='left', padx=(8, 4), fill='x', expand=True)
+        self._attach_clear_btn = tk.Button(att_row, text='✕',
+                  bg=C['bg'], fg='#cc0000',
+                  font=('Arial', 8, 'bold'), relief='flat',
+                  padx=4, cursor='hand2',
+                  command=self._clear_attachment)
+        self._attach_clear_btn.pack(side='left')
+        self._attach_clear_btn.pack_forget()  # κρυφό μέχρι να επιλεγεί αρχείο
+
         # ── Status + κουμπί αποστολής ─────────────────────────────────────────
         self._status_var = tk.StringVar(value='')
         tk.Label(body, textvariable=self._status_var, bg=C['bg'],
                  fg=C['status_run'], font=('Arial', 8), wraplength=420,
-                 justify='left').grid(row=7, column=0, columnspan=2, sticky='w', pady=(4, 2))
+                 justify='left').grid(row=8, column=0, columnspan=2, sticky='w', pady=(4, 2))
 
         self._send_btn = tk.Button(body, text='✉  Αποστολή',
                   bg=C['btn_bg'], fg=C['btn_fg'],
                   font=('Arial', 10, 'bold'), relief='flat',
                   padx=18, pady=6, cursor='hand2',
                   command=self._send)
-        self._send_btn.grid(row=8, column=0, columnspan=2, pady=(4, 0), sticky='e')
+        self._send_btn.grid(row=9, column=0, columnspan=2, pady=(4, 0), sticky='e')
 
         body.columnconfigure(0, weight=1)
 
@@ -4472,6 +4493,28 @@ class InformEmailDialog(tk.Toplevel):
         self._date_send    = date_send
         self._date_obl     = date_obl
         self._refresh_body()
+
+    def _pick_attachment(self):
+        from tkinter import filedialog as _fd
+        path = _fd.askopenfilename(
+            parent=self,
+            title='Επιλογή αρχείου επισύναψης',
+            filetypes=[('Όλα τα αρχεία', '*.*'),
+                       ('Excel', '*.xlsx *.xls'),
+                       ('PDF', '*.pdf'),
+                       ('Word', '*.docx *.doc')])
+        if path:
+            self._attach_path = path
+            name = os.path.basename(path)
+            max_w = 35
+            display = name if len(name) <= max_w else name[:max_w - 1] + '…'
+            self._attach_lbl.configure(text=display, fg=C['hdr_bg'])
+            self._attach_clear_btn.pack(side='left')
+
+    def _clear_attachment(self):
+        self._attach_path = None
+        self._attach_lbl.configure(text='Κανένα αρχείο', fg='#888888')
+        self._attach_clear_btn.pack_forget()
 
     def _refresh_body(self):
         """Ανανεώνει το σώμα με ή χωρίς την πρόταση αδυναμίας."""
@@ -4530,15 +4573,16 @@ class InformEmailDialog(tk.Toplevel):
         self._send_btn.configure(state='disabled', bg=C['btn_dis'], text='Αποστολή...')
         self._status_var.set('Αποστολή...')
 
-        _subj   = subject
-        _body   = body
-        _recips = recips[:]
-        _date   = self._date_send
-        _obl    = self._date_obl
+        _subj        = subject
+        _body        = body
+        _recips      = recips[:]
+        _date        = self._date_send
+        _obl         = self._date_obl
+        _attach_path = self._attach_path
 
         def _do():
             try:
-                _send_email(config, _recips, _subj, _body, None)
+                _send_email(config, _recips, _subj, _body, _attach_path)
 
                 # Επιβεβαιωτικό email στον αποστολέα
                 from_addr = getattr(config, 'FROM_EMAIL', '')
@@ -4729,67 +4773,4 @@ def main():
                             _splash_log(log_txt, f'  ✓ {pkg}')
                         except ImportError:
                             _splash_log(log_txt, f'  ⬇ Εγκατάσταση {pkg}...')
-                            _sub.run([sys.executable, '-m', 'pip', 'install', pkg,
-                                      '--disable-pip-version-check', '-q'],
-                                     capture_output=True)
-                            _splash_log(log_txt, f'  ✓ {pkg} εγκαταστάθηκε')
-                        time.sleep(0.15)
-                    open(_libs_ok, 'w').close()
-
-            _splash_log(log_txt, 'Φόρτωση ελέγχων...')
-            checks = load_checks()
-            checks_result.append(checks)
-            _splash_log(log_txt, f'✓ {len(checks)} έλεγχοι φορτώθηκαν')
-            time.sleep(0.4)
-
-        except Exception as _e:
-            import traceback as _tb2
-            try:
-                _elog = os.path.join(os.path.expanduser('~'), 'Desktop', 'startup_error.log')
-                with open(_elog, 'w', encoding='utf-8') as _ef:
-                    _ef.write(_tb2.format_exc())
-            except Exception:
-                pass
-            checks_result.append([])
-        finally:
-            done_flag.set()
-
-    threading.Thread(target=_startup, daemon=True).start()
-
-    def _poll_checks():
-        if not done_flag.is_set():
-            root.after(100, _poll_checks)
-            return
-        checks = checks_result[0] if checks_result else []
-        if not checks:
-            pb.stop()
-            from tkinter import messagebox
-            _log_path = os.path.join(os.path.expanduser('~'), 'Desktop', 'crash.log')
-            messagebox.showerror('Σφάλμα',
-                f'Δεν φορτώθηκαν έλεγχοι!\n\nΔες το αρχείο:\n{_log_path}')
-            splash.destroy()
-            sys.exit(1)
-        pb.stop()
-        pb.configure(style='SplashDone.Horizontal.TProgressbar',
-                     mode='determinate', value=100)
-        _splash_log(log_txt, '✓ Έτοιμο!')
-        splash.update()
-        root.after(600, lambda: _launch(root, checks, splash, pb))
-
-    root.after(100, _poll_checks)
-    root.mainloop()
-
-
-def _launch(root, checks, splash, pb):
-    """Κλείνει το splash και εμφανίζει το κύριο παράθυρο."""
-    pb.stop()
-    try:
-        splash.destroy()
-    except Exception:
-        pass
-    root.deiconify()
-    LauncherApp(root, checks)
-
-
-if __name__ == '__main__':
-    main()
+   

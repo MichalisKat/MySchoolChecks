@@ -6,7 +6,7 @@ Python εφαρμογή Windows για αυτοματοποιημένους ελ
 
 **Repo:** https://github.com/MichalisKat/myschool-checks  
 **Υπεύθυνος:** Μιχάλης Κατσιρντάκης  
-**Τρέχουσα έκδοση:** 2.7.1
+**Τρέχουσα έκδοση:** 2.8.0
 
 ---
 
@@ -164,8 +164,8 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 Τρέξε μόνο βήματα 3 → 4 → 5 → 6. Το `build_executable.bat` δεν χρειάζεται.
 
 ### Versioning
-- Τρέχουσα: `2.6.1`
-- Επόμενη: `2.6.2` (bugfixes) ή `2.7.0` (νέα features)
+- Τρέχουσα: `2.8.0`
+- Επόμενη: `2.8.1` (bugfixes) ή `2.7.0` (νέα features)
 - Αλλαγή version: στο `myschool-checks.nsi` (`APP_VERSION`), στο `compile_installer.bat` **και** στο `MySchoolChecks/config.py` (`APP_VERSION`)
 
 ### Backup credentials
@@ -213,6 +213,10 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 - [ ] Επαλήθευση λήψης 3.1 με pre_search_labels (DevExpress checkboxes) — πρώτο run in production
 
 ## Αλλαγές ανά έκδοση
+
+### v2.8.0
+- **Ενημερωτικό email — Επισύναψη αρχείου**: δυνατότητα επισύναψης αρχείου (Excel, PDF, Word κ.ά.) στο `InformEmailDialog` — κουμπί 📎, εμφάνιση ονόματος, κουμπί ✕ αφαίρεσης
+- **Ρυθμίσεις — Κωδικός email**: μεταφορά από καρτέλα «Σύνδεση» στην καρτέλα «Email» (λογική ομαδοποίηση)
 
 ### v2.7.2
 - **ΕΕΑ — Επιβεβαιωτικό email**: μετά την ολοκλήρωση της αποστολής σε σχολεία, στέλνεται αυτόματα summary email στο `FROM_EMAIL` με λίστα επιτυχιών/αποτυχιών — `_send_smeae_summary()` στο `smeae/compare.py`
