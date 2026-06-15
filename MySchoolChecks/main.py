@@ -3678,6 +3678,14 @@ class DipeDialog(tk.Toplevel):
             desc='Εξαγωγή εκπαιδευτικών φιλτραρισμένων ανά ειδικότητα και θέση Συμβούλου Εκπ/σης.',
             cmd=lambda: SymbouloiDialog(self))
 
+        tk.Frame(body, bg='#D0D8E4', height=1).pack(fill='x', pady=10)
+
+        self._add_item(body,
+            icon='⏹',
+            title='Τερματισμός Τοποθετήσεων',
+            desc='Αυτόματος τερματισμός τοποθετήσεων — ορισμός ημερομηνίας λήξης (21/6/2026) στο MySchool.',
+            cmd=lambda: TerminationDialog(self))
+
     def _add_item(self, parent, icon, title, desc, cmd):
         card = tk.Frame(parent, bg=self._CARD, bd=1, relief='solid', cursor='hand2')
         card.pack(fill='x', pady=2)
@@ -4210,6 +4218,275 @@ class EditorDialog(tk.Toplevel):
         self.destroy()
 
 
+class _NumberedChoiceDialog(tk.Toplevel):
+    """Modal dialog επιλογής από αριθμημένη λίστα (thread-safe — καλείται από main thread)."""
+
+    def __init__(self, parent, title, prompt, options):
+        super().__init__(parent)
+        self.title(title)
+        self.configure(bg=C['bg'])
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+        self.result = None   # '1'–'N'  ή  '0' (παράλειψη)
+
+        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
+        if os.path.exists(ico):
+            try: self.iconbitmap(ico)
+            except Exception: pass
+
+        body = tk.Frame(self, bg=C['bg'], padx=20, pady=16)
+        body.pack(fill='both', expand=True)
+        body.columnconfigure(0, weight=1)
+
+        # Prompt
+        tk.Label(body, text=prompt, bg=C['bg'], font=('Arial', 9),
+                 anchor='w', justify='left', wraplength=450).grid(
+            row=0, column=0, sticky='w', pady=(0, 10))
+
+        # Listbox + scrollbar
+        lf = tk.Frame(body, bg=C['bg'])
+        lf.grid(row=1, column=0, sticky='nsew', pady=(0, 10))
+        lf.columnconfigure(0, weight=1)
+        body.rowconfigure(1, weight=1)
+
+        sb = tk.Scrollbar(lf)
+        sb.pack(side='right', fill='y')
+
+        self._lb = tk.Listbox(lf, yscrollcommand=sb.set,
+                              font=('Consolas', 9),
+                              height=min(len(options), 8),
+                              selectmode='single',
+                              activestyle='dotbox',
+                              relief='solid', bd=1,
+                              bg='#FAFAFA')
+        for i, opt in enumerate(options, 1):
+            self._lb.insert(tk.END, f'{i}.  {opt}')
+        self._lb.pack(side='left', fill='both', expand=True)
+        sb.configure(command=self._lb.yview)
+
+        # Buttons
+        btn_row = tk.Frame(body, bg=C['bg'])
+        btn_row.grid(row=2, column=0, sticky='w')
+
+        tk.Button(btn_row, text='0  Παράλειψη',
+                  bg='#E0E0E0', fg='#333333',
+                  font=('Arial', 9), relief='flat',
+                  padx=10, pady=4, cursor='hand2',
+                  command=self._skip).pack(side='left', padx=(0, 8))
+
+        tk.Button(btn_row, text='✓  Επιλογή',
+                  bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=12, pady=4, cursor='hand2',
+                  command=self._confirm).pack(side='left')
+
+        self._lb.bind('<Double-Button-1>', lambda _e: self._confirm())
+        self.protocol('WM_DELETE_WINDOW', self._skip)
+
+        # Κεντράρισμα
+        self.update_idletasks()
+        pw = parent.winfo_rootx() + (parent.winfo_width()  - self.winfo_width())  // 2
+        ph = parent.winfo_rooty() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f'+{pw}+{ph}')
+
+        parent.wait_window(self)
+
+    def _confirm(self):
+        sel = self._lb.curselection()
+        self.result = str(sel[0] + 1) if sel else None
+        self.destroy()
+
+    def _skip(self):
+        self.result = '0'
+        self.destroy()
+
+
+class TerminationDialog(tk.Toplevel):
+    """Τερματισμός Τοποθετήσεων — αυτόματη ενημέρωση ημ. λήξης."""
+
+    _HDR_BG  = '#1F4E79'
+    _LBL_CLR = '#1F4E79'
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title('Τερματισμός Τοποθετήσεων')
+        self.configure(bg=C['bg'])
+        self.resizable(False, False)
+        self.transient(parent)
+        self._driver   = None
+        self._file_var = tk.StringVar()
+        self._date_var = tk.StringVar(value='21/6/2026')
+
+        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
+        if os.path.exists(ico):
+            try: self.iconbitmap(ico)
+            except Exception: pass
+
+        self._build()
+        self.update_idletasks()
+        self.geometry('600x480')
+        pw = parent.winfo_x() + (parent.winfo_width()  - self.winfo_width())  // 2
+        ph = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f'+{pw}+{ph}')
+
+    def _build(self):
+        from tkinter import scrolledtext as st2
+
+        hdr = tk.Frame(self, bg=self._HDR_BG, pady=10)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='⏹  Τερματισμός Τοποθετήσεων',
+                 bg=self._HDR_BG, fg='white',
+                 font=('Arial', 12, 'bold')).pack()
+        tk.Label(hdr, text='Αυτόματη ενημέρωση ημερομηνίας λήξης στο MySchool',
+                 bg=self._HDR_BG, fg='#A8C4D8',
+                 font=('Arial', 8, 'italic')).pack()
+
+        body = tk.Frame(self, bg=C['bg'], padx=16, pady=12)
+        body.pack(fill='both', expand=True)
+        body.columnconfigure(0, weight=1)
+
+        # Αρχείο
+        tk.Label(body, text='Αρχείο εκπαιδευτικών (Excel ή CSV):',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).grid(row=0, column=0, sticky='w', pady=(0, 3))
+        ff = tk.Frame(body, bg=C['bg'])
+        ff.grid(row=1, column=0, sticky='ew', pady=(0, 6))
+        ff.columnconfigure(0, weight=1)
+        tk.Entry(ff, textvariable=self._file_var, font=('Arial', 9),
+                 relief='solid', bd=1).pack(side='left', fill='x', expand=True)
+        tk.Button(ff, text='📂', bg=C['bg'], relief='flat', font=('Arial', 11),
+                  cursor='hand2', command=self._browse).pack(side='left', padx=(4, 0))
+
+        # Σημείωση στήλες
+        tk.Label(body,
+                 text='Απαιτείται στήλη: Α.Φ.Μ.  |  Προαιρετική: Ονομασία Σχολείου',
+                 bg=C['bg'], fg='#666666', font=('Arial', 8),
+                 anchor='w').grid(row=2, column=0, sticky='w', pady=(0, 10))
+
+        # Ημερομηνία λήξης
+        tk.Label(body, text='Ημερομηνία λήξης (ΗΗ/Μ/ΕΕΕΕ):',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).grid(row=3, column=0, sticky='w', pady=(0, 3))
+        date_row = tk.Frame(body, bg=C['bg'])
+        date_row.grid(row=4, column=0, sticky='w', pady=(0, 6))
+        tk.Entry(date_row, textvariable=self._date_var, font=('Arial', 9),
+                 relief='solid', bd=1, width=14).pack(side='left')
+        tk.Label(date_row, text='  (31/8/2026 αντικαθίσταται αυτόματα)',
+                 bg=C['bg'], fg='#888888', font=('Arial', 8)).pack(side='left')
+
+        # Κουμπί εκτέλεσης
+        btn_row = tk.Frame(body, bg=C['bg'])
+        btn_row.grid(row=5, column=0, sticky='w', pady=(4, 8))
+        self._conn_btn = tk.Button(btn_row,
+                  text='▶  Σύνδεση & Εκτέλεση',
+                  bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=12, pady=5, cursor='hand2',
+                  command=self._connect_and_run)
+        self._conn_btn.pack(side='left')
+
+        # Status
+        self._status_var = tk.StringVar(value='Επίλεξε αρχείο και πάτα Σύνδεση & Εκτέλεση.')
+        tk.Label(body, textvariable=self._status_var,
+                 bg=C['bg'], fg=C['status_run'],
+                 font=('Arial', 8), anchor='w').grid(row=6, column=0, sticky='w', pady=(0, 4))
+
+        # Log
+        tk.Label(body, text='Αρχείο καταγραφής:',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).grid(row=7, column=0, sticky='w', pady=(4, 2))
+        self._log = st2.ScrolledText(body, height=12, font=('Consolas', 8),
+                                      relief='solid', bd=1, state='disabled',
+                                      bg='#F5F5F5', wrap=tk.WORD)
+        self._log.grid(row=8, column=0, sticky='nsew', pady=(0, 4))
+        body.rowconfigure(8, weight=1)
+
+        self.protocol('WM_DELETE_WINDOW', self._on_close)
+
+    def _browse(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            parent=self,
+            title='Επιλογή αρχείου εκπαιδευτικών',
+            filetypes=[('Excel/CSV', '*.xlsx *.xls *.csv'), ('Όλα', '*.*')])
+        if path:
+            self._file_var.set(path)
+
+    def _log_msg(self, msg):
+        def _do():
+            self._log.configure(state='normal')
+            self._log.insert(tk.END, msg + '\n')
+            self._log.see(tk.END)
+            self._log.configure(state='disabled')
+        self.after(0, _do)
+
+    def _ask_user(self, title, prompt, options=None):
+        """
+        Thread-safe ask_user callback.
+        Εκτελείται από background thread — marshals στο main thread και περιμένει.
+        """
+        import threading
+        result   = [None]
+        ev       = threading.Event()
+
+        def _show():
+            try:
+                if options is not None:
+                    dlg = _NumberedChoiceDialog(self, title, prompt, options)
+                    result[0] = dlg.result
+                else:
+                    from tkinter import simpledialog
+                    result[0] = simpledialog.askstring(title, prompt, parent=self)
+            except Exception:
+                result[0] = None
+            finally:
+                ev.set()
+
+        self.after(0, _show)
+        ev.wait(timeout=600)   # 10 λεπτά timeout
+        return result[0]
+
+    def _connect_and_run(self):
+        import threading as _th
+        path = self._file_var.get().strip()
+        if not path:
+            messagebox.showwarning('Προσοχή', 'Επίλεξε αρχείο πρώτα.', parent=self)
+            return
+        self._conn_btn.configure(state='disabled', text='Εκτελείται...')
+        self._status_var.set('Σύνδεση στο MySchool...')
+
+        def _do():
+            import termination
+            drv = termination.connect(log=self._log_msg)
+            if not drv:
+                def _fail():
+                    self._conn_btn.configure(state='normal', text='▶  Σύνδεση & Εκτέλεση')
+                    self._status_var.set('Αποτυχία σύνδεσης — έλεγξε credentials στις Ρυθμίσεις.')
+                self.after(0, _fail)
+                return
+            self._driver = drv
+            self.after(0, lambda: self._status_var.set('Εκτέλεση...'))
+            termination.run(
+                {'file_path': path, 'date': self._date_var.get().strip()},
+                drv,
+                callback=self._log_msg,
+                ask_user=self._ask_user
+            )
+            def _after():
+                self._conn_btn.configure(state='normal', text='▶  Σύνδεση & Εκτέλεση')
+                self._status_var.set('Ολοκλήρωση.')
+            self.after(0, _after)
+
+        _th.Thread(target=_do, daemon=True).start()
+
+    def _on_close(self):
+        if self._driver:
+            try: self._driver.quit()
+            except Exception: pass
+        self.destroy()
+
+
 class PanicEndDialog(tk.Toplevel):
     """Λήξη PANIC — Διαγραφή εγγραφών Γραμματειακής Υποστήριξης."""
 
@@ -4577,14 +4854,12 @@ class InformEmailDialog(tk.Toplevel):
         _body        = body
         _recips      = recips[:]
         _date        = self._date_send
-        _obl         = self._date_obl
         _attach_path = self._attach_path
 
         def _do():
             try:
                 _send_email(config, _recips, _subj, _body, _attach_path)
 
-                # Επιβεβαιωτικό email στον αποστολέα
                 from_addr = getattr(config, 'FROM_EMAIL', '')
                 if from_addr:
                     _confirm_subj = f'Αποστολή ενημερωτικού {_date}'
@@ -4610,13 +4885,11 @@ class InformEmailDialog(tk.Toplevel):
 
 def _show_help(parent):
     """Ανοίγει τον οδηγό PDF με τον προεπιλεγμένο viewer των Windows."""
-    PDF_NAME = 'MySchoolChecks_Odigos.pdf'
+    PDF_NAME = 'MySchoolChecksPlus_Odigos.pdf'
     if getattr(sys, 'frozen', False):
-        # Frozen exe: ψάχνε δίπλα στο .exe
         base_dir = os.path.dirname(sys.executable)
         pdf_path = os.path.join(base_dir, PDF_NAME)
         if not os.path.exists(pdf_path):
-            # ή μέσα στο bundle (αν συμπεριληφθεί με --add-data)
             pdf_path = os.path.join(sys._MEIPASS, PDF_NAME)
     else:
         base = os.path.dirname(os.path.abspath(__file__))
@@ -4709,8 +4982,16 @@ def _splash_log(log_txt, msg):
         pass
 
 
-
-
+def _launch(root, checks, splash, pb):
+    """Κλείνει το splash και ξεκινά την κύρια εφαρμογή."""
+    pb.stop()
+    try:
+        splash.destroy()
+    except Exception:
+        pass
+    root.deiconify()
+    root.lift()
+    LauncherApp(root, checks)
 
 
 def main():
@@ -4725,8 +5006,10 @@ def main():
 
     ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
     if os.path.exists(ico):
-        try: root.iconbitmap(ico)
-        except Exception: pass
+        try:
+            root.iconbitmap(ico)
+        except Exception:
+            pass
 
     splash, pb, log_txt, ready_btn = _show_splash(root)
 
@@ -4735,7 +5018,6 @@ def main():
 
     def _startup():
         import subprocess as _sub
-        import traceback as _tb
         _log_path = os.path.join(os.path.expanduser('~'), 'Desktop', 'crash.log')
 
         def _log(msg):
@@ -4747,24 +5029,22 @@ def main():
 
         try:
             _splash_log(log_txt, f'✓ Python {sys.version.split()[0]}')
-            time.sleep(0.3)
+            import time as _time
+            _time.sleep(0.3)
 
             if getattr(sys, 'frozen', False):
-                # ── Frozen exe: βιβλιοθήκες είναι ήδη bundled ──────────
-                # ΔΕΝ τρέχουμε pip — sys.executable είναι το .exe, όχι Python
                 _splash_log(log_txt, '✓ Βιβλιοθήκες εγκατεστημένες')
-                time.sleep(0.2)
+                _time.sleep(0.2)
             else:
-                # ── Development mode: έλεγχος & εγκατάσταση βιβλιοθηκών ─
                 _base    = os.path.dirname(os.path.abspath(__file__))
                 _libs_ok = os.path.join(_base, '.libs_ok')
-                _reqs    = [('pandas','pandas'), ('openpyxl','openpyxl'),
-                            ('selenium','selenium'), ('xlrd','xlrd'),
-                            ('html2text','html2text')]
+                _reqs    = [('pandas', 'pandas'), ('openpyxl', 'openpyxl'),
+                            ('selenium', 'selenium'), ('xlrd', 'xlrd'),
+                            ('html2text', 'html2text')]
 
                 if os.path.exists(_libs_ok):
                     _splash_log(log_txt, '✓ Βιβλιοθήκες εγκατεστημένες')
-                    time.sleep(0.2)
+                    _time.sleep(0.2)
                 else:
                     _splash_log(log_txt, 'Έλεγχος βιβλιοθηκών...')
                     for pkg, imp in _reqs:
@@ -4773,4 +5053,58 @@ def main():
                             _splash_log(log_txt, f'  ✓ {pkg}')
                         except ImportError:
                             _splash_log(log_txt, f'  ⬇ Εγκατάσταση {pkg}...')
-   
+                            try:
+                                _sub.run([sys.executable, '-m', 'pip', 'install',
+                                          pkg, '--disable-pip-version-check', '-q'],
+                                         check=True)
+                                _splash_log(log_txt, f'  ✓ {pkg} εγκαταστάθηκε')
+                                _time.sleep(0.15)
+                            except Exception as _e:
+                                _log(f'pip {pkg}: {_e}')
+                    try:
+                        open(_libs_ok, 'w').close()
+                    except Exception:
+                        pass
+
+            _splash_log(log_txt, 'Φόρτωση ελέγχων...')
+            checks = load_checks()
+            checks_result.append(checks)
+            _splash_log(log_txt, f'✓ {len(checks)} έλεγχοι φορτώθηκαν')
+            _time.sleep(0.4)
+
+        except Exception as _e:
+            _log(f'Σφάλμα εκκίνησης: {_e}')
+        finally:
+            done_flag.set()
+
+    def _poll_checks():
+        if not done_flag.is_set():
+            root.after(100, _poll_checks)
+            return
+
+        checks = checks_result[0] if checks_result else []
+        if not checks:
+            pb.stop()
+            from tkinter import messagebox as _mb
+            _log_path = os.path.join(os.path.expanduser('~'), 'Desktop', 'crash.log')
+            _mb.showerror('Σφάλμα',
+                          f'Δεν φορτώθηκαν έλεγχοι!\n\nΔες το αρχείο:\n{_log_path}')
+            try:
+                splash.destroy()
+            except Exception:
+                pass
+            sys.exit(1)
+
+        pb.stop()
+        pb.configure(style='SplashDone.Horizontal.TProgressbar',
+                     mode='determinate', value=100)
+        _splash_log(log_txt, '✓ Έτοιμο!')
+        root.after(0, lambda: _launch(root, checks, splash, pb))
+
+    threading.Thread(target=_startup, daemon=True).start()
+    root.after(100, _poll_checks)
+    root.mainloop()
+
+
+if __name__ == '__main__':
+    main()

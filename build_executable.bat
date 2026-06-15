@@ -47,6 +47,8 @@ echo [OK] Clean done.
 :: Find PyInstaller
 set PYINSTALLER=
 for %%P in (
+    "%APPDATA%\Python\Python314\Scripts\pyinstaller.exe"
+    "C:\Program Files\Python314\Scripts\pyinstaller.exe"
     "%LOCALAPPDATA%\Python\pythoncore-3.14-64\Scripts\pyinstaller.exe"
     "%LOCALAPPDATA%\Programs\Python\Python314\Scripts\pyinstaller.exe"
     "%LOCALAPPDATA%\Programs\Python\Python313\Scripts\pyinstaller.exe"
