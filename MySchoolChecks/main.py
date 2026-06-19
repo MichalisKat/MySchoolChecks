@@ -1116,7 +1116,7 @@ class LauncherApp:
     def _open_dipe(self):
         from tkinter import simpledialog
         pwd = simpledialog.askstring('ΔΙ.Π.Ε.Αν.Θ.', 'Κωδικός:', show='*', parent=self.root)
-        if pwd == '0202027':
+        if pwd == '9919101':
             DipeDialog(self.root)
         elif pwd is not None:
             messagebox.showerror('Σφάλμα', 'Λανθασμένος κωδικός.', parent=self.root)
@@ -3686,6 +3686,14 @@ class DipeDialog(tk.Toplevel):
             desc='Αυτόματος τερματισμός τοποθετήσεων — ορισμός ημερομηνίας λήξης (21/6/2026) στο MySchool.',
             cmd=lambda: TerminationDialog(self))
 
+        tk.Frame(body, bg='#D0D8E4', height=1).pack(fill='x', pady=10)
+
+        self._add_item(body,
+            icon='🔢',
+            title='Αλλαγή Λειτουργικότητας',
+            desc='Αυτόματη ενημέρωση λειτουργικότητας σχολικών μονάδων στο MySchool βάσει αρχείου Excel.',
+            cmd=lambda: FunctionalityDialog(self))
+
     def _add_item(self, parent, icon, title, desc, cmd):
         card = tk.Frame(parent, bg=self._CARD, bd=1, relief='solid', cursor='hand2')
         card.pack(fill='x', pady=2)
@@ -4472,6 +4480,152 @@ class TerminationDialog(tk.Toplevel):
                 drv,
                 callback=self._log_msg,
                 ask_user=self._ask_user
+            )
+            def _after():
+                self._conn_btn.configure(state='normal', text='▶  Σύνδεση & Εκτέλεση')
+                self._status_var.set('Ολοκλήρωση.')
+            self.after(0, _after)
+
+        _th.Thread(target=_do, daemon=True).start()
+
+    def _on_close(self):
+        if self._driver:
+            try: self._driver.quit()
+            except Exception: pass
+        self.destroy()
+
+
+class FunctionalityDialog(tk.Toplevel):
+    """Αλλαγή Λειτουργικότητας σχολικών μονάδων στο MySchool."""
+
+    _HDR_BG  = '#1F4E79'
+    _LBL_CLR = '#1F4E79'
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title('Αλλαγή Λειτουργικότητας')
+        self.configure(bg=C['bg'])
+        self.resizable(False, False)
+        self.transient(parent)
+        self._driver   = None
+        self._file_var = tk.StringVar()
+
+        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
+        if os.path.exists(ico):
+            try: self.iconbitmap(ico)
+            except Exception: pass
+
+        self._build()
+        self.update_idletasks()
+        self.geometry('600x460')
+        pw = parent.winfo_x() + (parent.winfo_width()  - self.winfo_width())  // 2
+        ph = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f'+{pw}+{ph}')
+
+    def _build(self):
+        from tkinter import scrolledtext as st2
+
+        hdr = tk.Frame(self, bg=self._HDR_BG, pady=10)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='🔢  Αλλαγή Λειτουργικότητας',
+                 bg=self._HDR_BG, fg='white',
+                 font=('Arial', 12, 'bold')).pack()
+        tk.Label(hdr, text='Αυτόματη ενημέρωση λειτουργικότητας σχολικών μονάδων στο MySchool',
+                 bg=self._HDR_BG, fg='#A8C4D8',
+                 font=('Arial', 8, 'italic')).pack()
+
+        body = tk.Frame(self, bg=C['bg'], padx=16, pady=12)
+        body.pack(fill='both', expand=True)
+        body.columnconfigure(0, weight=1)
+
+        # Αρχείο
+        tk.Label(body, text='Αρχείο σχολικών μονάδων (Excel ή CSV):',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).grid(row=0, column=0, sticky='w', pady=(0, 3))
+        ff = tk.Frame(body, bg=C['bg'])
+        ff.grid(row=1, column=0, sticky='ew', pady=(0, 4))
+        ff.columnconfigure(0, weight=1)
+        tk.Entry(ff, textvariable=self._file_var, font=('Arial', 9),
+                 relief='solid', bd=1).pack(side='left', fill='x', expand=True)
+        tk.Button(ff, text='📂', bg=C['bg'], relief='flat', font=('Arial', 11),
+                  cursor='hand2', command=self._browse).pack(side='left', padx=(4, 0))
+
+        # Σημείωση στήλες
+        tk.Label(body,
+                 text='Απαιτούνται στήλες: Κωδικός  |  Παλιά Λειτουργικότητα  |  Νέα Λειτουργικότητα',
+                 bg=C['bg'], fg='#666666', font=('Arial', 8),
+                 anchor='w').grid(row=2, column=0, sticky='w', pady=(0, 10))
+
+        # Κουμπί εκτέλεσης
+        btn_row = tk.Frame(body, bg=C['bg'])
+        btn_row.grid(row=3, column=0, sticky='w', pady=(0, 8))
+        self._conn_btn = tk.Button(btn_row,
+                  text='▶  Σύνδεση & Εκτέλεση',
+                  bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=12, pady=5, cursor='hand2',
+                  command=self._connect_and_run)
+        self._conn_btn.pack(side='left')
+
+        # Status
+        self._status_var = tk.StringVar(value='Επίλεξε αρχείο και πάτα Σύνδεση & Εκτέλεση.')
+        tk.Label(body, textvariable=self._status_var,
+                 bg=C['bg'], fg=C['status_run'],
+                 font=('Arial', 8), anchor='w').grid(row=4, column=0, sticky='w', pady=(0, 4))
+
+        # Log
+        tk.Label(body, text='Αρχείο καταγραφής:',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).grid(row=5, column=0, sticky='w', pady=(4, 2))
+        self._log = st2.ScrolledText(body, height=12, font=('Consolas', 8),
+                                      relief='solid', bd=1, state='disabled',
+                                      bg='#F5F5F5', wrap=tk.WORD)
+        self._log.grid(row=6, column=0, sticky='nsew', pady=(0, 4))
+        body.rowconfigure(6, weight=1)
+
+        self.protocol('WM_DELETE_WINDOW', self._on_close)
+
+    def _browse(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            parent=self,
+            title='Επιλογή αρχείου σχολικών μονάδων',
+            filetypes=[('Excel/CSV', '*.xlsx *.xls *.csv'), ('Όλα', '*.*')])
+        if path:
+            self._file_var.set(path)
+
+    def _log_msg(self, msg):
+        def _do():
+            self._log.configure(state='normal')
+            self._log.insert(tk.END, msg + '\n')
+            self._log.see(tk.END)
+            self._log.configure(state='disabled')
+        self.after(0, _do)
+
+    def _connect_and_run(self):
+        import threading as _th
+        path = self._file_var.get().strip()
+        if not path:
+            messagebox.showwarning('Προσοχή', 'Επίλεξε αρχείο πρώτα.', parent=self)
+            return
+        self._conn_btn.configure(state='disabled', text='Εκτελείται...')
+        self._status_var.set('Σύνδεση στο MySchool...')
+
+        def _do():
+            import functionality
+            drv = functionality.connect(log=self._log_msg)
+            if not drv:
+                def _fail():
+                    self._conn_btn.configure(state='normal', text='▶  Σύνδεση & Εκτέλεση')
+                    self._status_var.set('Αποτυχία σύνδεσης — έλεγξε credentials στις Ρυθμίσεις.')
+                self.after(0, _fail)
+                return
+            self._driver = drv
+            self.after(0, lambda: self._status_var.set('Εκτέλεση...'))
+            functionality.run(
+                {'file_path': path},
+                drv,
+                callback=self._log_msg,
             )
             def _after():
                 self._conn_btn.configure(state='normal', text='▶  Σύνδεση & Εκτέλεση')
