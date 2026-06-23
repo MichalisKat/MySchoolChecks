@@ -139,6 +139,7 @@ CHECK_ORDER = [
     'analipsi',
     'dioikitiko_ergo',
     'ypoloipa',
+    'tmimata_genikis',
 ]
 
 def load_checks():
