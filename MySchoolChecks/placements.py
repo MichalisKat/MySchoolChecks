@@ -11,6 +11,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 from datetime import datetime
 
 import pandas as pd
@@ -365,6 +366,197 @@ def _read_row(row):
         return [False, f'Σφάλμα ανάγνωσης γραμμής: {e}']
 
 
+# ── Αντιστοιχία ονόματος → κωδικού από stat2_2 ───────────────────────────────
+
+# Συντομογραφίες που εμφανίζονται στα αρχεία τοποθετήσεων ΠΔΕ/Υπουργείου
+_SCHOOL_ABBREVS = [
+    (re.compile(r'\bΔΣ\b'),               'ΔΗΜΟΤΙΚΟ ΣΧΟΛΕΙΟ'),
+    (re.compile(r'\bΝΗΠ\.?(?=\s|$)'),    'ΝΗΠΙΑΓΩΓΕΙΟ'),  # lookahead: μόνο αν ακολουθεί κενό/τέλος
+]
+
+
+# Λατινικοί χαρακτήρες που εμφανίζονται ως typo αντί ελληνικών
+_LATIN_TO_GREEK  = str.maketrans('ABEHIKMNOPTYXZ', 'ΑΒΕΗΙΚΜΝΟPTΥΧΖ')
+_LATIN_LOOKALIKE = re.compile(r'[ABEHIKMNOPTYXZabehikmnoptyxz]')
+
+
+def _normalize_school_name(s):
+    """Κανονικοποίηση ονόματος σχολείου: uppercase, χωρίς τόνους, επέκταση συντομογραφιών."""
+    s = str(s).strip().upper()
+    # Αφαίρεση παρενθετικών σημειώσεων π.χ. (ΑΝΑΣΤΟΛΗ), (ΑΝΑΣΤΟΛΗΣ)
+    s = re.sub(r'\s*\([^)]*\)?', '', s).strip()  # handles both (ΑΝΑΣΤΟΛΗ) and (ΑΝΑΣΤΟΛΗ
+    # Αφαίρεση trailing Τ.Ε. (Τμήμα Ένταξης) — εμφανίζεται στο τέλος του ονόματος σχολείου
+    s = re.sub(r'\s+Τ\.Ε\.?\s*$', '', s).strip()
+    # Αφαίρεση suffix τύπου "- ΟΝΟΜΑ ΑΦΙΕΡΩΣΗΣ" (π.χ. "- ΘΕΟΧΑΡΗ-ΜΑΡΙΑΣ ΜΑΝΑΒΗ", "- ΜΙΛΤΟΣ ΚΟΥΝΤΟΥΡΑΣ")
+    # \s* = προαιρετικό κενό πριν την παύλα, \s+ = υποχρεωτικό κενό μετά (αποφεύγει "ΚΑΛΑΜΑΡΙΑ-ΘΕΣΣΑΛΟΝΙΚΗ")
+    s = re.sub(r'\s*-\s+.*$', '', s).strip()
+    s = ''.join(c for c in unicodedata.normalize('NFD', s)
+                if unicodedata.category(c) != 'Mn')
+    # Αντικατάσταση λατινικών lookalikes με ελληνικά
+    s = s.translate(_LATIN_TO_GREEK)
+    for pat, repl in _SCHOOL_ABBREVS:
+        s = pat.sub(repl, s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    # Strip trailing Σ από κάθε λέξη (ΤΡΙΑΝΔΡΙΑΣ→ΤΡΙΑΝΔΡΙΑ, ΘΕΣΣΑΛΟΝΙΚΗΣ→ΘΕΣΣΑΛΟΝΙΚΗ κλπ.)
+    words = [w[:-1] if w.endswith('Σ') and len(w) > 2 else w for w in s.split()]
+    return ' '.join(words)
+
+
+def build_school_lookup(stat2_path):
+    """
+    Διαβάζει stat2_2 (zip ή csv) και επιστρέφει:
+      dict: normalized_name -> [(code, original_name), ...]
+    Κρατάει λίστα αντί για μοναδική τιμή ώστε να ανιχνεύονται διπλοεγγραφές.
+    """
+    import zipfile
+
+    def _clean_code(s):
+        s = str(s).strip()
+        s = re.sub(r'^="(.*)"$', r'\1', s)
+        return s
+
+    def _read_csv(path_or_buf):
+        for enc in ('utf-8-sig', 'windows-1253', 'iso-8859-7', 'cp1253'):
+            try:
+                return pd.read_csv(path_or_buf, sep=';', encoding=enc,
+                                   dtype=str, header=0)
+            except (UnicodeDecodeError, Exception):
+                if hasattr(path_or_buf, 'seek'):
+                    path_or_buf.seek(0)
+        return None
+
+    try:
+        is_excel = stat2_path.lower().endswith(('.xlsx', '.xls'))
+
+        if is_excel:
+            df = pd.read_excel(stat2_path, header=0, dtype=str)
+        elif zipfile.is_zipfile(stat2_path):
+            with zipfile.ZipFile(stat2_path) as z:
+                csv_names = [n for n in z.namelist() if n.lower().endswith('.csv')]
+                if not csv_names:
+                    return {}
+                with z.open(csv_names[0]) as f:
+                    df = _read_csv(f)
+        else:
+            df = _read_csv(stat2_path)
+
+        # Excel (2.1) → col[1]=όνομα, col[11]=κωδικός
+        # CSV   (2.2) → col[11]=κωδικός, col[12]=όνομα
+        if df is None:
+            return {}
+
+        if is_excel:
+            if len(df.columns) < 13:
+                return {}
+
+            def _find_col(df, *keywords):
+                for col in df.columns:
+                    col_n = _normalize_school_name(str(col))
+                    for kw in keywords:
+                        if kw in col_n:
+                            return col
+                return None
+
+            code_col = _find_col(df, 'ΚΩΔΙΚ', 'ΚΩΔ') or df.columns[12]
+            name_col = _find_col(df, 'ΟΝΟΜΑΣ') or df.columns[13]
+        else:
+            if len(df.columns) < 13:
+                return {}
+            code_col = df.columns[11]
+            name_col = df.columns[12]
+
+        lookup = {}
+        for _, row in df.iterrows():
+            code = _clean_code(row[code_col])
+            orig = str(row[name_col]).strip()
+            key  = _normalize_school_name(orig)
+            if code and key:
+                lookup.setdefault(key, []).append((code, orig))
+        return lookup
+    except Exception:
+        return {}
+
+
+# Χειροκίνητες αντιστοιχίσεις για σχολεία με ασύμβατο όνομα μεταξύ αρχείου & 2.1
+_MANUAL_OVERRIDES = {
+    'ΕΙΔΙΚΟ ΔΗΜΟΤΙΚΟ ΣΧΟΛΕΙΟ ΓΙΑ ΠΑΙΔΙΑ ΜΕ ΑΥΤΙΣΜΟ': '9520882',
+    'ΕΙΔΙΚΟ ΔΗΜΟΤΙΚΟ ΣΧΟΛΕΙΟ ΑΥΤΙΣΜΟΥ ΘΕΣΣΑΛΟΝΙΚΗ':   '9520882',  # alt όνομα
+    'ΝΗΠΙΑΓΩΓΕΙΟ ΕΙΔΙΚΗ ΑΓΩΓΗ ΚΑΛΑΜΑΡΙΑ':             '9521481',
+    'ΔΗΜΟΤΙΚΟ ΣΧΟΛΕΙΟ ΕΙΔΙΚΗ ΑΓΩΓΗ ΚΑΛΑΜΑΡΙΑ':        '9521480',
+    'ΕΙΔΙΚΟ ΔΗΜΟΤΙΚΟ ΣΧΟΛΕΙΟ ΘΕΡΜΑΙΚΟΥ':               '9521698',
+}
+
+
+def match_school_code(name, lookup):
+    """
+    Επιστρέφει (code, status):
+      'exact'     -> μοναδική ακριβής αντιστοιχία (αυτόματη)
+      'ambiguous' -> πολλαπλές αντιστοιχίες       (χειροκίνητη)
+      'notfound'  -> δεν βρέθηκε                  (χειροκίνητη)
+    """
+    key = _normalize_school_name(name)
+
+    # Manual overrides — πρώτη προτεραιότητα
+    if key in _MANUAL_OVERRIDES:
+        return _MANUAL_OVERRIDES[key], 'exact'
+
+    matches = lookup.get(key, [])
+    if len(matches) == 1:
+        return matches[0][0], 'exact'
+    elif len(matches) > 1:
+        return None, 'ambiguous'
+
+    # Fallback 1: input είναι prefix του lookup key
+    # (π.χ. "1ο ΔΣ ΤΡΙΑΝΔΡΙΑ" → "1ο ΔΣ ΤΡΙΑΝΔΡΙΑ ΘΕΣΣΑΛΟΝΙΚΗ" στο 2.1)
+    prefix_matches = [v for k, v in lookup.items() if k.startswith(key + ' ')]
+    flat = [item for sublist in prefix_matches for item in sublist]
+    if len(flat) == 1:
+        return flat[0][0], 'exact'
+    elif len(flat) > 1:
+        return None, 'ambiguous'
+
+    # Fallback 2: strip αρχικό αριθμό-τάξης (π.χ. "1ο ΝΗΠ. ΛΑΚΚΙΑΣ" → "ΝΗΠΙΑΓΩΓΕΙΟ ΛΑΚΚΙΑ")
+    # Χρησιμοποιείται για σχολεία που στο 2.1 δεν έχουν αριθμό
+    key_no_ord = re.sub(r'^\d+Ο\s+', '', key).strip()
+    if key_no_ord != key:
+        matches2 = lookup.get(key_no_ord, [])
+        if len(matches2) == 1:
+            return matches2[0][0], 'exact'
+        elif len(matches2) > 1:
+            return None, 'ambiguous'
+
+    return None, 'notfound'
+
+
+def _auto_find_stat2():
+    """
+    Ψάχνει το πιο πρόσφατο αρχείο αναφοράς σχολείων στο downloads.
+    Ψάχνει πρώτα gridResults (2.1), μετά stat2_2 (2.2).
+    Επιστρέφει (path, date_label) ή (None, None) αν δεν βρεθεί.
+    """
+    import glob
+    docs = os.path.expanduser('~')
+    base = os.path.join(docs, 'Documents', 'MySchoolChecks', 'downloads')
+    if not os.path.isdir(base):
+        return None, None
+
+    date_dirs = sorted(
+        [d for d in os.listdir(base) if re.match(r'^\d{8}$', d)],
+        reverse=True
+    )
+
+    for ddir in date_dirs:
+        folder = os.path.join(base, ddir)
+        label  = f'{ddir[6:8]}/{ddir[4:6]}/{ddir[:4]}'
+        # Προτεραιότητα: gridResults (2.1) → stat2_2 (2.2)
+        for prefix in ('gridResults', 'stat2_2'):
+            matches = glob.glob(os.path.join(folder, f'{prefix}*'))
+            if matches:
+                return matches[0], label
+
+    return None, None
+
+
 # ── Μετατροπή αρχείου ΠΔΕ/Υπουργείου ────────────────────────────────────────
 
 _ORDINAL_ONLY = re.compile(r'^\d+\S*$')   # π.χ. "3ο", "12η"
@@ -391,12 +583,16 @@ def _split_schools(text):
     return result
 
 
-def convert_raw_file(src_path, dest_path=None):
+def convert_raw_file(src_path, dest_path=None, stat2_path=None):
     """
     Μετατρέπει αρχείο τοποθετήσεων από μορφή ΠΔΕ/Υπουργείου
     στη μορφή που χρειάζεται το placements.py.
 
-    Επιστρέφει (dest_path, n_rows) ή raise Exception σε αποτυχία.
+    stat2_path: προαιρετικό — αν δοθεί, αντιστοιχίζει ονόματα σχολείων
+                σε κωδικούς μόνο αν η αντιστοιχία είναι μοναδική.
+
+    Επιστρέφει (dest_path, n_rows, warnings) ή raise Exception σε αποτυχία.
+    warnings: list με μηνύματα για σχολεία που δεν βρέθηκαν ή είναι αμφίβολα.
     """
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -426,8 +622,23 @@ def convert_raw_file(src_path, dest_path=None):
     brd    = Border(left=thin, right=thin, top=thin, bottom=thin)
 
     # ── Διάβασμα ──────────────────────────────────────────────────────────────
-    raw = pd.read_excel(src_path, sheet_name=0, header=1)
-    raw.columns = [str(c).strip() for c in raw.columns]
+    def _nc(s):
+        """Normalize column name: strip, uppercase, remove accents."""
+        s = str(s).strip().upper()
+        return ''.join(c for c in unicodedata.normalize('NFD', s)
+                       if unicodedata.category(c) != 'Mn')
+
+    # Δοκιμάζει header=0 (headers στη γραμμή 1) και header=1 (γραμμή 2)
+    raw = None
+    for _hdr in (0, 1):
+        _df = pd.read_excel(src_path, sheet_name=0, header=_hdr)
+        _df.columns = [_nc(c) for c in _df.columns]
+        if 'ΕΠΩΝΥΜΟ' in _df.columns:
+            raw = _df
+            break
+    if raw is None:
+        raise ValueError('Δεν βρέθηκε στήλη ΕΠΩΝΥΜΟ στο αρχείο.')
+
     raw = raw[raw['ΕΠΩΝΥΜΟ'].notna() &
               (raw['ΕΠΩΝΥΜΟ'].astype(str).str.strip() != '')].copy()
     raw.reset_index(drop=True, inplace=True)
@@ -435,6 +646,18 @@ def convert_raw_file(src_path, dest_path=None):
     if raw.empty:
         raise ValueError('Το αρχείο δεν περιέχει αναγνωρίσιμα δεδομένα '
                          '(αναμένεται στήλη ΕΠΩΝΥΜΟ).')
+
+    # ── Φόρτωση lookup σχολείων ──────────────────────────────────────────────────
+    stat2_label = None
+    if not stat2_path:
+        stat2_path, stat2_label = _auto_find_stat2()
+    school_lookup = build_school_lookup(stat2_path) if stat2_path else {}
+    warnings = []
+    if stat2_path:
+        warnings.append(
+            f'stat2_2 από: {stat2_label or os.path.basename(stat2_path)} '
+            f'({len(school_lookup)} σχολεία)'
+        )
 
     # ── Μετατροπή + split ─────────────────────────────────────────────────────
     rows = []
@@ -444,18 +667,33 @@ def convert_raw_file(src_path, dest_path=None):
         apo_raw = r.get('ΗΜΕΡΟΜΗΝΙΑ') or r.get('ΑΠΟ') or ''
         apo     = pd.to_datetime(apo_raw).strftime('%d/%m/%Y') if pd.notna(apo_raw) and apo_raw != '' else ''
 
-        epan    = str(r.get('ΕΠΑΝΑΤΟΠΟΘΕΤΗΣΗ') or r.get('ΤΟΠΟΘΕΤΗΣΗ') or '').strip()
+        epan    = str(r.get('ΕΠΑΝΑΤΟΠΟΘΕΤΗΣΗ') or r.get('ΤΟΠΟΘΕΤΗΣΗ')
+                      or r.get('ΝΕΑ ΟΡΓΑΝΙΚΗ') or r.get('ΟΡΙΣΤΙΚΗ ΤΟΠΟΘΕΤΗΣΗ') or '').strip()
         schools = _split_schools(epan)
         is_multi = len(schools) > 1
 
         for sch in schools:
+            # Αναζήτηση κωδικού αν υπάρχει lookup
+            sch_code = ''
+            sch_code_status = 'none'
+            if school_lookup and sch:
+                sch_code, sch_code_status = match_school_code(sch, school_lookup)
+                if sch_code is None:
+                    sch_code = ''
+                if sch_code_status == 'notfound':
+                    warnings.append(f'Δεν βρέθηκε κωδικός: "{sch}"')
+                elif sch_code_status == 'ambiguous':
+                    warnings.append(f'Πολλαπλές αντιστοιχίες για: "{sch}" — συμπλήρωσε χειροκίνητα')
+                elif sch_code_status == 'exact' and _LATIN_LOOKALIKE.search(sch):
+                    warnings.append(f'Λατινικοί χαρακτ. στο "{sch}" — διορθώθηκε αυτόματα, έλεγξε τον κωδικό')
+
             rows.append({
                 'ΕΙΔΟΣ ΤΟΠΟΘΕΤΗΣΗΣ': '',
                 'ΑΜ':  am,
                 'Α.Φ.Μ.': '',
-                'ΕΠΙΘΕΤΟ': str(r.get('ΕΠΩΝΥΜΟ', '')).strip(),
-                'ΟΝΟΜΑ':   str(r.get('ΟΝΟΜΑ', '')).strip(),
-                'ΚΩΔ. ΣΧΟΛΕΙΟΥ': '',
+                'ΕΠΙΘΕΤΟ': str(r.get('ΕΠΩΝΥΜΟ', '') or '').strip(),
+                'ΟΝΟΜΑ':   str(r.get('ΟΝΟΜΑ', '') or '').strip(),
+                'ΚΩΔ. ΣΧΟΛΕΙΟΥ': sch_code,
                 'ΣΧΟΛΕΙΟ': sch,
                 'ΩΡΕΣ':  None if is_multi else -1,
                 'ΑΠΟ':   apo,
@@ -463,6 +701,7 @@ def convert_raw_file(src_path, dest_path=None):
                 'OK':    '',
                 'ΣΧΟΛΙΟ': '',
                 '_multi': is_multi,
+                '_sch_code_status': sch_code_status,
             })
 
     # ── Δημιουργία dest_path ──────────────────────────────────────────────────
@@ -534,7 +773,12 @@ def convert_raw_file(src_path, dest_path=None):
                 cell.value = int(val) if val is not None and val != '' else None
             else:
                 cell.value = val if val not in ('', None) else None
-            bg = MULTI_BG if (col == wres_col and is_multi) else COL_BGS.get(col, APP_BG)
+            if col == wres_col and is_multi:
+                bg = MULTI_BG
+            elif col == 'ΚΩΔ. ΣΧΟΛΕΙΟΥ' and row.get('_sch_code_status') == 'exact':
+                bg = AUTO_BG   # πράσινο — βρέθηκε μοναδική αντιστοιχία
+            else:
+                bg = COL_BGS.get(col, APP_BG)
             cell.fill      = PatternFill('solid', fgColor=bg)
             cell.font      = Font(name='Arial', size=10)
             cell.border    = brd
@@ -550,7 +794,7 @@ def convert_raw_file(src_path, dest_path=None):
         ws.column_dimensions[get_column_letter(i)].width = w
 
     wb.save(dest_path)
-    return dest_path, len(rows)
+    return dest_path, len(rows), warnings
 
 
 # ── Σύνδεση & πλοήγηση ────────────────────────────────────────────

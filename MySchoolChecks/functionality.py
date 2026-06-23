@@ -250,7 +250,10 @@ def run(ctx, driver, callback=None):
         label=(onoma+' ('+code+')') if onoma else code
         log(f'\n[{idx}/{total}] {code}  {onoma}')
         try:
-            driver.get(SEARCH_URL); time.sleep(2)
+            driver.get(SEARCH_URL)
+            # Περιμένουμε να φορτωθεί το πεδίο κωδικού (αντί για τυφλό sleep)
+            WebDriverWait(driver, TIME_TO_WAIT).until(
+                EC.presence_of_element_located((By.ID, CODE_FIELD_ID)))
         except Exception as e:
             log(f'  ✗ Πλοήγηση: {e}'); failed.append(label); continue
         try:
@@ -275,7 +278,13 @@ def run(ctx, driver, callback=None):
             if not _searched:
                 from selenium.webdriver.common.keys import Keys
                 driver.find_element(By.ID, CODE_FIELD_ID).send_keys(Keys.RETURN)
-            time.sleep(3)
+            # Περιμένουμε το async postback (grid search) να ολοκληρωθεί
+            try:
+                WebDriverWait(driver, TIME_TO_WAIT).until(lambda d: d.execute_script(
+                    "try{return !Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack()}"
+                    "catch(e){return true;}"))
+            except Exception:
+                time.sleep(3)
         except Exception as e:
             log(f'  ✗ Αναζήτηση: {e}'); failed.append(label); continue
 
@@ -340,8 +349,30 @@ def run(ctx, driver, callback=None):
                 log('  ✗ Αποθήκευση: ValidatePage() απέτυχε'); failed.append(label); continue
             driver.execute_script(
                 "__doPostBack('ctl00$ContentData$btnSave','');")
-            time.sleep(4)
-            log('  ✔ Αποθήκευση'); modified_ok.append(label)
+            # Περιμένουμε το postback να ολοκληρωθεί (έως 20 δευτ.) — ΟΧΙ τυφλό sleep
+            try:
+                WebDriverWait(driver, 20).until(lambda d: d.execute_script(
+                    "try{return !Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack()}"
+                    "catch(e){return true;}"))
+            except Exception:
+                time.sleep(4)
+            # Επαλήθευση: ελέγχουμε ότι η τιμή αποθηκεύτηκε πράγματι
+            try:
+                lf_check = WebDriverWait(driver, 8).until(
+                    EC.presence_of_element_located((By.ID, LEIT_FIELD_ID)))
+                saved_val = (lf_check.get_attribute('value') or '').strip()
+                try: saved_val = str(int(float(saved_val)))
+                except Exception: pass
+                if saved_val == new_leit:
+                    log(f'  ✔ Αποθήκευση + Επαλήθευση OK ({saved_val})')
+                    modified_ok.append(label)
+                else:
+                    log(f'  ✗ Επαλήθευση: αποθηκεύτηκε {saved_val!r} αντί {new_leit!r}')
+                    failed.append(label)
+            except Exception:
+                # Αν έγινε redirect και δεν βρίσκεται το πεδίο, θεωρούμε ΟΚ
+                log('  ✔ Αποθήκευση (επαλήθευση N/A — redirect)')
+                modified_ok.append(label)
         except Exception as e:
             log(f'  ✗ Αποθήκευση: {e}'); failed.append(label)
 
@@ -356,14 +387,14 @@ def run(ctx, driver, callback=None):
     if failed:      log(f'     • Σφάλματα: {len(failed)}')
     log('='*50)
     if modified_ok:
-        log(f'\n✔ ΑΛΛΑΧΤΗΚΑΝ ({len(modified_ok)}):'+ ' '.join(modified_ok))
+        log(f'\n✔ ΑΛΛΑΧΤΗΚΑΝ ({len(modified_ok)}): ' + ' | '.join(modified_ok))
     if not_found:
-        log('✗ ΔΕΝ ΒΡΕΘΗΚΑΝ: '+ ' | '.join(not_found))
+        log('✗ ΔΕΝ ΒΡΕΘΗΚΑΝ: ' + ' | '.join(not_found))
     if multi_found:
-        log('⚠ ΠΟΛΛΑΠΛΑ: '+ ' | '.join(multi_found))
+        log('⚠ ΠΟΛΛΑΠΛΑ: ' + ' | '.join(multi_found))
     if mismatch:
-        log('⚠ ΔΙΑΦΟΡΑ: '+ ' | '.join(mismatch))
+        log('⚠ ΔΙΑΦΟΡΑ: ' + ' | '.join(mismatch))
     if already_ok:
-        log('— ΗΔΗ ΣΩΣΤΑ: '+ ' | '.join(already_ok))
+        log('— ΗΔΗ ΣΩΣΤΑ: ' + ' | '.join(already_ok))
     if failed:
-        log('✗ ΣΦΑΛΜΑ: '+ ' | '.join(failed))
+        log('✗ ΣΦΑΛΜΑ: ' + ' | '.join(failed))

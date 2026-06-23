@@ -3766,6 +3766,7 @@ class DipePlacementsDialog(tk.Toplevel):
         tk.Button(f1, text='📂', bg=self._SEC_BG, relief='flat',
                   font=('Arial', 11), cursor='hand2',
                   command=self._browse_raw).pack(side='left', padx=(4,0))
+
         self._conv_btn = tk.Button(sec,
                   text='Επεξεργασία & άνοιγμα  →',
                   bg=C['btn_bg'], fg=C['btn_fg'],
@@ -3812,10 +3813,22 @@ class DipePlacementsDialog(tk.Toplevel):
         def _do():
             try:
                 import placements
-                dest, n = placements.convert_raw_file(src)
+                dest, n, warns = placements.convert_raw_file(src)
                 def _after():
                     self._conv_btn.configure(state='normal', text='Επεξεργασία & άνοιγμα  →')
                     self._log_msg(f'✓ Δημιουργήθηκε: {os.path.basename(dest)} ({n} γραμμές)')
+                    # Πρώτο warn είναι πάντα το info για stat2_2 (αν βρέθηκε)
+                    info_warns  = [w for w in warns if w.startswith('stat2_2')]
+                    other_warns = [w for w in warns if not w.startswith('stat2_2')]
+                    for w in info_warns:
+                        self._log_msg(f'  📂 {w}')
+                    if info_warns:
+                        found = n - len(other_warns)
+                        self._log_msg(f'  Κωδικοί: {found}/{n} βρέθηκαν αυτόματα')
+                    else:
+                        self._log_msg('  ℹ stat2_2 δεν βρέθηκε — κωδικοί κενοί')
+                    for w in other_warns:
+                        self._log_msg(f'  ⚠ {w}')
                     self._log_msg('  Άνοιγμα Excel — συμπλήρωσε τα πορτοκαλί κελιά και αποθήκευσε.')
                     self._status_var.set('✓ Μετατροπή ολοκληρώθηκε.')
                     try: os.startfile(dest)

@@ -17,6 +17,8 @@ core/downloader.py
   4.21   — Άδειες (πλην ΑΑ)
   8.2    — Επιβεβαίωση δεδομένων σχολείων
   4.26   — Αδυνατούντες ανά ειδικότητα (4.26 ΠΔΕ / 4.27 ΔΔΕ)
+  5.3    — Αποτύπωση νηπιαγωγείων
+  5.4    — Αποτύπωση δημοτικών
 
 Χρήση:
   from core.downloader import MySchoolDownloader
@@ -52,6 +54,8 @@ REPORTS = [
               'ctl00_cntStats_cbpSearch_sus_cbmPanel_cmbCalendarYear_LBI2T1']),
     ('8.2',  'Επιβεβαίωση δεδομένων',          '/Statistics/Management.stat.LastConfirmDateUnits.aspx?parentId=9',           '8.2_Epivevaiwsi',     30, 60, False),
     ('4.26', 'Αδυνατούντες ανά ειδικότητα',    '/Statistics/Management.stat.wrkInCapable.aspx?parentId=5',                    '4.26_Adynatountes',   30, 60, False),
+    ('5.3',  'Αποτύπωση νηπιαγωγείων (2026-27)', '/Statistics/Management.stat.ZHTHSHPE60.aspx?parentId=6',                      'stat5_3',             30, 60, False, None, None, None, None, '2026-2027'),
+    ('5.4',  'Αποτύπωση δημοτικών (2026-27)',  '/Statistics/Management.stat.ZHTHSHPE70.aspx?parentId=6',                      'stat5_4',             30, 60, False, None, None, None, None, '2026-2027'),
 ]
 
 # Mapping: report_id → prefix ονόματος αποθηκευμένου αρχείου
@@ -71,6 +75,8 @@ FILE_PREFIX_MAP = {
     '4.21': '4.21_',
     '8.2' : '8.2_',
     '4.26': '4.26_',
+    '5.3' : 'stat5_3',
+    '5.4' : 'stat5_4',
 }
 
 BASE_URL = 'https://app.myschool.sch.gr'
@@ -120,6 +126,48 @@ class MySchoolDownloader:
                     f.write(line)
         except Exception:
             pass
+
+    def _set_academic_year(self, driver, wait, school_year):
+        """
+        Αλλάζει το ενεργό σχολικό έτος στη σελίδα Default.aspx του MySchool.
+        Χρησιμοποιεί το DevExpress combobox cmbActiveAcadYear.
+        """
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.common.exceptions import TimeoutException
+
+        INPUT_ID = 'ctl00_ContentData_cmbActiveAcadYear_I'
+        CTL_NAME = 'ctl00_ContentData_cmbActiveAcadYear'
+
+        self._log(f'  Ορισμός σχολικού έτους: {school_year}')
+        try:
+            driver.get(BASE_URL + '/Default.aspx')
+            time.sleep(2)
+
+            inp = wait.until(EC.presence_of_element_located((By.ID, INPUT_ID)))
+            current = inp.get_attribute('value') or ''
+            if current.strip() == school_year.strip():
+                self._log(f'  Σχολικό έτος ήδη σωστό: {current} — παράλειψη.')
+                return
+
+            driver.execute_script(
+                "arguments[0].value = arguments[1];"
+                "aspxETextChanged(arguments[2]);",
+                inp, school_year, CTL_NAME
+            )
+            time.sleep(3)
+
+            inp = driver.find_element(By.ID, INPUT_ID)
+            new_val = inp.get_attribute('value') or ''
+            if new_val.strip() == school_year.strip():
+                self._log(f'  ✓ Σχολικό έτος ορίστηκε: {new_val}')
+            else:
+                self._log(f'  ⚠ Αναμενόμενο: {school_year} | Τρέχον: {new_val}')
+
+        except TimeoutException:
+            self._log('  ⚠ Combobox ακαδημαϊκού έτους δεν βρέθηκε.')
+        except Exception as e:
+            self._log(f'  ⚠ Αδυναμία αλλαγής έτους: {e}')
 
     def run(self):
         """
@@ -310,9 +358,14 @@ class MySchoolDownloader:
                 custom_export      = report_entry[8] if len(report_entry) > 8 else None
                 pre_search_labels  = report_entry[9]  if len(report_entry) > 9  else None
                 pre_search_js      = report_entry[10] if len(report_entry) > 10 else None
+                report_year        = report_entry[11] if len(report_entry) > 11 else None
 
                 self._log(f'[{rid}] {label}...')
                 try:
+                    # Αλλαγή σχολικού έτους αν απαιτείται για αυτό το report
+                    if report_year:
+                        self._set_academic_year(driver, wait, report_year)
+
                     # Έλεγχος αν το αρχείο υπάρχει ήδη στον φάκελο (same-day reuse)
                     existing = [
                         f for f in glob.glob(os.path.join(self.dest_dir, f'{fname_base}*'))
