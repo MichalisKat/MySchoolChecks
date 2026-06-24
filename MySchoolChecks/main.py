@@ -139,8 +139,10 @@ CHECK_ORDER = [
     'analipsi',
     'dioikitiko_ergo',
     'ypoloipa',
-    'tmimata_genikis',
 ]
+
+# Checks που εξαιρούνται από το κεντρικό μενού (π.χ. έχουν μεταφερθεί αλλού)
+CHECKS_EXCLUDED = {'tmimata_genikis'}
 
 def load_checks():
     base = os.path.dirname(os.path.abspath(__file__))
@@ -169,7 +171,7 @@ def load_checks():
         checks_dir = os.path.join(base, 'checks')
         available = {fname[:-3] for fname in os.listdir(checks_dir)
                      if fname.endswith('.py') and not fname.startswith('_')}
-        ordered = CHECK_ORDER + sorted(available - set(CHECK_ORDER))
+        ordered = CHECK_ORDER + sorted(available - set(CHECK_ORDER) - CHECKS_EXCLUDED)
 
     _log = os.path.join(os.path.expanduser('~'), 'Desktop', 'checks_errors.log')
     with open(_log, 'w', encoding='utf-8') as _f:
@@ -918,6 +920,14 @@ class LauncherApp:
                   command=self._open_placements).pack(side='left', padx=(0, 0))
         tk.Label(toolbar2, text='|', bg=C['bg2'], fg=C['desc'],
                  font=('Arial', 9)).pack(side='left', padx=4)
+        tk.Button(toolbar2, text='🗓  Νέο Σχ. Έτος',
+                  bg=C['bg2'], fg=C['hdr_bg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=14, pady=4, cursor='hand2',
+                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
+                  command=self._open_neo_school_year).pack(side='left', padx=(0, 0))
+        tk.Label(toolbar2, text='|', bg=C['bg2'], fg=C['desc'],
+                 font=('Arial', 9)).pack(side='left', padx=4)
         _panic_btn = tk.Button(toolbar2, text='⚠  PANIC',
                   bg='#B71C1C', fg='white',
                   font=('Arial', 9, 'bold'), relief='flat',
@@ -927,12 +937,31 @@ class LauncherApp:
 
         tk.Label(toolbar2, text='|', bg=C['bg2'], fg=C['desc'],
                  font=('Arial', 9)).pack(side='left', padx=4)
-        tk.Button(toolbar2, text='🏛  ΔΙ.Π.Ε.Αν.Θ.',
+        _dipe_btn = tk.Button(toolbar2, text='🏛  ΔΙ.Π.Ε.Αν.Θ.',
                   bg=C['bg2'], fg=C['hdr_bg'],
                   font=('Arial', 9, 'bold'), relief='flat',
                   padx=14, pady=4, cursor='hand2',
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
-                  command=self._open_dipe).pack(side='left', padx=(0, 0))
+                  command=self._open_dipe)
+        _dipe_btn.pack(side='left', padx=(0, 0))
+
+        # Tooltip για το ΔΙ.Π.Ε.Αν.Θ. κουμπί
+        _dipe_tip = None
+        def _dipe_enter(e):
+            nonlocal _dipe_tip
+            _dipe_tip = tk.Toplevel(_dipe_btn)
+            _dipe_tip.wm_overrideredirect(True)
+            _dipe_tip.wm_geometry(f'+{e.x_root+10}+{e.y_root+20}')
+            tk.Label(_dipe_tip, text='μόνο για χρήση από Δ/νση Π.Ε. Αν. Θεσσαλονίκης',
+                     bg='#FFF9C4', fg='#333333', relief='solid', bd=1,
+                     font=('Arial', 8), padx=6, pady=3).pack()
+        def _dipe_leave(e):
+            nonlocal _dipe_tip
+            if _dipe_tip:
+                _dipe_tip.destroy()
+                _dipe_tip = None
+        _dipe_btn.bind('<Enter>', _dipe_enter)
+        _dipe_btn.bind('<Leave>', _dipe_leave)
 
         _panic_menu = tk.Menu(self.root, tearoff=0,
                               bg='white', fg='#1A1A1A',
@@ -1115,12 +1144,10 @@ class LauncherApp:
         PlacementsDialog(self.root)
 
     def _open_dipe(self):
-        from tkinter import simpledialog
-        pwd = simpledialog.askstring('ΔΙ.Π.Ε.Αν.Θ.', 'Κωδικός:', show='*', parent=self.root)
-        if pwd == '9919101':
-            DipeDialog(self.root)
-        elif pwd is not None:
-            messagebox.showerror('Σφάλμα', 'Λανθασμένος κωδικός.', parent=self.root)
+        DipeDialog(self.root)
+
+    def _open_neo_school_year(self):
+        NeoSchoolYearDialog(self.root)
 
     def _open_editor(self):
         EditorDialog(self.root)
@@ -3630,6 +3657,96 @@ class MonadaDialog(tk.Toplevel):
 
 
 
+class NeoSchoolYearDialog(tk.Toplevel):
+    """Κεντρικό menu Νέου Σχολικού Έτους."""
+
+    _HDR   = '#1B5E20'
+    _CARD  = '#F1F8F2'
+    _HOVER = '#DCEEDE'
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title('Νέο Σχ. Έτος')
+        self.configure(bg=C['bg'])
+        self.resizable(False, False)
+        self.transient(parent)
+        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
+        if os.path.exists(ico):
+            try: self.iconbitmap(ico)
+            except Exception: pass
+        self._build()
+        self.update_idletasks()
+        w, h = 480, self.winfo_reqheight()
+        pw = parent.winfo_x() + (parent.winfo_width()  - w) // 2
+        ph = parent.winfo_y() + (parent.winfo_height() - h) // 2
+        self.geometry(f'{w}x{h}+{pw}+{ph}')
+
+    def _build(self):
+        hdr = tk.Frame(self, bg=self._HDR, pady=12)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='🗓  Νέο Σχολικό Έτος',
+                 bg=self._HDR, fg='white', font=('Arial', 13, 'bold')).pack()
+        tk.Label(hdr, text='εργαλεία προετοιμασίας νέου σχολικού έτους',
+                 bg=self._HDR, fg='#A5D6A7', font=('Arial', 8, 'italic')).pack()
+
+        body = tk.Frame(self, bg=C['bg'], padx=18, pady=14)
+        body.pack(fill='both', expand=True)
+
+        self._add_item(body,
+            icon='⏹',
+            title='Τερματισμός Τοποθετήσεων',
+            desc='Αυτόματος τερματισμός τοποθετήσεων — ορισμός ημερομηνίας λήξης (21/6/2026) στο MySchool.',
+            cmd=lambda: TerminationDialog(self))
+
+        tk.Frame(body, bg='#C8E6C9', height=1).pack(fill='x', pady=10)
+
+        self._add_item(body,
+            icon='🔢',
+            title='Αλλαγή Λειτουργικότητας',
+            desc='Αυτόματη ενημέρωση λειτουργικότητας σχολικών μονάδων στο MySchool βάσει αρχείου Excel.',
+            cmd=lambda: FunctionalityDialog(self))
+
+        tk.Frame(body, bg='#C8E6C9', height=1).pack(fill='x', pady=10)
+
+        self._add_item(body,
+            icon='📐',
+            title='Έλεγχος Τμημάτων Γενικής Παιδείας / Δυναμικού',
+            desc='Σύγκριση Λειτουργικότητας vs Τμήματα / Μαθητές για νηπιαγωγεία (5.3) και δημοτικά (5.4).',
+            cmd=self._run_tmimata_genikis)
+
+    def _run_tmimata_genikis(self):
+        import threading
+        import importlib
+        try:
+            mod = importlib.import_module('checks.tmimata_genikis')
+            from core.framework import run_check
+            threading.Thread(target=run_check, args=(mod, config), daemon=True).start()
+        except Exception as e:
+            messagebox.showerror('Σφάλμα', str(e), parent=self)
+
+    def _add_item(self, parent, icon, title, desc, cmd):
+        card = tk.Frame(parent, bg=self._CARD, bd=1, relief='solid', cursor='hand2')
+        card.pack(fill='x', pady=2)
+        card.columnconfigure(1, weight=1)
+        tk.Label(card, text=icon, bg=self._CARD,
+                 font=('Arial', 20), padx=12, pady=10).grid(row=0, column=0, rowspan=2, sticky='ns')
+        tk.Label(card, text=title, bg=self._CARD, fg=self._HDR,
+                 font=('Arial', 10, 'bold'), anchor='w').grid(row=0, column=1, sticky='w', pady=(8, 0))
+        tk.Label(card, text=desc, bg=self._CARD, fg='#555555',
+                 font=('Arial', 8), anchor='w', wraplength=340,
+                 justify='left').grid(row=1, column=1, sticky='w', pady=(0, 8))
+        tk.Label(card, text='›', bg=self._CARD, fg=self._HDR,
+                 font=('Arial', 18, 'bold'), padx=12).grid(row=0, column=2, rowspan=2, sticky='ns')
+        all_w = [card] + list(card.winfo_children())
+        def _on_enter(_): [w.configure(bg=self._HOVER) for w in all_w]
+        def _on_leave(_): [w.configure(bg=self._CARD)  for w in all_w]
+        def _on_click(_): cmd()
+        for w in all_w:
+            w.bind('<Enter>', _on_enter)
+            w.bind('<Leave>', _on_leave)
+            w.bind('<Button-1>', _on_click)
+
+
 class DipeDialog(tk.Toplevel):
     """Κεντρικό menu ΔΙ.Π.Ε.Αν.Θ."""
 
@@ -3660,7 +3777,7 @@ class DipeDialog(tk.Toplevel):
         tk.Label(hdr, text='🏛  ΔΙ.Π.Ε.Αν.Θ.',
                  bg=self._HDR, fg='white', font=('Arial', 13, 'bold')).pack()
         tk.Label(hdr, text='μόνο για χρήση από Δ/νση Π.Ε. Αν. Θεσσαλονίκης',
-                 bg=self._HDR, fg='#A8C4D8', font=('Arial', 8, 'italic')).pack()
+                 bg=self._HDR, fg='#FF6B6B', font=('Arial', 8, 'bold')).pack()
 
         body = tk.Frame(self, bg=C['bg'], padx=18, pady=14)
         body.pack(fill='both', expand=True)
@@ -3678,22 +3795,6 @@ class DipeDialog(tk.Toplevel):
             title='Εκπ/κοί ανά Ειδικότητα & Θέση Συμβούλου',
             desc='Εξαγωγή εκπαιδευτικών φιλτραρισμένων ανά ειδικότητα και θέση Συμβούλου Εκπ/σης.',
             cmd=lambda: SymbouloiDialog(self))
-
-        tk.Frame(body, bg='#D0D8E4', height=1).pack(fill='x', pady=10)
-
-        self._add_item(body,
-            icon='⏹',
-            title='Τερματισμός Τοποθετήσεων',
-            desc='Αυτόματος τερματισμός τοποθετήσεων — ορισμός ημερομηνίας λήξης (21/6/2026) στο MySchool.',
-            cmd=lambda: TerminationDialog(self))
-
-        tk.Frame(body, bg='#D0D8E4', height=1).pack(fill='x', pady=10)
-
-        self._add_item(body,
-            icon='🔢',
-            title='Αλλαγή Λειτουργικότητας',
-            desc='Αυτόματη ενημέρωση λειτουργικότητας σχολικών μονάδων στο MySchool βάσει αρχείου Excel.',
-            cmd=lambda: FunctionalityDialog(self))
 
     def _add_item(self, parent, icon, title, desc, cmd):
         card = tk.Frame(parent, bg=self._CARD, bd=1, relief='solid', cursor='hand2')
@@ -3749,7 +3850,7 @@ class DipePlacementsDialog(tk.Toplevel):
         tk.Label(hdr, text='📁  Επεξεργασία αρχείου τοποθετήσεων',
                  bg=self._HDR, fg='white', font=('Arial', 12, 'bold')).pack()
         tk.Label(hdr, text='μόνο για χρήση από Δ/νση Π.Ε. Αν. Θεσσαλονίκης',
-                 bg=self._HDR, fg='#A8C4D8', font=('Arial', 8, 'italic')).pack()
+                 bg=self._HDR, fg='#FF6B6B', font=('Arial', 8, 'bold')).pack()
         body = tk.Frame(self, bg=C['bg'], padx=16, pady=12)
         body.pack(fill='both', expand=True)
         body.columnconfigure(0, weight=1)
