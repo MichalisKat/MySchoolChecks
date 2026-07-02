@@ -2467,8 +2467,9 @@ class SymbouloiDialog(tk.Toplevel):
         s = _load_local_settings().get(self._SETTINGS_KEY, {})
         self._saved_subject = s.get('subject',       self._DEFAULT_SUBJECT)
         self._saved_body    = s.get('body',          self._DEFAULT_BODY)
-        self._saved_email   = s.get('advisor_email', '')
-        self._saved_dir     = s.get('direction',     '')
+        self._saved_email   = s.get('advisor_email',    '')
+        self._saved_dir     = s.get('direction',        '')
+        self._saved_include_private = s.get('include_private', True)
         if '{specialty}' not in self._saved_subject:
             self._saved_subject = self._DEFAULT_SUBJECT
         if '{specialty}' not in self._saved_body or '{date}' not in self._saved_body:
@@ -2617,6 +2618,15 @@ class SymbouloiDialog(tk.Toplevel):
         self._thesi_lbl = tk.Label(thesi_row, text='', bg=C['bg'],
                                     fg=C['desc'], font=('Arial', 8))
         self._thesi_lbl.pack(side='left', padx=(10, 0))
+
+        priv_frame = tk.Frame(self, bg=C['bg'])
+        priv_frame.pack(fill='x', padx=18, pady=(4, 2))
+        self._include_private_var = tk.BooleanVar(value=self._saved_include_private)
+        tk.Checkbutton(priv_frame, text='Συμπερίληψη ιδιωτικών;',
+                       variable=self._include_private_var,
+                       bg=C['bg'], font=('Arial', 9, 'bold'),
+                       fg=C['hdr_bg'], activebackground=C['bg'],
+                       selectcolor=C['bg']).pack(side='left')
 
         tk.Label(self, text='Προαιρετικές στήλες εξόδου:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 2))
@@ -2797,15 +2807,26 @@ class SymbouloiDialog(tk.Toplevel):
             onoma_col   = next((c for c in df_t.columns if ('όνομ' in str(c).lower() or 'ονομ' in str(c).lower()) and 'ονομασ' not in str(c).lower() and 'σχολ' not in str(c).lower()), None)
             status_col  = EidikotitaDialog._fc(df_t, 'κατάσταση', 'κατασταση') or df_t.columns[17]
 
-            df_t = df_t[df_t[status_col].fillna('').astype(str).str.strip() != 'ΠΑΡΗΛΘΕ'].copy()
+            # Υπολογισμός _code νωρίς ώστε να χρησιμοποιηθεί σε όλα τα φίλτρα
+            df_t['_code'] = EidikotitaDialog._norm_code(df_t[code_col])
             _EXCL_ORG = r'Με άδεια διδασκαλίας για Ξένο Σχολείο|Αναπληρωτής Ιδιωτικής Εκπαίδευσης|Ιδιωτικού Δικαίου Αορίστου Χρόνου'
-            df_t = df_t[~df_t[org_col].fillna('').astype(str).str.contains(_EXCL_ORG, regex=True, na=False)].copy()
+            # ΠΑΡΗΛΘΕ: φιλτράρει όλους (δημόσια ΚΑΙ ιδιωτικά)
+            df_t = df_t[df_t[status_col].fillna('').astype(str).str.strip() != 'ΠΑΡΗΛΘΕ'].copy()
+            if self._include_private_var.get():
+                # Ιδιωτικά (7xxx): παρακάμπτουν EXCL_ORG (έχουν ΙΔΑΧ / Αναπληρωτής Ιδιωτικής κλπ)
+                _priv = df_t['_code'].str.startswith('7')
+                df_t = df_t[_priv | ~df_t[org_col].fillna('').astype(str).str.contains(_EXCL_ORG, regex=True, na=False)].copy()
+            else:
+                df_t = df_t[~df_t[org_col].fillna('').astype(str).str.contains(_EXCL_ORG, regex=True, na=False)].copy()
 
             area_mt_col = self._topoth_area_col if hasattr(self, '_topoth_area_col') \
                           else (EidikotitaDialog._fc(df_t, 'περιοχή μετάθεσης φορέα') or df_t.columns[19])
             selected_dir = self._dir_var.get().strip()
             if selected_dir:
-                df_t = df_t[df_t[area_mt_col].fillna('').astype(str).str.strip() == selected_dir].copy()
+                _dir_mask = df_t[area_mt_col].fillna('').astype(str).str.strip() == selected_dir
+                if self._include_private_var.get():
+                    _dir_mask = _dir_mask | df_t['_code'].str.startswith('7')
+                df_t = df_t[_dir_mask].copy()
 
             _EXCL_TOP = r'Υπερωριακά|Μερική Διάθεση|Τοποθέτηση Διοικητικού'
             df_t = df_t[~df_t[topoth_col].fillna('').astype(str).str.contains(_EXCL_TOP, regex=True, na=False)].copy()
@@ -2835,10 +2856,18 @@ class SymbouloiDialog(tk.Toplevel):
 
             _is_pe = 'Π.Ε' in selected_dir or not selected_dir
             if _is_pe:
-                df_t = df_t[df_t['_code'].isin(valid_codes)].copy()
+                _keep = df_t['_code'].isin(valid_codes)
+                if self._include_private_var.get():
+                    _keep = _keep | df_t['_code'].str.startswith('7')
+                df_t = df_t[_keep].copy()
             df_t = df_t[df_t[spec_col].astype(str).str.upper().str.startswith(specialty.upper())].copy()
             if _thesi_codes:
-                df_t = df_t[df_t['_code'].isin(_thesi_codes)].copy()
+                if self._include_private_var.get():
+                    df_t = df_t[df_t['_code'].isin(_thesi_codes) | df_t['_code'].str.startswith('7')].copy()
+                else:
+                    df_t = df_t[df_t['_code'].isin(_thesi_codes)].copy()
+            if not self._include_private_var.get():
+                df_t = df_t[~df_t['_code'].str.startswith('7')].copy()
 
             if df_t.empty:
                 messagebox.showwarning('Αποτέλεσμα',
@@ -2969,7 +2998,7 @@ class SymbouloiDialog(tk.Toplevel):
         td = _dts.today().strftime('%d/%m/%Y')
         bts = body_text.replace(specialty,'{specialty}').replace(td,'{date}').replace(thesi_lbl,'{thesi}')
         sts = subject.replace(specialty,'{specialty}').replace(td,'{date}').replace(thesi_lbl,'{thesi}')
-        s[self._SETTINGS_KEY] = {'subject':sts,'body':bts,'advisor_email':to_email,'direction':self._dir_var.get().strip()}
+        s[self._SETTINGS_KEY] = {'subject':sts,'body':bts,'advisor_email':to_email,'direction':self._dir_var.get().strip(),'include_private':self._include_private_var.get()}
         os.makedirs(os.path.dirname(_get_local_settings_path()), exist_ok=True)
         with open(_get_local_settings_path(),'w',encoding='utf-8') as f:
             json.dump(s, f, ensure_ascii=False, indent=2)

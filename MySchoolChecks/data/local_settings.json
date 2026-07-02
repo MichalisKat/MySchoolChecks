@@ -20,5 +20,12 @@
   "BROWSER": "firefox",
   "MYSCHOOL_USER": "9919101",
   "MYSCHOOL_PASS": "Dipea@M@y26!",
-  "FROM_PASSWORD": "it@DIPEA$141"
+  "FROM_PASSWORD": "it@DIPEA$141",
+  "symvouloi_tool": {
+    "subject": "Στοιχεία τοποθετήσεων εκπ/κών \"{specialty}\" — {thesi}",
+    "body": "Αποτύπωση Myschool {date}.\n\nΚαλημέρα σας,\n\nΕπισυνάπτεται πίνακας excel με τους εκπαιδευτικούς ειδικότητας {specialty} που υπηρετούν στη Δ/νση μας σύμφωνα με τα καταχωρημένα στοιχεία στο myschool.\n\n\nΣτη διάθεσή σας για οποιαδήποτε πληροφορία",
+    "advisor_email": "",
+    "direction": "Α΄ ΘΕΣΣΑΛΟΝΙΚΗΣ (Π.Ε.) 2018",
+    "include_private": false
+  }
 }
