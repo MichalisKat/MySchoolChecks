@@ -142,7 +142,7 @@ CHECK_ORDER = [
 ]
 
 # Checks που εξαιρούνται από το κεντρικό μενού (π.χ. έχουν μεταφερθεί αλλού)
-CHECKS_EXCLUDED = {'tmimata_genikis'}
+CHECKS_EXCLUDED = {'tmimata_genikis', 'orario_pe60'}
 
 def load_checks():
     base = os.path.dirname(os.path.abspath(__file__))
@@ -3743,6 +3743,14 @@ class NeoSchoolYearDialog(tk.Toplevel):
             desc='Σύγκριση Λειτουργικότητας vs Τμήματα / Μαθητές για νηπιαγωγεία (5.3) και δημοτικά (5.4).',
             cmd=self._run_tmimata_genikis)
 
+        tk.Frame(body, bg='#C8E6C9', height=1).pack(fill='x', pady=10)
+
+        self._add_item(body,
+            icon='🕐',
+            title='Υποχρεωτικό Ωράριο ΠΕ60',
+            desc='Έλεγχος υποχρεωτικού ωραρίου ΠΕ60/ΠΕ60.50 βάσει λειτουργικότητας νηπιαγωγείου τοποθέτησης (2.1 + 4.1 + 4.2).',
+            cmd=self._run_orario_pe60)
+
     def _run_tmimata_genikis(self):
         import threading
         import importlib
@@ -3750,6 +3758,15 @@ class NeoSchoolYearDialog(tk.Toplevel):
             mod = importlib.import_module('checks.tmimata_genikis')
             from core.framework import run_check
             threading.Thread(target=run_check, args=(mod, config), daemon=True).start()
+        except Exception as e:
+            messagebox.showerror('Σφάλμα', str(e), parent=self)
+
+    def _run_orario_pe60(self):
+        import threading
+        import importlib
+        try:
+            mod = importlib.import_module('checks.orario_pe60')
+            threading.Thread(target=mod.run, args=(config,), daemon=True).start()
         except Exception as e:
             messagebox.showerror('Σφάλμα', str(e), parent=self)
 
