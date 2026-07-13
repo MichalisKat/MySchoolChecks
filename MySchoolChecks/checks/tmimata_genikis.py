@@ -1,216 +1,471 @@
 """
 checks/tmimata_genikis.py
 ═════════════════════════
-Έλεγχος τμημάτων γενικής παιδείας / δυναμικού.
+Έλεγχος τμημάτων γενικής παιδείας / δυναμικού — πλήρης αποτύπωση (2026-2027).
 
-5.3 Νηπιαγωγεία:
-  Έλεγχος 1: Λειτουργικότητα == Υποχρεωτικά Πρωινά Τμήματα
-             (έχουν δημιουργηθεί όσα τμήματα πρέπει;)
-  Έλεγχος 2: Λειτουργικότητα == Υποχρεωτικά Πρωινά Τμήματα με Μαθητές
-             (έχουν καταχωρηθεί μαθητές σε όλα τα τμήματα;)
+Πηγές (κατεβαίνουν ΑΠΕΥΘΕΙΑΣ μέσα στον έλεγχο — δες _download_inputs):
+  3.1 (stat3_1) — Κατανομή μαθητών ανά τάξη. 2 γραμμές header (η 2η μόνο για τις
+                   στήλες Αγόρια/Κορίτσια/Σύνολο, λόγω merged cell στο excel).
+                   Στήλες (θέση): 2=Είδος Σχολείου, 4=Κωδικός Υπ., 10=Τάξη,
+                   11=Αριθμός Τμημάτων, 14=Σύνολο μαθητών.
+  5.3 (stat5_3) — Αποτύπωση νηπιαγωγείων: Τύπος Σχολείου, Κωδ. Υπουργείου Σχολείου,
+                   Ονομασία Σχολ. Μονάδας, Λειτουργικότητα, Οργανικότητα, Μαθητές.
+  5.4 (stat5_4) — Αποτύπωση δημοτικών: ίδιες στήλες με το 5.3.
 
-5.4 Δημοτικά:
-  Έλεγχος 1: Λειτουργικότητα == Τμήματα Γενικής Παιδείας
-  Έλεγχος 2: Λειτουργικότητα == Τμήματα Γενικής Παιδείας με μαθητές
+Γιατί η λήψη γίνεται μέσα στον έλεγχο (και όχι μέσω του γενικού «⬇ Λήψη Δεδομένων»):
+  Και τα 3 στατιστικά πρέπει να αντληθούν με το σχολικό έτος 2026-2027 ενεργό στο
+  MySchool (το 3.1 κανονικά αντλείται με το τρέχον έτος — το χρησιμοποιούν και άλλα
+  εργαλεία, π.χ. το «Σχολικές Μονάδες» — γι' αυτό εδώ γίνεται ένα τοπικό override
+  μόνο για αυτή τη λήψη, χωρίς να πειράζεται η καθολική ρύθμιση στο downloader.py).
+  Η αλλαγή έτους γίνεται αυτόματα στην αρχή (Default.aspx → cmbActiveAcadYear).
 
-Αποτέλεσμα: σχολεία με απόκλιση στον 1ο, 2ο ή και στους δύο ελέγχους.
-Email σχολείου: αντλείται από stat2_2 (Εκτεταμένα Στοιχεία Σχολ. Μον.).
+Λογική:
+  Για κάθε σχολείο (πηγή: 5.3/5.4) υπολογίζεται, ανά τάξη, το άθροισμα Τμημάτων
+  και Μαθητών από το 3.1 (Νηπιαγωγεία: μία ενιαία στήλη «ΠΡΟΝΗΠΙΑ-ΝΗΠΙΑ» — αθροίζει
+  όλες τις σχετικές τάξεις π.χ. ΝΗΠΙΑ/ΠΡΟΝΗΠΙΑ/ΠΡΟΝΗΠΙΑ-ΝΗΠΙΑ. Δημοτικά: Α-ΣΤ).
+
+  Άθροισμα Τμήματα  = Σ(Τμήματα ανά τάξη)
+  Άθροισμα Μαθητών  = Σ(Μαθητές ανά τάξη)
+  Διαφορά Τμήματα   = Λειτουργικότητα − Άθροισμα Τμήματα
+  Διαφορά Μαθητές   = Ενεργοί Μαθητές (5.3/5.4 «Μαθητές») − Άθροισμα Μαθητών
+
+Αποτέλεσμα: 1 αρχείο Excel με 2 φύλλα (Δημοτικά, Νηπιαγωγεία) — ΟΛΑ τα σχολεία,
+με πράσινο/κόκκινο χρωματισμό στις στήλες Διαφορά (0 = πράσινο, ≠0 = κόκκινο).
+Καμία αποστολή email.
 """
 
+import os
 import pandas as pd
-import config
-from core.framework import get_downloaded_file, read_csv_fixed, clean_field
+from datetime import datetime
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
+from core.framework import _show_results_popup
 
 # ── Μεταδεδομένα ────────────────────────────────────────────────────────────
 CHECK_TITLE       = 'Έλεγχος Τμημάτων Γενικής Παιδείας / Δυναμικού (2026-2027)'
-CHECK_DESCRIPTION = 'Αποτύπωση αποκλίσεων Λειτουργικότητας vs Τμημάτων και Τμημάτων με Μαθητές (5.3 & 5.4)'
+CHECK_DESCRIPTION = 'Πλήρης αποτύπωση Λειτουργικότητας vs Τμημάτων/Μαθητών ανά τάξη για νηπιαγωγεία (5.3) και δημοτικά (5.4), με στοιχεία κατανομής από το 3.1 — η λήψη γίνεται αυτόματα μέσα στον έλεγχο (αλλαγή σχολικού έτους σε 2026-2027)'
 RESULTS_FOLDER    = 'tmimata_genikis'
-HAS_EMAIL         = True
+HAS_EMAIL         = False
+CUSTOM_RUN        = True
+SCHOOL_YEAR       = '2026-2027'
 REQUIRED_REPORTS  = [
-    '5.3 — Αποτύπωση νηπιαγωγείων',
-    '5.4 — Αποτύπωση δημοτικών',
-    '2.2 — Εκτεταμένα Στοιχεία Σχολ. Μον.',
+    '3.1 — Κατανομή μαθητών ανά τάξη (κατεβαίνει αυτόματα)',
+    '5.3 — Αποτύπωση νηπιαγωγείων (κατεβαίνει αυτόματα)',
+    '5.4 — Αποτύπωση δημοτικών (κατεβαίνει αυτόματα)',
 ]
 
-SCHOOL_COLUMN = 'Ονομασία Σχολείου'
-EMAIL_COLUMN  = 'Email Σχολείου'
+GRADES_DS  = ['Α', 'Β', 'Γ', 'Δ', 'Ε', 'ΣΤ']          # Δημοτικά
+NIP_GROUP  = 'ΠΡΟΝΗΠΙΑ-ΝΗΠΙΑ'                          # Νηπιαγωγεία — ενιαία στήλη
 
-EMAIL_SUBJECT = 'Αποτύπωση τμημάτων γενικής παιδείας στο MySchool'
-EMAIL_BODY    = lambda school='': (
-    'Καλημέρα,\n\n'
-    'Κατά τον έλεγχο των στοιχείων στο MySchool διαπιστώθηκε απόκλιση μεταξύ '
-    'της Λειτουργικότητας και των καταχωρημένων τμημάτων / μαθητών για το σχολείο σας '
-    '(επισυνάπτεται αναλυτικός πίνακας).\n\n'
-    'Παρακαλούμε να ελέγξετε και να διορθώσετε τα στοιχεία στο MySchool το συντομότερο δυνατό.\n\n'
-    'Παρακαλούμε για τις ενέργειές σας.\n\n'
-    + config.email_signature()
-)
+COLOR_HDR   = '1F4E79'
+COLOR_SUB   = 'D6E4F0'
+COLOR_ALT   = 'EBF3FB'
+COLOR_OK    = '92D050'   # πράσινο — διαφορά 0
+COLOR_DEV   = 'FF0000'   # κόκκινο — διαφορά ≠ 0
+DEFAULT_PERIFEREIA = 'ΚΕΝΤΡΙΚΗΣ ΜΑΚΕΔΟΝΙΑΣ'
 
-COLUMNS = [
-    ('Τύπος',                14),
-    ('Κωδικός Σχολείου',     16),
-    ('Ονομασία Σχολείου',    42),
-    ('Email Σχολείου',       32),
-    ('Λειτουργικότητα',      14),
-    ('Τμήματα',              12),
-    ('Τμήματα με Μαθητές',   18),
-    ('Μαθητές',              10),
-    ('Διαφορά Τμημάτων',     16),
-    ('Διαφορά Μαθητών',      16),
-    ('Απόκλιση',             20),
-]
-
-CENTER_COLS = {
-    'Τύπος', 'Κωδικός Σχολείου', 'Λειτουργικότητα',
-    'Τμήματα', 'Τμήματα με Μαθητές', 'Μαθητές',
-    'Διαφορά Τμημάτων', 'Διαφορά Μαθητών', 'Απόκλιση',
-}
-
-HIGHLIGHT_COL    = 'Απόκλιση'
-HIGHLIGHT_COLORS = ('E74C3C', 'FADBD8', 'FDEDEC')
+_LEFT_ALIGN_COLS = {'Τύπος', 'Ονομασία'}
 
 
-# ── Είσοδος ─────────────────────────────────────────────────────────────────
-def ask_inputs():
-    path_53 = get_downloaded_file('5.3', 'Αρχείο 5.3 (Αποτύπωση νηπιαγωγείων):', silent=True)
-    path_54 = get_downloaded_file('5.4', 'Αρχείο 5.4 (Αποτύπωση δημοτικών):',    silent=True)
-    # stat2_2: για emails — προαιρετικό, αθόρυβα
-    path_22 = get_downloaded_file('2.2', 'Αρχείο 2.2 (Εκτεταμένα Στοιχεία):', silent=True)
-    return {'path_53': path_53, 'path_54': path_54, 'path_22': path_22}
+# ── Φόρτωση 3.1 ─────────────────────────────────────────────────────────────
+def _find_col(header, *names):
+    """Επιστρέφει το index της πρώτης στήλης του header που ταιριάζει με κάποιο name."""
+    for i, v in enumerate(header):
+        if str(v).strip() in names:
+            return i
+    return None
 
 
-# ── Βοηθητικές ──────────────────────────────────────────────────────────────
-def _to_int(series):
-    """Μετατρέπει στήλη σε int (NaN → 0)."""
-    return pd.to_numeric(series, errors='coerce').fillna(0).astype(int)
-
-
-def _build_email_map(path_22):
+def _load_stat31(path):
     """
-    Χτίζει dict {κωδικός_σχολείου: email} από stat2_2.
-    Στήλες (με 1-column shift): col11=Κωδικός, col18=Email.
+    Φορτώνει το 3.1 και επιστρέφει DataFrame με στήλες
+    _eidos, _code (int), _taxi, _tmimata (int), _mathites (int).
+
+    Το αρχείο έχει 2 γραμμές header (η 2η μόνο για Αγόρια/Κορίτσια/Σύνολο,
+    λόγω merged cell) — εντοπίζεται δυναμικά η γραμμή με «Τάξη». Οι στήλες
+    εντοπίζονται με βάση το ΟΝΟΜΑ τους (όχι σταθερή θέση), γιατί ο αριθμός/η
+    σειρά των στηλών αλλάζει ανάλογα με τις επιλογές ομαδοποίησης που
+    τσεκαρίστηκαν κατά τη λήψη (π.χ. αν λείπει η «Τύπος Σχολείου»).
     """
-    if not path_22:
-        return {}
-    try:
-        import os
-        ext = os.path.splitext(path_22)[1].lower()
-        if ext in ('.xlsx', '.xls'):
-            df = pd.read_excel(path_22)
-        else:
-            df = read_csv_fixed(path_22)
+    raw = pd.read_excel(path, header=None)
 
-        if df.shape[1] <= 18:
-            print('  ⚠ stat2_2: λίγες στήλες, emails δεν αντλήθηκαν.')
-            return {}
+    hdr_row = 0
+    for i in range(min(5, len(raw))):
+        if raw.iloc[i].astype(str).str.strip().eq('Τάξη').any():
+            hdr_row = i
+            break
 
-        codes  = clean_field(df.iloc[:, 11]).str.lstrip('0')
-        emails = df.iloc[:, 18].astype(str).str.strip()
-        result = {}
-        for code, email in zip(codes, emails):
-            if code and email and email.lower() not in ('nan', ''):
-                result[code] = email
-        print(f'  ✓ stat2_2: {len(result)} emails φορτώθηκαν.')
-        return result
-    except Exception as e:
-        print(f'  ⚠ stat2_2 σφάλμα: {e}')
-        return {}
+    header = raw.iloc[hdr_row].astype(str).str.strip().tolist()
 
+    eidos_idx   = _find_col(header, 'Είδος Σχολείου')
+    code_idx    = _find_col(header, 'Κωδικός Υπ.', 'Κωδικός Υπουργείου Σχολείου', 'Κωδικός Υπουργείου')
+    taxi_idx    = _find_col(header, 'Τάξη')
+    tmim_idx    = _find_col(header, 'Αριθμός Τμημάτων')
+    plithos_idx = _find_col(header, 'Πλήθος Ενεργών Μαθητών')
 
-def _check_file(df, label, col_tmimata, col_mathites, email_map):
-    """
-    Ελέγχει ένα αρχείο (5.3 ή 5.4) και επιστρέφει DataFrame με αποκλίσεις.
-    """
-    required = ['Κωδ. Υπουργείου Σχολείου', 'Ονομασία Σχολ. Μονάδας',
-                'Λειτουργικότητα', col_tmimata, col_mathites, 'Μαθητές']
-    missing = [c for c in required if c not in df.columns]
+    missing = [n for n, v in (
+        ('Είδος Σχολείου', eidos_idx), ('Κωδικός Υπ.', code_idx), ('Τάξη', taxi_idx),
+        ('Αριθμός Τμημάτων', tmim_idx), ('Πλήθος Ενεργών Μαθητών', plithos_idx),
+    ) if v is None]
     if missing:
-        print(f'  ⚠ [{label}] Λείπουν στήλες: {missing}')
-        print(f'  Διαθέσιμες: {list(df.columns)}')
-        return pd.DataFrame()
+        raise ValueError(
+            f'Το 3.1 δεν έχει τις αναμενόμενες στήλες ({", ".join(missing)}).\n'
+            f'Στήλες αρχείου: {header}'
+        )
 
-    df = df.copy()
-    df['_leit']     = _to_int(df['Λειτουργικότητα'])
-    df['_tmimata']  = _to_int(df[col_tmimata])
-    df['_mathites'] = _to_int(df[col_mathites])
+    # «Πλήθος Ενεργών Μαθητών» είναι merged header πάνω από 3 υποστήλες
+    # (Αγόρια, Κορίτσια, Σύνολο) — το Σύνολο είναι η 3η από αυτές.
+    sum_idx = plithos_idx + 2
 
-    dev_t = df['_leit'] != df['_tmimata']
-    dev_m = df['_leit'] != df['_mathites']
-    mask  = dev_t | dev_m
+    data = raw.iloc[hdr_row + 2:].reset_index(drop=True)
 
-    if not mask.any():
-        print(f'  ✓ [{label}] Καμία απόκλιση.')
-        return pd.DataFrame()
+    df = pd.DataFrame({
+        '_eidos':    data[eidos_idx].astype(str).str.strip(),
+        '_code':     pd.to_numeric(data[code_idx], errors='coerce'),
+        '_taxi':     data[taxi_idx].astype(str).str.strip(),
+        '_tmimata':  pd.to_numeric(data[tmim_idx], errors='coerce').fillna(0).astype(int),
+        '_mathites': pd.to_numeric(data[sum_idx], errors='coerce').fillna(0).astype(int),
+    })
+    df = df.dropna(subset=['_code'])
+    df['_code'] = df['_code'].astype(int)
+    return df
 
-    def _apoklisi(row):
-        t = row['_leit'] != row['_tmimata']
-        m = row['_leit'] != row['_mathites']
-        if t and m: return 'Τμήματα & Μαθητές'
-        if t:       return 'Τμήματα'
-        return 'Μαθητές'
 
+def _grade_lookup_ds(df31):
+    """dict {code: {grade: (τμήματα, μαθητές)}} — Δημοτικά (Α-ΣΤ)."""
+    sub = df31[df31['_eidos'] == 'Δημοτικά Σχολεία']
+    g = sub.groupby(['_code', '_taxi'])[['_tmimata', '_mathites']].sum().reset_index()
+    lookup = {}
+    for _, r in g.iterrows():
+        lookup.setdefault(int(r['_code']), {})[r['_taxi']] = (int(r['_tmimata']), int(r['_mathites']))
+    return lookup
+
+
+def _grade_lookup_nip(df31):
+    """dict {code: (τμήματα, μαθητές)} — Νηπιαγωγεία, όλες οι τάξεις αθροισμένες."""
+    sub = df31[df31['_eidos'] == 'Νηπιαγωγεία']
+    g = sub.groupby('_code')[['_tmimata', '_mathites']].sum().reset_index()
+    return {int(r['_code']): (int(r['_tmimata']), int(r['_mathites'])) for _, r in g.iterrows()}
+
+
+# ── Στήλες εξόδου ─────────────────────────────────────────────────────────
+def _base_cols():
+    return [
+        ('Τύπος',             42),
+        ('Κωδ. ΥΠΠΘ',         14),
+        ('Ονομασία',          40),
+        ('Λειτουργικότητα',   14),
+        ('Οργανικότητα',      14),
+        ('Ενεργοί Μαθητές',   14),
+    ]
+
+def _tail_cols():
+    return [
+        ('Άθροισμα Μαθητών',  16),
+        ('Άθροισμα Τμήματα',  16),
+        ('Διαφορά Τμήματα',   16),
+        ('Διαφορά Μαθητές',   16),
+    ]
+
+def columns_ds():
+    grade_cols = []
+    for g in GRADES_DS:
+        grade_cols += [(f'{g} Μαθητές', 10), (f'{g} Τμήματα', 10)]
+    return _base_cols() + grade_cols + _tail_cols()
+
+def columns_nip():
+    grade_cols = [(f'{NIP_GROUP} Μαθητές', 18), (f'{NIP_GROUP} Τμήματα', 18)]
+    return _base_cols() + grade_cols + _tail_cols()
+
+
+# ── Χτίσιμο DataFrame ανά τύπο σχολείου ─────────────────────────────────────
+def _build_records(df_src, grade_lookup, multi_grade):
+    """
+    df_src        : DataFrame από 5.3 ή 5.4
+    grade_lookup  : dict {code: {grade: (tm, ma)}}  (Δημοτικά) ή
+                     dict {code: (tm, ma)}           (Νηπιαγωγεία)
+    multi_grade   : True → Δημοτικά (πολλαπλές τάξεις Α-ΣΤ)
+                     False → Νηπιαγωγεία (μία ενιαία στήλη)
+    """
     records = []
-    for _, row in df[mask].iterrows():
-        code   = str(row['Κωδ. Υπουργείου Σχολείου']).strip()
-        diff_t = int(row['_tmimata'])  - int(row['_leit'])
-        diff_m = int(row['_mathites']) - int(row['_leit'])
-        records.append({
-            'Τύπος':               label,
-            'Κωδικός Σχολείου':    code,
-            'Ονομασία Σχολείου':   str(row['Ονομασία Σχολ. Μονάδας']).strip(),
-            'Email Σχολείου':      email_map.get(code.lstrip('0'), ''),
-            'Λειτουργικότητα':     int(row['_leit']),
-            'Τμήματα':             int(row['_tmimata']),
-            'Τμήματα με Μαθητές': int(row['_mathites']),
-            'Μαθητές':             int(pd.to_numeric(row['Μαθητές'], errors='coerce') or 0),
-            'Διαφορά Τμημάτων':   (f'+{diff_t}' if diff_t > 0 else str(diff_t))
-                                    if row['_leit'] != row['_tmimata'] else '—',
-            'Διαφορά Μαθητών':    (f'+{diff_m}' if diff_m > 0 else str(diff_m))
-                                    if row['_leit'] != row['_mathites'] else '—',
-            'Απόκλιση':           _apoklisi(row),
-        })
+    for _, row in df_src.iterrows():
+        code  = int(row['Κωδ. Υπουργείου Σχολείου'])
+        leit  = int(row['Λειτουργικότητα']) if pd.notna(row['Λειτουργικότητα']) else 0
+        org   = int(row['Οργανικότητα'])    if pd.notna(row['Οργανικότητα'])    else 0
+        energ = int(row['Μαθητές'])         if pd.notna(row['Μαθητές'])         else 0
 
-    print(f'  → [{label}] {len(records)} σχολεία με απόκλιση')
-    return pd.DataFrame(records)
+        rec = {
+            'Τύπος':             str(row['Τύπος Σχολείου']).strip(),
+            'Κωδ. ΥΠΠΘ':         code,
+            'Ονομασία':          str(row['Ονομασία Σχολ. Μονάδας']).strip(),
+            'Λειτουργικότητα':   leit,
+            'Οργανικότητα':      org,
+            'Ενεργοί Μαθητές':   energ,
+        }
+
+        sum_tm = sum_ma = 0
+        if multi_grade:
+            per_school = grade_lookup.get(code, {})
+            for g in GRADES_DS:
+                tm, ma = per_school.get(g, (0, 0))
+                rec[f'{g} Μαθητές'] = ma
+                rec[f'{g} Τμήματα'] = tm
+                sum_tm += tm
+                sum_ma += ma
+        else:
+            tm, ma = grade_lookup.get(code, (0, 0))
+            rec[f'{NIP_GROUP} Μαθητές'] = ma
+            rec[f'{NIP_GROUP} Τμήματα'] = tm
+            sum_tm += tm
+            sum_ma += ma
+
+        rec['Άθροισμα Μαθητών'] = sum_ma
+        rec['Άθροισμα Τμήματα'] = sum_tm
+        rec['Διαφορά Τμήματα']  = leit  - sum_tm
+        rec['Διαφορά Μαθητές']  = energ - sum_ma
+        records.append(rec)
+
+    df_out = pd.DataFrame(records)
+    if not df_out.empty:
+        df_out = df_out.sort_values('Ονομασία').reset_index(drop=True)
+    return df_out
+
+
+def _periferia_name(df_src):
+    try:
+        raw = str(df_src['Περιφέρεια'].dropna().iloc[0])
+        if 'ΕΚΠ/ΣΗΣ ' in raw:
+            return raw.split('ΕΚΠ/ΣΗΣ ')[-1].strip()
+    except Exception:
+        pass
+    return DEFAULT_PERIFEREIA
 
 
 # ── Λογική ──────────────────────────────────────────────────────────────────
-def process(ctx):
-    email_map = _build_email_map(ctx.get('path_22'))
-    frames = []
+def process(path_31, path_53, path_54):
+    """Επιστρέφει (df_ds, df_nip, periфereia_name)."""
+    df31 = _load_stat31(path_31)
+    df53 = pd.read_excel(path_53)
+    df54 = pd.read_excel(path_54)
 
-    # 5.3 — Νηπιαγωγεία
-    if ctx.get('path_53'):
-        try:
-            df53  = pd.read_excel(ctx['path_53'])
-            res53 = _check_file(df53, 'Νηπιαγωγείο',
-                                 'Υποχρεωτικά Πρωινά Τμήματα',
-                                 'Υποχρεωτικά Πρωινά Τμήματα με Μαθητές',
-                                 email_map)
-            if not res53.empty:
-                frames.append(res53)
-        except Exception as e:
-            print(f'  ✗ Σφάλμα φόρτωσης 5.3: {e}')
-    else:
-        print('  ⚠ Δεν βρέθηκε αρχείο 5.3')
+    df_ds  = _build_records(df54, _grade_lookup_ds(df31),  multi_grade=True)
+    df_nip = _build_records(df53, _grade_lookup_nip(df31), multi_grade=False)
 
-    # 5.4 — Δημοτικά
-    if ctx.get('path_54'):
-        try:
-            df54  = pd.read_excel(ctx['path_54'])
-            res54 = _check_file(df54, 'Δημοτικό',
-                                 'Τμήματα Γενικής Παιδείας',
-                                 'Τμήματα Γενικής Παιδείας με μαθητές',
-                                 email_map)
-            if not res54.empty:
-                frames.append(res54)
-        except Exception as e:
-            print(f'  ✗ Σφάλμα φόρτωσης 5.4: {e}')
-    else:
-        print('  ⚠ Δεν βρέθηκε αρχείο 5.4')
+    perif = _periferia_name(df54) if not df54.empty else _periferia_name(df53)
+    return df_ds, df_nip, perif
 
-    if not frames:
-        return pd.DataFrame()
 
-    df_out = pd.concat(frames, ignore_index=True)
-    return df_out.sort_values(['Τύπος', 'Ονομασία Σχολείου']).reset_index(drop=True)
+# ── Excel ─────────────────────────────────────────────────────────────────
+def _brd():
+    t = Side(style='thin', color='CCCCCC')
+    return Border(left=t, right=t, top=t, bottom=t)
+
+
+def _write_sheet(ws, df, title, columns, today, subtitle_extra=''):
+    brd = _brd()
+    ctr = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    lft = Alignment(horizontal='left',   vertical='center', wrap_text=True)
+    ncols = len(columns)
+
+    ws.merge_cells(f'A1:{get_column_letter(ncols)}1')
+    ws['A1'] = f'{title}  —  {today.strftime("%d/%m/%Y")}{subtitle_extra}'
+    ws['A1'].font      = Font(name='Arial', bold=True, size=12, color='FFFFFF')
+    ws['A1'].fill      = PatternFill('solid', start_color=COLOR_HDR)
+    ws['A1'].alignment = ctr
+    ws.row_dimensions[1].height = 24
+
+    ws.merge_cells(f'A2:{get_column_letter(ncols)}2')
+    ws['A2'] = f'Σύνολο σχολείων: {len(df)}'
+    ws['A2'].font      = Font(name='Arial', italic=True, size=9)
+    ws['A2'].fill      = PatternFill('solid', start_color=COLOR_SUB)
+    ws['A2'].alignment = ctr
+    ws.row_dimensions[2].height = 16
+
+    for ci, (name, width) in enumerate(columns, 1):
+        c = ws.cell(row=3, column=ci, value=name)
+        c.font      = Font(name='Arial', bold=True, color='FFFFFF', size=10)
+        c.fill      = PatternFill('solid', start_color=COLOR_HDR)
+        c.alignment = ctr
+        c.border    = brd
+        ws.column_dimensions[get_column_letter(ci)].width = width
+    ws.row_dimensions[3].height = 28
+
+    diff_cols = {'Διαφορά Τμήματα', 'Διαφορά Μαθητές'}
+    col_keys  = [c[0] for c in columns]
+
+    for ri, (_, row) in enumerate(df.iterrows(), start=4):
+        base_fill = PatternFill('solid', start_color=COLOR_ALT) if ri % 2 == 0 else PatternFill()
+        for ci, key in enumerate(col_keys, 1):
+            val = row.get(key, '')
+            if hasattr(val, 'item'):
+                val = val.item()
+            c = ws.cell(row=ri, column=ci, value=val)
+            c.border = brd
+            if key in diff_cols:
+                is_dev = val != 0
+                c.font = Font(name='Arial', size=9, bold=True,
+                               color='FFFFFF' if is_dev else '000000')
+                c.fill = PatternFill('solid', start_color=COLOR_DEV if is_dev else COLOR_OK)
+            else:
+                c.font = Font(name='Arial', size=9)
+                c.fill = base_fill
+            c.alignment = lft if key in _LEFT_ALIGN_COLS else ctr
+        ws.row_dimensions[ri].height = 16
+
+    ws.freeze_panes = 'A4'
+    ws.auto_filter.ref = f'A3:{get_column_letter(ncols)}3'
+
+
+def build_workbook(df_ds, df_nip, perif, today, out_path):
+    wb = Workbook()
+
+    ws1 = wb.active
+    ws1.title = f'ΔΣ-{perif}'[:31]
+    _write_sheet(ws1, df_ds, CHECK_TITLE, columns_ds(), today, subtitle_extra='  |  Δημοτικά')
+
+    ws2 = wb.create_sheet(f'ΝΗΠ-{perif}'[:31])
+    _write_sheet(ws2, df_nip, CHECK_TITLE, columns_nip(), today, subtitle_extra='  |  Νηπιαγωγεία')
+
+    wb.save(out_path)
+
+
+# ── Λήψη δεδομένων (μέσα στον έλεγχο — απαιτεί αλλαγή σχολικού έτους) ───────
+def _with_year(entry, year, idx=11):
+    """Επιστρέφει αντίγραφο ενός REPORTS tuple με το report_year ορισμένο στη θέση idx."""
+    entry = list(entry)
+    while len(entry) <= idx:
+        entry.append(None)
+    entry[idx] = year
+    return tuple(entry)
+
+
+def _download_inputs(config, log=print):
+    """
+    Κατεβάζει 3.1, 5.3, 5.4 απευθείας, αφού πρώτα οριστεί το σχολικό έτος
+    SCHOOL_YEAR (2026-2027) στο MySchool. Το 3.1 δεν έχει προεπιλεγμένο
+    report_year στο core/downloader.py (το χρησιμοποιούν και άλλα εργαλεία
+    με το τρέχον έτος) — εδώ γίνεται τοπικό override μόνο για αυτή τη λήψη,
+    χωρίς να πειραχτεί η καθολική ρύθμιση.
+
+    Επιστρέφει (path_31, path_53, path_54) — None όπου δεν κατέβηκε.
+    """
+    import core.downloader as _dl
+
+    ms_user = getattr(config, 'MYSCHOOL_USER', '').strip()
+    ms_pass = getattr(config, 'MYSCHOOL_PASS', '').strip()
+    if not ms_user or not ms_pass:
+        raise RuntimeError('Συμπλήρωσε username και κωδικό MySchool στις Ρυθμίσεις (⚙).')
+
+    orig_31 = next((r for r in _dl.REPORTS if r[0] == '3.1'), None)
+    if orig_31 is None:
+        raise RuntimeError('Δεν βρέθηκε ρύθμιση λήψης για το 3.1 στο core/downloader.py.')
+
+    custom_reports = (
+        [_with_year(orig_31, SCHOOL_YEAR)] +
+        [r for r in _dl.REPORTS if r[0] in ('5.3', '5.4')]
+    )
+
+    today_str = datetime.today().strftime('%Y%m%d')
+    dest_dir  = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks',
+                             'downloads', f'{today_str}_{SCHOOL_YEAR}')
+    os.makedirs(dest_dir, exist_ok=True)
+
+    orig_reports_backup = _dl.REPORTS
+    try:
+        _dl.REPORTS = custom_reports
+        dl = _dl.MySchoolDownloader(
+            username=ms_user, password=ms_pass, dest_dir=dest_dir,
+            callback=log, reports=['3.1', '5.3', '5.4'],
+            browser=getattr(config, 'BROWSER', 'chrome'),
+        )
+        results = dl.run()
+    finally:
+        _dl.REPORTS = orig_reports_backup
+
+    return results.get('3.1'), results.get('5.3'), results.get('5.4')
+
+
+# ── CUSTOM RUN ────────────────────────────────────────────────────────────
+def run(config):
+    import core.framework as _fw
+    _fw._current_check_title = CHECK_TITLE
+
+    print('=' * 65)
+    print(f'  {CHECK_TITLE}')
+    print('=' * 65)
+
+    print(f'\n  Λήψη 3.1 / 5.3 / 5.4 για το σχολικό έτος {SCHOOL_YEAR}...')
+    print('  (περιλαμβάνει αυτόματη αλλαγή σχολικού έτους — μπορεί να πάρει 1-2 λεπτά)')
+    print('-' * 65)
+    try:
+        path_31, path_53, path_54 = _download_inputs(config, log=print)
+    except Exception as e:
+        import tkinter.messagebox as _mb
+        _mb.showerror('Σφάλμα λήψης', str(e))
+        return
+
+    missing = [rid for rid, p in (('3.1', path_31), ('5.3', path_53), ('5.4', path_54)) if not p]
+    if missing:
+        import tkinter.messagebox as _mb
+        _mb.showerror(
+            'Λείπουν αρχεία',
+            f'Δεν κατέβηκαν: {", ".join(missing)}.\n\n'
+            f'Δες το log (run_log.txt στον φάκελο λήψης) για λεπτομέρειες.'
+        )
+        return
+
+    today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    print(f'\n  Ημερομηνία : {today.strftime("%d/%m/%Y")}')
+    print('-' * 65)
+
+    print('\nΕπεξεργασία...')
+    try:
+        df_ds, df_nip, perif = process(path_31, path_53, path_54)
+    except Exception as e:
+        import tkinter.messagebox as _mb
+        _mb.showerror('Σφάλμα επεξεργασίας', str(e))
+        return
+
+    dev_ds  = int((df_ds['Διαφορά Τμήματα']  != 0).sum() + (df_ds['Διαφορά Μαθητές']  != 0).sum()) if not df_ds.empty  else 0
+    dev_nip = int((df_nip['Διαφορά Τμήματα'] != 0).sum() + (df_nip['Διαφορά Μαθητές'] != 0).sum()) if not df_nip.empty else 0
+    print(f'  ✓ Δημοτικά    : {len(df_ds)} σχολεία, {dev_ds} αποκλίσεις')
+    print(f'  ✓ Νηπιαγωγεία : {len(df_nip)} σχολεία, {dev_nip} αποκλίσεις')
+
+    if df_ds.empty and df_nip.empty:
+        _show_results_popup(
+            CHECK_TITLE,
+            f'Ημερομηνία ελέγχου: {today.strftime("%d/%m/%Y")}\n\n'
+            f'✓  Δεν βρέθηκαν σχολεία στα αρχεία 5.3/5.4.',
+            result_type='ok'
+        )
+        return
+
+    _docs   = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks')
+    out_dir = os.path.join(_docs, f'results_{today.strftime("%Y%m%d")}', RESULTS_FOLDER)
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_{RESULTS_FOLDER}.xlsx')
+
+    try:
+        build_workbook(df_ds, df_nip, perif, today, out_path)
+        print(f'\n  ✓ Αποθηκεύτηκε: {os.path.basename(out_path)}')
+    except PermissionError:
+        import tkinter.messagebox as _mb
+        _mb.showwarning(
+            'Αρχείο ανοιχτό',
+            f'Το αρχείο {os.path.basename(out_path)} είναι ανοιχτό σε άλλο πρόγραμμα.\n'
+            f'Κλείστε το και τρέξτε ξανά τον έλεγχο.'
+        )
+        return
+
+    body = (
+        f'Σύνοψη ελέγχου τμημάτων γενικής παιδείας — {today.strftime("%d/%m/%Y")}\n'
+        f'{"─"*50}\n'
+        f'Δημοτικά:     {len(df_ds)} σχολεία  ·  {dev_ds} αποκλίσεις\n'
+        f'Νηπιαγωγεία:  {len(df_nip)} σχολεία  ·  {dev_nip} αποκλίσεις\n\n'
+        f'{"─"*50}\n'
+        f'Αποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
+    )
+    _show_results_popup(CHECK_TITLE, body, result_type='warn', excel_path=out_path)

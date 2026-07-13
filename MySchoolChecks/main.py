@@ -3740,7 +3740,7 @@ class NeoSchoolYearDialog(tk.Toplevel):
         self._add_item(body,
             icon='📐',
             title='Έλεγχος Τμημάτων Γενικής Παιδείας / Δυναμικού',
-            desc='Σύγκριση Λειτουργικότητας vs Τμήματα / Μαθητές για νηπιαγωγεία (5.3) και δημοτικά (5.4).',
+            desc='Πλήρης αποτύπωση Λειτουργικότητας vs Τμήματα/Μαθητές ανά τάξη για νηπιαγωγεία (5.3) και δημοτικά (5.4), με στοιχεία από το 3.1.',
             cmd=self._run_tmimata_genikis)
 
         tk.Frame(body, bg='#C8E6C9', height=1).pack(fill='x', pady=10)
@@ -3756,8 +3756,7 @@ class NeoSchoolYearDialog(tk.Toplevel):
         import importlib
         try:
             mod = importlib.import_module('checks.tmimata_genikis')
-            from core.framework import run_check
-            threading.Thread(target=run_check, args=(mod, config), daemon=True).start()
+            threading.Thread(target=mod.run, args=(config,), daemon=True).start()
         except Exception as e:
             messagebox.showerror('Σφάλμα', str(e), parent=self)
 
