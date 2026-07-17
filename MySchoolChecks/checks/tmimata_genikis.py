@@ -766,18 +766,21 @@ def _show_email_dialog(config, df_ds, df_nip, today):
     count_lbl = tk.Label(thr_f, text='', bg=C['bg'], fg=C['desc'], font=('Arial', 8))
     count_lbl.pack(side='left', padx=6)
 
-    def _update_count(*_):
+    def _update_count(*args):
         try:
             t = thr_var.get()
         except Exception:
             return
-        schools = _qualifying_schools(df_ds, df_nip, t)
-        with_e    = sum(1 for *_, e, _r, _c, _l in schools if e)
-        without_e = len(schools) - with_e
-        txt = f'→ {len(schools)} σχολεία'
-        if without_e:
-            txt += f'  ({without_e} χωρίς email)'
-        count_lbl.config(text=txt)
+        try:
+            schools   = _qualifying_schools(df_ds, df_nip, t)
+            with_e    = sum(1 for s in schools if s[2])
+            without_e = len(schools) - with_e
+            txt = f'→ {len(schools)} σχολεία'
+            if without_e:
+                txt += f'  ({without_e} χωρίς email)'
+            count_lbl.config(text=txt)
+        except Exception:
+            pass
 
     thr_var.trace_add('write', _update_count)
     _update_count()
