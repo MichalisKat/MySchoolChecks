@@ -66,7 +66,7 @@ COLOR_OK    = '92D050'   # πράσινο — διαφορά 0
 COLOR_DEV   = 'FF0000'   # κόκκινο — διαφορά ≠ 0
 DEFAULT_PERIFEREIA = 'ΚΕΝΤΡΙΚΗΣ ΜΑΚΕΔΟΝΙΑΣ'
 
-_LEFT_ALIGN_COLS = {'Τύπος', 'Ονομασία'}
+_LEFT_ALIGN_COLS = {'Τύπος', 'Ονομασία', 'Δήμος'}
 
 
 # ── Φόρτωση 3.1 ─────────────────────────────────────────────────────────────
@@ -121,16 +121,27 @@ def _load_stat31(path):
 
     data = raw.iloc[hdr_row + 2:].reset_index(drop=True)
 
+    dimos_idx = _find_col(header, 'Δήμος')
+    if dimos_idx is None and len(header) > 7:
+        dimos_idx = 7  # fallback: absolute position
+
     df = pd.DataFrame({
         '_eidos':    data[eidos_idx].astype(str).str.strip(),
         '_code':     pd.to_numeric(data[code_idx], errors='coerce'),
         '_taxi':     data[taxi_idx].astype(str).str.strip(),
         '_tmimata':  pd.to_numeric(data[tmim_idx], errors='coerce').fillna(0).astype(int),
         '_mathites': pd.to_numeric(data[sum_idx], errors='coerce').fillna(0).astype(int),
+        '_dimos':    data[dimos_idx].astype(str).str.strip() if dimos_idx is not None else '',
     })
     df = df.dropna(subset=['_code'])
     df['_code'] = df['_code'].astype(int)
     return df
+
+
+def _dimos_lookup(df31):
+    """dict {code: dimos} — ένας Δήμος ανά κωδικό σχολείου."""
+    sub = df31.drop_duplicates(subset=['_code'])[['_code', '_dimos']]
+    return {int(r['_code']): str(r['_dimos']).strip() for _, r in sub.iterrows()}
 
 
 def _grade_lookup_ds(df31):
@@ -156,6 +167,7 @@ def _base_cols():
         ('Τύπος',             42),
         ('Κωδ. ΥΠΠΘ',         14),
         ('Ονομασία',          40),
+        ('Δήμος',             20),
         ('Λειτουργικότητα',   14),
         ('Οργανικότητα',      14),
         ('Ενεργοί Μαθητές',   14),
@@ -181,14 +193,17 @@ def columns_nip():
 
 
 # ── Χτίσιμο DataFrame ανά τύπο σχολείου ─────────────────────────────────────
-def _build_records(df_src, grade_lookup, multi_grade):
+def _build_records(df_src, grade_lookup, multi_grade, dimos_lookup=None):
     """
     df_src        : DataFrame από 5.3 ή 5.4
     grade_lookup  : dict {code: {grade: (tm, ma)}}  (Δημοτικά) ή
                      dict {code: (tm, ma)}           (Νηπιαγωγεία)
     multi_grade   : True → Δημοτικά (πολλαπλές τάξεις Α-ΣΤ)
                      False → Νηπιαγωγεία (μία ενιαία στήλη)
+    dimos_lookup  : dict {code: dimos} από το 3.1 (προαιρετικό)
     """
+    if dimos_lookup is None:
+        dimos_lookup = {}
     records = []
     for _, row in df_src.iterrows():
         code  = int(row['Κωδ. Υπουργείου Σχολείου'])
@@ -200,6 +215,7 @@ def _build_records(df_src, grade_lookup, multi_grade):
             'Τύπος':             str(row['Τύπος Σχολείου']).strip(),
             'Κωδ. ΥΠΠΘ':         code,
             'Ονομασία':          str(row['Ονομασία Σχολ. Μονάδας']).strip(),
+            'Δήμος':             dimos_lookup.get(code, ''),
             'Λειτουργικότητα':   leit,
             'Οργανικότητα':      org,
             'Ενεργοί Μαθητές':   energ,
@@ -250,8 +266,9 @@ def process(path_31, path_53, path_54):
     df53 = pd.read_excel(path_53)
     df54 = pd.read_excel(path_54)
 
-    df_ds  = _build_records(df54, _grade_lookup_ds(df31),  multi_grade=True)
-    df_nip = _build_records(df53, _grade_lookup_nip(df31), multi_grade=False)
+    dimos = _dimos_lookup(df31)
+    df_ds  = _build_records(df54, _grade_lookup_ds(df31),  multi_grade=True,  dimos_lookup=dimos)
+    df_nip = _build_records(df53, _grade_lookup_nip(df31), multi_grade=False, dimos_lookup=dimos)
 
     perif = _periferia_name(df54) if not df54.empty else _periferia_name(df53)
     return df_ds, df_nip, perif
