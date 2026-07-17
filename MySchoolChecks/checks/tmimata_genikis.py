@@ -506,9 +506,50 @@ def _qualifying_schools(df_ds, df_nip, threshold):
     return result
 
 
+def _smtp_send(config, to_addr, msg_str):
+    """
+    Αποστολή email — 3 προσπάθειες όπως ακριβώς στο framework.py:
+    1) SMTP_SSL 465 με πλήρες cert
+    2) SMTP_SSL 465 χωρίς cert check
+    3) SMTP STARTTLS 587 χωρίς cert check
+    """
+    import ssl, smtplib
+
+    def _lenient():
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode    = ssl.CERT_NONE
+        return ctx
+
+    ef = config.FROM_EMAIL
+    pw = config.FROM_PASSWORD
+    sh = config.SMTP_HOST
+
+    sent = False
+    try:
+        with smtplib.SMTP_SSL(sh, 465, context=ssl.create_default_context()) as s:
+            s.login(ef, pw)
+            s.sendmail(ef, to_addr, msg_str)
+            sent = True
+    except Exception:
+        pass
+    if not sent:
+        try:
+            with smtplib.SMTP_SSL(sh, 465, context=_lenient()) as s:
+                s.login(ef, pw)
+                s.sendmail(ef, to_addr, msg_str)
+                sent = True
+        except Exception:
+            pass
+    if not sent:
+        with smtplib.SMTP(sh, 587) as s:
+            s.starttls(context=_lenient())
+            s.login(ef, pw)
+            s.sendmail(ef, to_addr, msg_str)
+
+
 def _send_summary_tmimata(config, sent, failed, today, log):
     """Summary email στο FROM_EMAIL μετά την ολοκλήρωση."""
-    import ssl, smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
     from email.utils import formataddr, formatdate
@@ -516,7 +557,6 @@ def _send_summary_tmimata(config, sent, failed, today, log):
 
     ef = getattr(config, 'FROM_EMAIL',    '')
     pw = getattr(config, 'FROM_PASSWORD', '')
-    sh = getattr(config, 'SMTP_HOST',     'mail.sch.gr')
     if not ef or not pw:
         return
 
@@ -540,16 +580,8 @@ def _send_summary_tmimata(config, sent, failed, today, log):
     msg.attach(MIMEText(body, 'plain', 'utf-8'))
     log(f'\n  ✉ Summary → {ef}')
     try:
-        ctx = ssl.create_default_context()
-        srv = smtplib.SMTP(sh, 587)
-        srv.starttls(context=ctx)
-        r = srv.login(ef, pw)
-        if r[0] == 235:
-            srv.sendmail(ef, ef, msg.as_string())
-            log('  ✓ Summary εστάλη.')
-        else:
-            log('  ✗ Summary: login απέτυχε.')
-        srv.quit()
+        _smtp_send(config, ef, msg.as_string())
+        log('  ✓ Summary εστάλη.')
     except Exception as e:
         log(f'  ✗ Summary: {e}')
 
@@ -557,7 +589,6 @@ def _send_summary_tmimata(config, sent, failed, today, log):
 def _do_send_emails(df_ds, df_nip, threshold, dry_run, subj_tpl, body_tpl,
                     config, today, log):
     """Αποστολή email ανά σχολείο. Επιστρέφει (sent, failed)."""
-    import ssl, smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
     from email.mime.base import MIMEBase
@@ -567,7 +598,6 @@ def _do_send_emails(df_ds, df_nip, threshold, dry_run, subj_tpl, body_tpl,
 
     ef = getattr(config, 'FROM_EMAIL',    '')
     pw = getattr(config, 'FROM_PASSWORD', '')
-    sh = getattr(config, 'SMTP_HOST',     'mail.sch.gr')
     if not ef:
         log('  ✗ FROM_EMAIL δεν έχει οριστεί στις Ρυθμίσεις.')
         return [], []
@@ -615,18 +645,9 @@ def _do_send_emails(df_ds, df_nip, threshold, dry_run, subj_tpl, body_tpl,
             continue
 
         try:
-            ctx = ssl.create_default_context()
-            srv = smtplib.SMTP(sh, 587)
-            srv.starttls(context=ctx)
-            r = srv.login(ef, pw)
-            if r[0] == 235:
-                srv.sendmail(ef, dest, msg.as_string())
-                log(f'  ✓ → {email_to}  [{name}]')
-                sent.append((name, email_to))
-            else:
-                log(f'  ✗ Login απέτυχε → {name}')
-                failed.append((name, email_to))
-            srv.quit()
+            _smtp_send(config, dest, msg.as_string())
+            log(f'  ✓ → {email_to}  [{name}]')
+            sent.append((name, email_to))
         except Exception as e:
             log(f'  ✗ {name}: {e}')
             failed.append((name, email_to))
@@ -1010,4 +1031,10 @@ def run(config):
         f'Αποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
     )
     _show_results_popup(CHECK_TITLE, body, result_type='warn', excel_path=out_path)
-    _show_email_dialog(config, df_ds, df_nip, today)
+
+    # Το run() τρέχει σε background thread — το email dialog πρέπει να ανοίξει
+    # στο main thread μέσω root.after(), αλλιώς το Tkinter δεν το επιτρέπει.
+    import tkinter as tk
+    _root = tk._default_root
+    if _root is not None:
+        _root.after(0, lambda: _show_email_dialog(config, df_ds, df_nip, today))
