@@ -733,8 +733,6 @@ def _show_email_dialog(config, df_ds, df_nip, today):
     dlg.title('Αποστολή Email — Τμήματα Γενικής Παιδείας')
     dlg.configure(bg=C['bg'])
     dlg.resizable(False, False)
-    dlg.grab_set()
-    dlg.transient(root)
 
     pad = dict(padx=14, pady=5)
 
@@ -858,10 +856,11 @@ def _show_email_dialog(config, df_ds, df_nip, today):
     send_btn.config(command=_start)
 
     dlg.update_idletasks()
-    dlg.geometry('560x480')
     x = root.winfo_x() + (root.winfo_width()  - 560) // 2
     y = root.winfo_y() + (root.winfo_height() - 480) // 2
     dlg.geometry(f'560x480+{x}+{y}')
+    dlg.lift()
+    dlg.focus_force()
     dlg.wait_window()
 
 
@@ -893,13 +892,16 @@ def _download_inputs(config, log=print):
         raise RuntimeError('Συμπλήρωσε username και κωδικό MySchool στις Ρυθμίσεις (⚙).')
 
     orig_31 = next((r for r in _dl.REPORTS if r[0] == '3.1'), None)
+    orig_22 = next((r for r in _dl.REPORTS if r[0] == '2.2'), None)
     if orig_31 is None:
         raise RuntimeError('Δεν βρέθηκε ρύθμιση λήψης για το 3.1 στο core/downloader.py.')
 
     custom_reports = (
         [_with_year(orig_31, SCHOOL_YEAR)] +
-        [r for r in _dl.REPORTS if r[0] in ('5.3', '5.4')]
+        [r for r in _dl.REPORTS if r[0] in ('5.3', '5.4')] +
+        ([orig_22] if orig_22 else [])
     )
+    rids = ['3.1', '5.3', '5.4'] + (['2.2'] if orig_22 else [])
 
     today_str = datetime.today().strftime('%Y%m%d')
     dest_dir  = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks',
@@ -911,14 +913,14 @@ def _download_inputs(config, log=print):
         _dl.REPORTS = custom_reports
         dl = _dl.MySchoolDownloader(
             username=ms_user, password=ms_pass, dest_dir=dest_dir,
-            callback=log, reports=['3.1', '5.3', '5.4'],
+            callback=log, reports=rids,
             browser=getattr(config, 'BROWSER', 'chrome'),
         )
         results = dl.run()
     finally:
         _dl.REPORTS = orig_reports_backup
 
-    return results.get('3.1'), results.get('5.3'), results.get('5.4')
+    return results.get('3.1'), results.get('5.3'), results.get('5.4'), results.get('2.2')
 
 
 # ── CUSTOM RUN ────────────────────────────────────────────────────────────
@@ -934,7 +936,7 @@ def run(config):
     print('  (περιλαμβάνει αυτόματη αλλαγή σχολικού έτους — μπορεί να πάρει 1-2 λεπτά)')
     print('-' * 65)
     try:
-        path_31, path_53, path_54 = _download_inputs(config, log=print)
+        path_31, path_53, path_54, path_22 = _download_inputs(config, log=print)
     except Exception as e:
         import tkinter.messagebox as _mb
         _mb.showerror('Σφάλμα λήψης', str(e))
@@ -955,11 +957,10 @@ def run(config):
     print(f'\n  Ημερομηνία : {today.strftime("%d/%m/%Y")}')
     print('-' * 65)
 
-    path_22 = _find_stat22()
     if path_22:
-        print(f'  ✓ stat2_2 βρέθηκε: {os.path.basename(path_22)}')
+        print(f'  ✓ stat2_2: {os.path.basename(path_22)}')
     else:
-        print('  ℹ stat2_2 δεν βρέθηκε — Email Σχολείου θα είναι κενό')
+        print('  ℹ stat2_2 δεν κατέβηκε — Email Σχολείου θα είναι κενό')
 
     print('\nΕπεξεργασία...')
     try:
