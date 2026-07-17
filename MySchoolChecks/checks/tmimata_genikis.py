@@ -34,6 +34,7 @@ checks/tmimata_genikis.py
 Καμία αποστολή email.
 """
 
+import glob as _glob
 import os
 import pandas as pd
 from datetime import datetime
@@ -56,6 +57,20 @@ REQUIRED_REPORTS  = [
     '5.4 — Αποτύπωση δημοτικών (κατεβαίνει αυτόματα)',
 ]
 
+DEFAULT_EMAIL_SUBJECT = (
+    'Τμήματα Γενικής Παιδείας {school_year} — αποκλίσεις MySchool'
+)
+DEFAULT_EMAIL_BODY = (
+    'Καλημέρα,\n\n'
+    'Κατά τον έλεγχο των στοιχείων τμημάτων γενικής παιδείας / δυναμικού '
+    'για το σχολικό έτος {school_year} στο MySchool, εντοπίστηκαν αποκλίσεις '
+    'μεταξύ Λειτουργικότητας και καταχωρημένων τμημάτων/μαθητών '
+    'για το σχολείο σας.\n\n'
+    'Παρακαλούμε ελέγξτε το συνημμένο αρχείο και προβείτε στις απαραίτητες '
+    'διορθώσεις στο MySchool.\n\n'
+    'Παρακαλούμε για τις ενέργειές σας.'
+)
+
 GRADES_DS  = ['Α', 'Β', 'Γ', 'Δ', 'Ε', 'ΣΤ']          # Δημοτικά
 NIP_GROUP  = 'ΠΡΟΝΗΠΙΑ-ΝΗΠΙΑ'                          # Νηπιαγωγεία — ενιαία στήλη
 
@@ -66,7 +81,7 @@ COLOR_OK    = '92D050'   # πράσινο — διαφορά 0
 COLOR_DEV   = 'FF0000'   # κόκκινο — διαφορά ≠ 0
 DEFAULT_PERIFEREIA = 'ΚΕΝΤΡΙΚΗΣ ΜΑΚΕΔΟΝΙΑΣ'
 
-_LEFT_ALIGN_COLS = {'Τύπος', 'Ονομασία', 'Δήμος'}
+_LEFT_ALIGN_COLS = {'Τύπος', 'Ονομασία', 'Δήμος', 'Email Σχολείου'}
 
 
 # ── Φόρτωση 3.1 ─────────────────────────────────────────────────────────────
@@ -138,6 +153,69 @@ def _load_stat31(path):
     return df
 
 
+def _find_stat22():
+    """Αυτόματη εύρεση stat2_2 από τον φάκελο λήψεων της εφαρμογής ή ~/Downloads."""
+    docs = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks')
+    folders = []
+    dl_base = os.path.join(docs, 'downloads')
+    if os.path.isdir(dl_base):
+        folders += sorted(
+            [os.path.join(dl_base, d) for d in os.listdir(dl_base)
+             if os.path.isdir(os.path.join(dl_base, d))],
+            reverse=True
+        )
+    folders.append(os.path.join(os.path.expanduser('~'), 'Downloads'))
+    for folder in folders:
+        for pattern in ('stat2_2*.csv', 'stat2_2*.xlsx', 'stat2_2*.xls', 'CSV_*.zip'):
+            matches = [f for f in _glob.glob(os.path.join(folder, pattern))
+                       if not f.endswith('.tmp') and not f.endswith('.crdownload')]
+            if matches:
+                return sorted(matches)[-1]
+    return None
+
+
+def _load_email_lookup(path_22):
+    """
+    Διαβάζει stat2_2 (CSV με 1-column shift) και επιστρέφει {code_int: email}.
+    col11 = Κωδ. ΥΠΠΘ, col18 = e-mail σχολείου.
+    """
+    import re
+    lower = path_22.lower()
+    if lower.endswith('.xlsx') or lower.endswith('.xls'):
+        df = pd.read_excel(path_22, dtype=str)
+    else:
+        import zipfile, io
+        if lower.endswith('.zip'):
+            with zipfile.ZipFile(path_22) as z:
+                raw = z.read(z.namelist()[0])
+        else:
+            with open(path_22, 'rb') as f:
+                raw = f.read()
+        text = raw.decode('cp1253')
+        df = pd.read_csv(io.StringIO(text), sep=';', dtype=str, header=0)
+
+    if len(df.columns) <= 18:
+        return {}
+
+    c_code  = df.columns[11]
+    c_email = df.columns[18]
+
+    def _clean_code(val):
+        s = str(val).strip().strip('"').lstrip('=').strip('"').strip()
+        s = re.sub(r'\.0$', '', s)
+        return s.lstrip('0') or s
+
+    lookup = {}
+    for _, row in df.iterrows():
+        raw_code = _clean_code(row[c_code])
+        email    = str(row[c_email]).strip() if pd.notna(row[c_email]) else ''
+        if email.lower() in ('nan', 'none', ''):
+            email = ''
+        if raw_code.isdigit():
+            lookup[int(raw_code)] = email
+    return lookup
+
+
 def _dimos_lookup(df31):
     """dict {code: dimos} — ένας Δήμος ανά κωδικό σχολείου."""
     sub = df31.drop_duplicates(subset=['_code'])[['_code', '_dimos']]
@@ -168,6 +246,7 @@ def _base_cols():
         ('Κωδ. ΥΠΠΘ',         14),
         ('Ονομασία',          40),
         ('Δήμος',             20),
+        ('Email Σχολείου',    32),
         ('Λειτουργικότητα',   14),
         ('Οργανικότητα',      14),
         ('Ενεργοί Μαθητές',   14),
@@ -193,7 +272,7 @@ def columns_nip():
 
 
 # ── Χτίσιμο DataFrame ανά τύπο σχολείου ─────────────────────────────────────
-def _build_records(df_src, grade_lookup, multi_grade, dimos_lookup=None):
+def _build_records(df_src, grade_lookup, multi_grade, dimos_lookup=None, email_lookup=None):
     """
     df_src        : DataFrame από 5.3 ή 5.4
     grade_lookup  : dict {code: {grade: (tm, ma)}}  (Δημοτικά) ή
@@ -201,9 +280,12 @@ def _build_records(df_src, grade_lookup, multi_grade, dimos_lookup=None):
     multi_grade   : True → Δημοτικά (πολλαπλές τάξεις Α-ΣΤ)
                      False → Νηπιαγωγεία (μία ενιαία στήλη)
     dimos_lookup  : dict {code: dimos} από το 3.1 (προαιρετικό)
+    email_lookup  : dict {code: email} από το 2.2 (προαιρετικό)
     """
     if dimos_lookup is None:
         dimos_lookup = {}
+    if email_lookup is None:
+        email_lookup = {}
     records = []
     for _, row in df_src.iterrows():
         code  = int(row['Κωδ. Υπουργείου Σχολείου'])
@@ -216,6 +298,7 @@ def _build_records(df_src, grade_lookup, multi_grade, dimos_lookup=None):
             'Κωδ. ΥΠΠΘ':         code,
             'Ονομασία':          str(row['Ονομασία Σχολ. Μονάδας']).strip(),
             'Δήμος':             dimos_lookup.get(code, ''),
+            'Email Σχολείου':    email_lookup.get(code, ''),
             'Λειτουργικότητα':   leit,
             'Οργανικότητα':      org,
             'Ενεργοί Μαθητές':   energ,
@@ -260,15 +343,16 @@ def _periferia_name(df_src):
 
 
 # ── Λογική ──────────────────────────────────────────────────────────────────
-def process(path_31, path_53, path_54):
+def process(path_31, path_53, path_54, path_22=None):
     """Επιστρέφει (df_ds, df_nip, periфereia_name)."""
     df31 = _load_stat31(path_31)
     df53 = pd.read_excel(path_53)
     df54 = pd.read_excel(path_54)
 
     dimos = _dimos_lookup(df31)
-    df_ds  = _build_records(df54, _grade_lookup_ds(df31),  multi_grade=True,  dimos_lookup=dimos)
-    df_nip = _build_records(df53, _grade_lookup_nip(df31), multi_grade=False, dimos_lookup=dimos)
+    email = _load_email_lookup(path_22) if path_22 else {}
+    df_ds  = _build_records(df54, _grade_lookup_ds(df31),  multi_grade=True,  dimos_lookup=dimos, email_lookup=email)
+    df_nip = _build_records(df53, _grade_lookup_nip(df31), multi_grade=False, dimos_lookup=dimos, email_lookup=email)
 
     perif = _periferia_name(df54) if not df54.empty else _periferia_name(df53)
     return df_ds, df_nip, perif
@@ -346,6 +430,436 @@ def build_workbook(df_ds, df_nip, perif, today, out_path):
     _write_sheet(ws2, df_nip, CHECK_TITLE, columns_nip(), today, subtitle_extra='  |  Νηπιαγωγεία')
 
     wb.save(out_path)
+
+
+# ── Email — Βοηθητικά ─────────────────────────────────────────────────────────
+def _app_base():
+    import sys
+    if getattr(sys, 'frozen', False):
+        lad = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'MySchoolChecks')
+        return lad if os.path.isdir(lad) else os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _load_tmimata_email_template():
+    import json
+    spath = os.path.join(_app_base(), 'data', 'local_settings.json')
+    try:
+        with open(spath, encoding='utf-8') as f:
+            s = json.load(f)
+        t = s.get('tmimata_email', {})
+        return t.get('subject', DEFAULT_EMAIL_SUBJECT), t.get('body', DEFAULT_EMAIL_BODY)
+    except Exception:
+        return DEFAULT_EMAIL_SUBJECT, DEFAULT_EMAIL_BODY
+
+
+def _save_tmimata_email_template(subject, body):
+    import json
+    spath = os.path.join(_app_base(), 'data', 'local_settings.json')
+    os.makedirs(os.path.dirname(spath), exist_ok=True)
+    try:
+        with open(spath, encoding='utf-8') as f:
+            s = json.load(f)
+    except Exception:
+        s = {}
+    s['tmimata_email'] = {'subject': subject, 'body': body}
+    with open(spath, 'w', encoding='utf-8') as f:
+        json.dump(s, f, ensure_ascii=False, indent=2)
+
+
+def _build_mini_excel(row_df, col_defs, label, today):
+    """Mini Excel (bytes) για ένα σχολείο."""
+    import io as _io
+    buf = _io.BytesIO()
+    wb  = Workbook()
+    ws  = wb.active
+    ws.title = label[:31]
+    _write_sheet(ws, row_df, CHECK_TITLE, col_defs, today,
+                 subtitle_extra=f'  |  {label}')
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def _qualifying_schools(df_ds, df_nip, threshold):
+    """
+    Επιστρέφει list of (code, name, email, row_df, col_defs, label)
+    για σχολεία με |Διαφορά Μαθητές| > threshold ή Διαφορά Τμήματα ≠ 0.
+    """
+    result = []
+    for df, col_defs, label in (
+        (df_ds,  columns_ds(),  'Δημοτικά'),
+        (df_nip, columns_nip(), 'Νηπιαγωγεία'),
+    ):
+        if df.empty:
+            continue
+        mask = (df['Διαφορά Τμήματα'] != 0) | (df['Διαφορά Μαθητές'].abs() > threshold)
+        for _, row in df[mask].iterrows():
+            result.append((
+                row['Κωδ. ΥΠΠΘ'],
+                row['Ονομασία'],
+                row.get('Email Σχολείου', ''),
+                pd.DataFrame([row]),
+                col_defs,
+                label,
+            ))
+    return result
+
+
+def _send_summary_tmimata(config, sent, failed, today, log):
+    """Summary email στο FROM_EMAIL μετά την ολοκλήρωση."""
+    import ssl, smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.utils import formataddr, formatdate
+    from email.header import Header
+
+    ef = getattr(config, 'FROM_EMAIL',    '')
+    pw = getattr(config, 'FROM_PASSWORD', '')
+    sh = getattr(config, 'SMTP_HOST',     'mail.sch.gr')
+    if not ef or not pw:
+        return
+
+    sent_lines   = '\n'.join(f'  ✓  {n}  ({e})' for n, e in sorted(sent))
+    failed_lines = ('\n'.join(f'  ✗  {n}  ({e})' for n, e in sorted(failed))
+                    if failed else '  —')
+    body = (
+        f'Αποστολή email Τμημάτων Γενικής Παιδείας — {today.strftime("%d/%m/%Y")}\n\n'
+        f'Εστάλησαν: {len(sent)}\n{sent_lines}\n\n'
+        + (f'Αποτυχίες ({len(failed)}):\n{failed_lines}' if failed else '')
+    )
+    subject = (
+        f'[Τμήματα {SCHOOL_YEAR}] Αποστολή ολοκληρώθηκε — {len(sent)} ✓'
+        + (f', {len(failed)} ✗' if failed else '')
+    )
+    msg = MIMEMultipart()
+    msg['Subject'] = subject
+    msg['From']    = formataddr((str(Header('MySchool Checks', 'utf-8')), ef))
+    msg['To']      = ef
+    msg['Date']    = formatdate(localtime=True)
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
+    log(f'\n  ✉ Summary → {ef}')
+    try:
+        ctx = ssl.create_default_context()
+        srv = smtplib.SMTP(sh, 587)
+        srv.starttls(context=ctx)
+        r = srv.login(ef, pw)
+        if r[0] == 235:
+            srv.sendmail(ef, ef, msg.as_string())
+            log('  ✓ Summary εστάλη.')
+        else:
+            log('  ✗ Summary: login απέτυχε.')
+        srv.quit()
+    except Exception as e:
+        log(f'  ✗ Summary: {e}')
+
+
+def _do_send_emails(df_ds, df_nip, threshold, dry_run, subj_tpl, body_tpl,
+                    config, today, log):
+    """Αποστολή email ανά σχολείο. Επιστρέφει (sent, failed)."""
+    import ssl, smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email.utils import formataddr, formatdate
+    from email.header import Header
+    from email import encoders
+
+    ef = getattr(config, 'FROM_EMAIL',    '')
+    pw = getattr(config, 'FROM_PASSWORD', '')
+    sh = getattr(config, 'SMTP_HOST',     'mail.sch.gr')
+    if not ef:
+        log('  ✗ FROM_EMAIL δεν έχει οριστεί στις Ρυθμίσεις.')
+        return [], []
+    if not pw and not dry_run:
+        log('  ✗ Κωδικός email δεν έχει οριστεί στις Ρυθμίσεις.')
+        return [], []
+
+    schools = _qualifying_schools(df_ds, df_nip, threshold)
+    if not schools:
+        log('  ℹ Κανένα σχολείο δεν πληροί τα κριτήρια αποστολής.')
+        return [], []
+
+    log(f'  → {len(schools)} σχολεία για αποστολή (όριο μαθητών: {threshold})')
+    sent, failed = [], []
+
+    for code, name, email_to, row_df, col_defs, label in schools:
+        if not email_to:
+            log(f'  ⚠ {name}: κενό email — παράλειψη')
+            failed.append((name, '—'))
+            continue
+
+        subj     = subj_tpl.replace('{school_year}', SCHOOL_YEAR).replace('{school_name}', name)
+        body_txt = body_tpl.replace('{school_year}', SCHOOL_YEAR).replace('{school_name}', name)
+        xls_bytes = _build_mini_excel(row_df, col_defs, label, today)
+        fname_att = f'{today.strftime("%Y%m%d")}_{code}_{label}.xlsx'
+        dest      = ef if dry_run else email_to
+
+        msg = MIMEMultipart()
+        msg['Subject'] = subj
+        msg['From']    = formataddr((str(Header('ΔΙ.Π.Ε. Αν. Θεσ/νίκης', 'utf-8')), ef))
+        msg['To']      = formataddr((str(Header(name, 'utf-8')), dest))
+        msg['Date']    = formatdate(localtime=True)
+        msg.attach(MIMEText(body_txt, 'plain', 'utf-8'))
+        part = MIMEBase('application',
+                        'vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        part.set_payload(xls_bytes)
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', 'attachment',
+                        filename=Header(fname_att, 'utf-8').encode())
+        msg.attach(part)
+
+        if dry_run:
+            log(f'  (test) → {ef}  [{name}]')
+            sent.append((name, email_to))
+            continue
+
+        try:
+            ctx = ssl.create_default_context()
+            srv = smtplib.SMTP(sh, 587)
+            srv.starttls(context=ctx)
+            r = srv.login(ef, pw)
+            if r[0] == 235:
+                srv.sendmail(ef, dest, msg.as_string())
+                log(f'  ✓ → {email_to}  [{name}]')
+                sent.append((name, email_to))
+            else:
+                log(f'  ✗ Login απέτυχε → {name}')
+                failed.append((name, email_to))
+            srv.quit()
+        except Exception as e:
+            log(f'  ✗ {name}: {e}')
+            failed.append((name, email_to))
+
+    if not dry_run and sent:
+        _send_summary_tmimata(config, sent, failed, today, log)
+
+    return sent, failed
+
+
+def _open_tmimata_template_editor(parent, C):
+    """Dialog επεξεργασίας θέματος & κειμένου email."""
+    import tkinter as tk
+    cur_subj, cur_body = _load_tmimata_email_template()
+    if cur_body == DEFAULT_EMAIL_BODY:
+        try:
+            import config as _cfg
+            sig = getattr(_cfg, 'EMAIL_SIGNATURE', '').strip()
+            if sig:
+                cur_body = cur_body + '\n\n' + sig
+        except Exception:
+            pass
+
+    ed = tk.Toplevel(parent)
+    ed.title('Πρότυπο Email — Τμήματα Γενικής Παιδείας')
+    ed.configure(bg=C['bg'])
+    ed.resizable(True, False)
+    ed.grab_set()
+    ed.transient(parent)
+
+    epad = dict(padx=14, pady=5)
+    tk.Label(ed, text='Θέμα:', bg=C['bg'], fg=C['hdr_bg'],
+             font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **epad)
+    subj_var = tk.StringVar(value=cur_subj)
+    tk.Entry(ed, textvariable=subj_var, font=('Arial', 9),
+             width=70).pack(fill='x', padx=14, pady=(0, 8))
+
+    tk.Label(ed, text='Κείμενο email:', bg=C['bg'], fg=C['hdr_bg'],
+             font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **epad)
+    txt = tk.Text(ed, font=('Arial', 9), width=70, height=14,
+                  wrap='word', relief='solid', bd=1)
+    txt.pack(fill='x', padx=14, pady=(0, 4))
+    txt.insert('1.0', cur_body)
+
+    tk.Label(ed,
+             text='Χρησιμοποιήστε {school_year} και {school_name} (αντικαθίστανται αυτόματα).',
+             bg=C['bg'], fg=C['desc'], font=('Arial', 8),
+             anchor='w').pack(fill='x', padx=14, pady=(0, 10))
+
+    def _save():
+        _save_tmimata_email_template(subj_var.get().strip(), txt.get('1.0', 'end-1c'))
+        ed.destroy()
+        import tkinter.messagebox as _mb
+        _mb.showinfo('Αποθήκευση', 'Το πρότυπο αποθηκεύτηκε.', parent=parent)
+
+    def _reset():
+        import tkinter.messagebox as _mb
+        if _mb.askyesno('Επαναφορά', 'Να επανέλθει το προεπιλεγμένο κείμενο;', parent=ed):
+            _save_tmimata_email_template(DEFAULT_EMAIL_SUBJECT, DEFAULT_EMAIL_BODY)
+            ed.destroy()
+
+    br = tk.Frame(ed, bg=C['bg'])
+    br.pack(pady=(0, 12))
+    tk.Button(br, text='Αποθήκευση', bg=C['btn_bg'], fg=C['btn_fg'],
+              font=('Arial', 9, 'bold'), relief='flat', padx=14, pady=5,
+              cursor='hand2', command=_save).pack(side='left', padx=4)
+    tk.Button(br, text='Επαναφορά προεπιλογής', bg=C['bg2'], fg=C['hdr_bg'],
+              font=('Arial', 9), relief='flat', padx=14, pady=5,
+              cursor='hand2', command=_reset).pack(side='left', padx=4)
+    tk.Button(br, text='Άκυρο', bg=C['bg2'], fg=C['desc'],
+              font=('Arial', 9), relief='flat', padx=14, pady=5,
+              cursor='hand2', command=ed.destroy).pack(side='left', padx=4)
+
+    ed.update_idletasks()
+    x = parent.winfo_x() + (parent.winfo_width()  - ed.winfo_width())  // 2
+    y = parent.winfo_y() + (parent.winfo_height() - ed.winfo_height()) // 2
+    ed.geometry(f'+{x}+{y}')
+
+
+def _show_email_dialog(config, df_ds, df_nip, today):
+    """Dialog αποστολής email ανά σχολείο με απόκλιση."""
+    import tkinter as tk
+    from tkinter import scrolledtext
+    import threading
+
+    root = tk._default_root
+    if root is None:
+        return
+
+    C = {
+        'bg': '#F5F7FA', 'bg2': '#E8EDF3', 'hdr_bg': '#1F4E79',
+        'btn_bg': '#1F4E79', 'btn_fg': '#FFFFFF',
+        'desc': '#666666',   'sel_bg': '#D6E4F0',
+    }
+    # Αν δεν υπάρχουν καθόλου αποκλίσεις, δεν εμφανίζουμε το dialog
+    all_dev = (
+        (not df_ds.empty  and ((df_ds['Διαφορά Τμήματα']  != 0) | (df_ds['Διαφορά Μαθητές']  != 0)).any()) or
+        (not df_nip.empty and ((df_nip['Διαφορά Τμήματα'] != 0) | (df_nip['Διαφορά Μαθητές'] != 0)).any())
+    )
+    if not all_dev:
+        return
+
+    dlg = tk.Toplevel(root)
+    dlg.title('Αποστολή Email — Τμήματα Γενικής Παιδείας')
+    dlg.configure(bg=C['bg'])
+    dlg.resizable(False, False)
+    dlg.grab_set()
+    dlg.transient(root)
+
+    pad = dict(padx=14, pady=5)
+
+    # Header
+    hdr = tk.Frame(dlg, bg=COLOR_HDR)
+    hdr.pack(fill='x')
+    tk.Label(hdr, text='Αποστολή Email ανά Σχολείο',
+             bg=COLOR_HDR, fg='white', font=('Arial', 11, 'bold'),
+             padx=14, pady=8).pack(side='left')
+
+    body_f = tk.Frame(dlg, bg=C['bg'])
+    body_f.pack(fill='both', expand=True)
+
+    # Κουμπί πρότυπου
+    tk.Button(body_f, text='✉  Πρότυπο Email (Θέμα & Κείμενο)',
+              bg=C['bg2'], fg=C['hdr_bg'], font=('Arial', 9),
+              relief='flat', padx=10, pady=4, cursor='hand2',
+              command=lambda: _open_tmimata_template_editor(dlg, C)
+              ).pack(anchor='w', **pad)
+
+    # Όριο απόκλισης μαθητών
+    thr_f = tk.Frame(body_f, bg=C['bg'])
+    thr_f.pack(fill='x', **pad)
+    tk.Label(thr_f, text='Ελάχιστη απόκλιση μαθητών για αποστολή:',
+             bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9)).pack(side='left')
+    thr_var = tk.IntVar(value=0)
+    tk.Spinbox(thr_f, from_=0, to=99, textvariable=thr_var,
+               width=5, font=('Arial', 9)).pack(side='left', padx=6)
+    count_lbl = tk.Label(thr_f, text='', bg=C['bg'], fg=C['desc'], font=('Arial', 8))
+    count_lbl.pack(side='left', padx=6)
+
+    def _update_count(*_):
+        try:
+            t = thr_var.get()
+        except Exception:
+            return
+        schools = _qualifying_schools(df_ds, df_nip, t)
+        with_e    = sum(1 for *_, e, _r, _c, _l in schools if e)
+        without_e = len(schools) - with_e
+        txt = f'→ {len(schools)} σχολεία'
+        if without_e:
+            txt += f'  ({without_e} χωρίς email)'
+        count_lbl.config(text=txt)
+
+    thr_var.trace_add('write', _update_count)
+    _update_count()
+
+    # Τρόπος αποστολής
+    mode_f = tk.Frame(body_f, bg=C['bg'])
+    mode_f.pack(fill='x', **pad)
+    mode_var = tk.StringVar(value='schools')
+    fe = getattr(config, 'FROM_EMAIL', '') or '...'
+    tk.Radiobutton(mode_f, text='Αποστολή σε σχολεία (ένα email ανά σχολείο)',
+                   variable=mode_var, value='schools',
+                   bg=C['bg'], selectcolor=C['sel_bg'],
+                   activebackground=C['bg'], font=('Arial', 9)).pack(anchor='w')
+    tk.Radiobutton(mode_f, text=f'Test mode — όλα στο: {fe}',
+                   variable=mode_var, value='test',
+                   bg=C['bg'], selectcolor=C['sel_bg'],
+                   activebackground=C['bg'], font=('Arial', 9)).pack(anchor='w')
+
+    # Log
+    log_w = scrolledtext.ScrolledText(body_f, height=10, font=('Courier', 8),
+                                       wrap='word', relief='solid', bd=1,
+                                       state='disabled')
+    log_w.pack(fill='both', expand=True, padx=14, pady=8)
+
+    def _log(msg):
+        def _append():
+            log_w.config(state='normal')
+            log_w.insert('end', msg + '\n')
+            log_w.see('end')
+            log_w.config(state='disabled')
+        try:
+            dlg.after(0, _append)
+        except Exception:
+            pass
+
+    # Κουμπιά
+    btn_f = tk.Frame(body_f, bg=C['bg'])
+    btn_f.pack(fill='x', padx=14, pady=(0, 12))
+    send_btn = tk.Button(btn_f, text='✉  Αποστολή',
+                         bg=C['btn_bg'], fg=C['btn_fg'],
+                         font=('Arial', 9, 'bold'), relief='flat',
+                         padx=14, pady=5, cursor='hand2')
+    send_btn.pack(side='left', padx=(0, 8))
+    tk.Button(btn_f, text='Κλείσιμο',
+              bg=C['bg2'], fg=C['desc'],
+              font=('Arial', 9), relief='flat', padx=14, pady=5,
+              cursor='hand2', command=dlg.destroy).pack(side='left')
+
+    def _start():
+        send_btn.config(state='disabled')
+        try:
+            threshold = thr_var.get()
+        except Exception:
+            threshold = 0
+        dry_run       = (mode_var.get() == 'test')
+        subj, body_tpl = _load_tmimata_email_template()
+
+        def _worker():
+            try:
+                sent, failed = _do_send_emails(
+                    df_ds, df_nip, threshold, dry_run,
+                    subj, body_tpl, config, today, _log)
+                _log(f'\n{"─"*40}')
+                _log(f'✓ Εστάλησαν: {len(sent)}   ✗ Αποτυχίες: {len(failed)}')
+            except Exception as e:
+                _log(f'✗ Σφάλμα: {e}')
+            finally:
+                try:
+                    dlg.after(0, lambda: send_btn.config(state='normal'))
+                except Exception:
+                    pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    send_btn.config(command=_start)
+
+    dlg.update_idletasks()
+    dlg.geometry('560x480')
+    x = root.winfo_x() + (root.winfo_width()  - 560) // 2
+    y = root.winfo_y() + (root.winfo_height() - 480) // 2
+    dlg.geometry(f'560x480+{x}+{y}')
+    dlg.wait_window()
 
 
 # ── Λήψη δεδομένων (μέσα στον έλεγχο — απαιτεί αλλαγή σχολικού έτους) ───────
@@ -438,9 +952,15 @@ def run(config):
     print(f'\n  Ημερομηνία : {today.strftime("%d/%m/%Y")}')
     print('-' * 65)
 
+    path_22 = _find_stat22()
+    if path_22:
+        print(f'  ✓ stat2_2 βρέθηκε: {os.path.basename(path_22)}')
+    else:
+        print('  ℹ stat2_2 δεν βρέθηκε — Email Σχολείου θα είναι κενό')
+
     print('\nΕπεξεργασία...')
     try:
-        df_ds, df_nip, perif = process(path_31, path_53, path_54)
+        df_ds, df_nip, perif = process(path_31, path_53, path_54, path_22=path_22)
     except Exception as e:
         import tkinter.messagebox as _mb
         _mb.showerror('Σφάλμα επεξεργασίας', str(e))
@@ -486,3 +1006,4 @@ def run(config):
         f'Αποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
     )
     _show_results_popup(CHECK_TITLE, body, result_type='warn', excel_path=out_path)
+    _show_email_dialog(config, df_ds, df_nip, today)
