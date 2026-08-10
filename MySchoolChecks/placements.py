@@ -528,33 +528,131 @@ def match_school_code(name, lookup):
     return None, 'notfound'
 
 
+def _downloads_bases():
+    """Πιθανοί βασικοί φάκελοι downloads (νέο & παλιό όνομα εφαρμογής)."""
+    docs = os.path.expanduser('~')
+    return [
+        os.path.join(docs, 'Documents', 'MySchoolChecksPlus', 'downloads'),
+        os.path.join(docs, 'Documents', 'MySchoolChecks', 'downloads'),
+    ]
+
+
+def _find_latest_report(*prefixes):
+    """
+    Ψάχνει το πιο πρόσφατο αρχείο με ένα από τα prefixes στο downloads
+    (ψάχνει και τους δύο πιθανούς φακέλους — MySchoolChecksPlus & MySchoolChecks).
+    Επιστρέφει (path, date_label) ή (None, None).
+    """
+    import glob
+    for base in _downloads_bases():
+        if not os.path.isdir(base):
+            continue
+        date_dirs = sorted(
+            [d for d in os.listdir(base) if re.match(r'^\d{8}$', d)],
+            reverse=True
+        )
+        for ddir in date_dirs:
+            folder = os.path.join(base, ddir)
+            label  = f'{ddir[6:8]}/{ddir[4:6]}/{ddir[:4]}'
+            for prefix in prefixes:
+                matches = glob.glob(os.path.join(folder, f'{prefix}*'))
+                if matches:
+                    return matches[0], label
+    return None, None
+
+
 def _auto_find_stat2():
     """
     Ψάχνει το πιο πρόσφατο αρχείο αναφοράς σχολείων στο downloads.
     Ψάχνει πρώτα gridResults (2.1), μετά stat2_2 (2.2).
     Επιστρέφει (path, date_label) ή (None, None) αν δεν βρεθεί.
     """
-    import glob
-    docs = os.path.expanduser('~')
-    base = os.path.join(docs, 'Documents', 'MySchoolChecks', 'downloads')
-    if not os.path.isdir(base):
-        return None, None
+    return _find_latest_report('gridResults', 'stat2_2')
 
-    date_dirs = sorted(
-        [d for d in os.listdir(base) if re.match(r'^\d{8}$', d)],
-        reverse=True
-    )
 
-    for ddir in date_dirs:
-        folder = os.path.join(base, ddir)
-        label  = f'{ddir[6:8]}/{ddir[4:6]}/{ddir[:4]}'
-        # Προτεραιότητα: gridResults (2.1) → stat2_2 (2.2)
-        for prefix in ('gridResults', 'stat2_2'):
-            matches = glob.glob(os.path.join(folder, f'{prefix}*'))
-            if matches:
-                return matches[0], label
+def _auto_find_stat41():
+    """
+    Ψάχνει το πιο πρόσφατο αρχείο stat4_1 (Οργανικές τοποθετήσεις) στο downloads.
+    Επιστρέφει (path, date_label) ή (None, None) αν δεν βρεθεί.
+    """
+    return _find_latest_report('stat4_1')
 
-    return None, None
+
+def build_afm_lookup_from_stat41(path):
+    """
+    Διαβάζει το stat4_1 (Οργανικές τοποθετήσεις) και επιστρέφει
+    dict: ΑΜ (string, χωρίς αρχικά μηδενικά) -> ΑΦΜ (string, 9 ψηφία).
+
+    Σημ.: το raw CSV έχει μία επιπλέον στήλη δεδομένων σε σχέση με τα headers
+    (η πρώτη στήλη/ΑΜ δεν έχει δικό της header στο MySchool export) — αν
+    διαβαστεί με τον προεπιλεγμένο τρόπο, pandas τη μεταχειρίζεται σιωπηλά ως
+    index και όλες οι υπόλοιπες στήλες "μετατοπίζονται" κατά μία θέση.
+    Το `index_col=False` διορθώνει αυτό και ευθυγραμμίζει σωστά ΑΜ/ΑΦΜ.
+    """
+    import zipfile
+
+    def _clean_afm(s):
+        s = str(s).strip()
+        s = re.sub(r'^="(.*)"$', r'\1', s)
+        s = re.sub(r'\.0$', '', s)
+        digits = re.sub(r'\D', '', s)
+        return digits.zfill(9) if digits else ''
+
+    def _clean_am(s):
+        s = str(s).strip()
+        s = re.sub(r'\.0$', '', s)
+        digits = re.sub(r'\D', '', s)
+        return digits
+
+    def _read_csv(path_or_buf):
+        for enc in ('windows-1253', 'utf-8-sig', 'iso-8859-7', 'cp1253'):
+            try:
+                return pd.read_csv(path_or_buf, sep=';', encoding=enc,
+                                    dtype=str, header=0, index_col=False)
+            except (UnicodeDecodeError, Exception):
+                if hasattr(path_or_buf, 'seek'):
+                    path_or_buf.seek(0)
+        return None
+
+    try:
+        if path.lower().endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(path, header=0, dtype=str)
+        elif zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path) as z:
+                csv_names = [n for n in z.namelist() if n.lower().endswith('.csv')]
+                if not csv_names:
+                    return {}
+                with z.open(csv_names[0]) as f:
+                    df = _read_csv(f)
+        else:
+            df = _read_csv(path)
+
+        if df is None or df.empty or len(df.columns) < 2:
+            return {}
+
+        def _find_col(cols, *keywords):
+            for col in cols:
+                cn = str(col).strip().upper()
+                cn = ''.join(c for c in unicodedata.normalize('NFD', cn)
+                             if unicodedata.category(c) != 'Mn')
+                for kw in keywords:
+                    if kw in cn:
+                        return col
+            return None
+
+        afm_col = _find_col(df.columns, 'ΑΦΜ', 'Α.Φ.Μ') or df.columns[1]
+        am_col  = _find_col([c for c in df.columns if c != afm_col],
+                             'ΑΜ', 'Α.Μ') or df.columns[0]
+
+        lookup = {}
+        for _, row in df.iterrows():
+            am  = _clean_am(row[am_col])
+            afm = _clean_afm(row[afm_col])
+            if am and afm:
+                lookup[am] = afm
+        return lookup
+    except Exception:
+        return {}
 
 
 # ── Μετατροπή αρχείου ΠΔΕ/Υπουργείου ────────────────────────────────────────
@@ -583,13 +681,22 @@ def _split_schools(text):
     return result
 
 
-def convert_raw_file(src_path, dest_path=None, stat2_path=None):
+def convert_raw_file(src_path, dest_path=None, stat2_path=None,
+                      eidos=None, apo_override=None, eos_override=None,
+                      stat41_path=None):
     """
     Μετατρέπει αρχείο τοποθετήσεων από μορφή ΠΔΕ/Υπουργείου
     στη μορφή που χρειάζεται το placements.py.
 
     stat2_path: προαιρετικό — αν δοθεί, αντιστοιχίζει ονόματα σχολείων
                 σε κωδικούς μόνο αν η αντιστοιχία είναι μοναδική.
+    eidos: προαιρετικό — αν δοθεί, συμπληρώνει το ΕΙΔΟΣ ΤΟΠΟΘΕΤΗΣΗΣ
+           με αυτή την τιμή σε ΟΛΕΣ τις γραμμές (αντί να μείνει κενό).
+    apo_override / eos_override: προαιρετικά — αν δοθούν (string 'DD/MM/YYYY'),
+           αντικαθιστούν τις στήλες ΑΠΟ / ΕΩΣ σε ΟΛΕΣ τις γραμμές.
+    stat41_path: προαιρετικό — αρχείο stat4_1 (Οργανικές τοποθετήσεις) για
+           αυτόματη συμπλήρωση Α.Φ.Μ. μέσω join στο Α.Μ. Όσα ΑΜ δεν βρεθούν
+           μέσα μένουν κενά (χειροκίνητη συμπλήρωση).
 
     Επιστρέφει (dest_path, n_rows, warnings) ή raise Exception σε αποτυχία.
     warnings: list με μηνύματα για σχολεία που δεν βρέθηκαν ή είναι αμφίβολα.
@@ -659,6 +766,17 @@ def convert_raw_file(src_path, dest_path=None, stat2_path=None):
             f'({len(school_lookup)} σχολεία)'
         )
 
+    # ── Φόρτωση lookup ΑΦΜ (stat4_1, join σε ΑΜ) ────────────────────────────────
+    stat41_label = None
+    if not stat41_path:
+        stat41_path, stat41_label = _auto_find_stat41()
+    afm_lookup = build_afm_lookup_from_stat41(stat41_path) if stat41_path else {}
+    if stat41_path:
+        warnings.append(
+            f'stat4_1 από: {stat41_label or os.path.basename(stat41_path)} '
+            f'({len(afm_lookup)} εγγραφές ΑΜ→ΑΦΜ)'
+        )
+
     # ── Μετατροπή + split ─────────────────────────────────────────────────────
     rows = []
     for _, r in raw.iterrows():
@@ -687,21 +805,31 @@ def convert_raw_file(src_path, dest_path=None, stat2_path=None):
                 elif sch_code_status == 'exact' and _LATIN_LOOKALIKE.search(sch):
                     warnings.append(f'Λατινικοί χαρακτ. στο "{sch}" — διορθώθηκε αυτόματα, έλεγξε τον κωδικό')
 
+            # Αναζήτηση ΑΦΜ μέσω stat4_1 (join στο ΑΜ)
+            afm = ''
+            if afm_lookup and am:
+                afm = afm_lookup.get(am, '')
+                if not afm:
+                    warnings.append(f'Δεν βρέθηκε ΑΦΜ στο 4.1 για ΑΜ {am} ({r.get("ΕΠΩΝΥΜΟ", "")})')
+
             rows.append({
-                'ΕΙΔΟΣ ΤΟΠΟΘΕΤΗΣΗΣ': '',
+                'ΕΙΔΟΣ ΤΟΠΟΘΕΤΗΣΗΣ': eidos if eidos else '',
                 'ΑΜ':  am,
-                'Α.Φ.Μ.': '',
+                'Α.Φ.Μ.': afm,
                 'ΕΠΙΘΕΤΟ': str(r.get('ΕΠΩΝΥΜΟ', '') or '').strip(),
                 'ΟΝΟΜΑ':   str(r.get('ΟΝΟΜΑ', '') or '').strip(),
                 'ΚΩΔ. ΣΧΟΛΕΙΟΥ': sch_code,
                 'ΣΧΟΛΕΙΟ': sch,
                 'ΩΡΕΣ':  None if is_multi else -1,
-                'ΑΠΟ':   apo,
-                'ΕΩΣ':   '',
+                'ΑΠΟ':   apo_override if apo_override else apo,
+                'ΕΩΣ':   eos_override if eos_override else '',
                 'OK':    '',
                 'ΣΧΟΛΙΟ': '',
                 '_multi': is_multi,
                 '_sch_code_status': sch_code_status,
+                '_eidos_filled': bool(eidos),
+                '_eos_filled': bool(eos_override),
+                '_afm_filled': bool(afm),
             })
 
     # ── Δημιουργία dest_path ──────────────────────────────────────────────────
@@ -721,9 +849,17 @@ def convert_raw_file(src_path, dest_path=None, stat2_path=None):
 
     ws.merge_cells('A1:L1')
     c = ws['A1']
+    _missing_bits = []
+    if not eidos:
+        _missing_bits.append('EIDOS TOPOTHETHSHS')
+    if not afm_lookup:
+        _missing_bits.append('A.F.M.')
+    _missing_bits.append('KWD. SXOLEIOU')
+    if not eos_override:
+        _missing_bits.append('EWS')
     c.value = (u'Συμπλήρωσε τα '
                u'πορτοκαλί κελιά: '
-               u'EIDOS TOPOTHETHSHS, A.F.M., KWD. SXOLEIOU, EWS | '
+               + u', '.join(_missing_bits) + u' | '
                u'Κίτρινο WRES = πολλαπλά σχολεία')
     c.font      = Font(bold=True, color='7B3F00', name='Arial', size=10, italic=True)
     c.fill      = PatternFill('solid', fgColor=WARN_BG)
@@ -777,6 +913,12 @@ def convert_raw_file(src_path, dest_path=None, stat2_path=None):
                 bg = MULTI_BG
             elif col == 'ΚΩΔ. ΣΧΟΛΕΙΟΥ' and row.get('_sch_code_status') == 'exact':
                 bg = AUTO_BG   # πράσινο — βρέθηκε μοναδική αντιστοιχία
+            elif col == 'ΕΙΔΟΣ ΤΟΠΟΘΕΤΗΣΗΣ' and row.get('_eidos_filled'):
+                bg = AUTO_BG   # πράσινο — συμπληρώθηκε από το popup (όλο το batch)
+            elif col == 'ΕΩΣ' and row.get('_eos_filled'):
+                bg = AUTO_BG   # πράσινο — συμπληρώθηκε από το popup (όλο το batch)
+            elif col == 'Α.Φ.Μ.' and row.get('_afm_filled'):
+                bg = AUTO_BG   # πράσινο — βρέθηκε στο stat4_1 μέσω ΑΜ
             else:
                 bg = COL_BGS.get(col, APP_BG)
             cell.fill      = PatternFill('solid', fgColor=bg)
@@ -799,10 +941,16 @@ def convert_raw_file(src_path, dest_path=None, stat2_path=None):
 
 # ── Σύνδεση & πλοήγηση ────────────────────────────────────────────
 
-def connect(log=print):
+def connect(log=print, mode='new'):
     """
-    Ανοίγει Chrome, κάνει SSO login, πλοηγείται στη λίστα τοποθετήσεων
-    και κάνει κλικ στο κουμπί Προσθήκης.
+    Ανοίγει Chrome, κάνει SSO login, πλοηγείται στη λίστα τοποθετήσεων.
+
+    mode='new'      -> κάνει κλικ στο κουμπί Προσθήκης (νέα απόφαση τοποθέτησης).
+    mode='existing' -> περιμένει τον χρήστη να ανοίξει ο ίδιος μια υπάρχουσα
+                        απόφαση μέσα στο παράθυρο Chrome (χρήσιμο όταν μια
+                        καταχώρηση είχε διακοπεί στη μέση και θέλουμε να
+                        συνεχίσουμε στην ΙΔΙΑ απόφαση αντί να ανοίξει νέα).
+
     Επιστρέφει το driver ή None σε αποτυχία.
     """
     try:
@@ -858,6 +1006,23 @@ def connect(log=print):
         driver.get(LIST_URL)
         time.sleep(3)
 
+        if mode == 'existing':
+            log('→ Άνοιξε εσύ την απόφαση τοποθέτησης που θέλεις να συνεχίσεις, '
+                'μέσα στο παράθυρο Chrome. Θα συνεχίσω αυτόματα μόλις μπεις στη φόρμα.')
+            waited = 0
+            while FORM_URL_PART not in driver.current_url:
+                time.sleep(1)
+                waited += 1
+                try:
+                    _ = driver.title
+                except Exception:
+                    log('❌ Το παράθυρο Chrome έκλεισε — ματαιώθηκε η αναμονή.')
+                    return None
+                if waited % 20 == 0:
+                    log(f'  ⏳ Ακόμα περιμένω... ({waited}s) — άνοιξε την απόφαση όποτε είσαι έτοιμος.')
+            log('✓ Εντοπίστηκε η φόρμα τοποθέτησης — συνεχίζω.')
+            return driver
+
         add_btn = WebDriverWait(driver, TIME_TO_WAIT).until(
             EC.element_to_be_clickable((By.ID, ADD_BTN_ID)))
         driver.execute_script('arguments[0].click();', add_btn)
@@ -893,7 +1058,20 @@ def run(ctx, driver, callback=None):
     try:
         col_types = {c: 'str' for c in EXCEL_COLUMNS if c != 'ΩΡΕΣ'}
         col_types['ΩΡΕΣ'] = 'Int64'
-        df = pd.read_excel(excel_path, dtype=col_types)
+        # Το αρχείο που παράγει convert_raw_file έχει banner στη γραμμή 1 (merged)
+        # και τα πραγματικά headers στη γραμμή 2 (header=1). Ένα "καθαρό" αρχείο
+        # (π.χ. από το πρότυπο placements_template.xlsx) έχει headers στη γραμμή 1
+        # (header=0). Δοκιμάζουμε και τα δύο και κρατάμε όποιο βρει τις στήλες.
+        df = None
+        for _hdr in (0, 1):
+            _df = pd.read_excel(excel_path, dtype=col_types, header=_hdr)
+            if 'ΕΠΙΘΕΤΟ' in _df.columns and 'Α.Φ.Μ.' in _df.columns:
+                df = _df
+                break
+        if df is None:
+            log('❌ Δεν βρέθηκαν οι αναμενόμενες στήλες (ΕΠΙΘΕΤΟ, Α.Φ.Μ....) '
+                'στο αρχείο — έλεγξε ότι δεν άλλαξες τη μορφή/σειρά headers.')
+            return
         for col in EXCEL_COLUMNS:
             if col not in df.columns:
                 df[col] = ''

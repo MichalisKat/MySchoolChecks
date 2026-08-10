@@ -3870,20 +3870,35 @@ class DipePlacementsDialog(tk.Toplevel):
     _SEC_BG = '#F0F4F8'
     _HDR    = '#1F4E79'
 
+    _EIDOS_OPTIONS = [
+        'Οργανικά',
+        'Οργανικά από Αμοιβαία Μετάθεση',
+        'Οργανικά από Αρση Υπεραριθμίας',
+        'Οργανικά σε Τμήμα Ένταξης',
+        'Από Διάθεση ΠΥΣΠΕ/ΠΥΣΔΕ',
+        'Επί Θητεία',
+        'Ειδική Θέση (τ. Σχ. Σύμβουλοι - ν. 1966/1991 άρ.8, παρ.5)',
+        'Απόσπαση (με αίτηση - κύριος φορέας)',
+        'Ολική Διάθεση (ανάγκες υπηρεσίας - κύριος φορέας)',
+        'Μερική Διάθεση (Συμπλήρωση Ωραρίου)',
+        'Υπερωριακά',
+    ]
+
     def __init__(self, parent):
         super().__init__(parent)
         self.title('Επεξεργασία αρχείου τοποθετήσεων')
         self.configure(bg=C['bg'])
         self.resizable(False, False)
         self.transient(parent)
-        self._raw_var = tk.StringVar()
+        self._raw_var    = tk.StringVar()
+        self._stat41_var = tk.StringVar()
         ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
         if os.path.exists(ico):
             try: self.iconbitmap(ico)
             except Exception: pass
         self._build()
         self.update_idletasks()
-        self.geometry('560x340')
+        self.geometry('560x390')
         pw = parent.winfo_x() + (parent.winfo_width()  - self.winfo_width())  // 2
         ph = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
         self.geometry(f'+{pw}+{ph}')
@@ -3914,7 +3929,22 @@ class DipePlacementsDialog(tk.Toplevel):
                   font=('Arial', 11), cursor='hand2',
                   command=self._browse_raw).pack(side='left', padx=(4,0))
 
-        self._conv_btn = tk.Button(sec,
+        sec2 = tk.LabelFrame(body,
+                            text='  Αρχείο 4.1 για ΑΦΜ (προαιρετικό — αλλιώς αυτόματη εύρεση)',
+                            bg=self._SEC_BG, fg=self._HDR,
+                            font=('Arial', 9, 'bold'), bd=1, relief='groove', padx=10, pady=8)
+        sec2.grid(row=1, column=0, sticky='ew', pady=(0,6))
+        sec2.columnconfigure(0, weight=1)
+        f1b = tk.Frame(sec2, bg=self._SEC_BG)
+        f1b.grid(row=0, column=0, sticky='ew')
+        f1b.columnconfigure(0, weight=1)
+        tk.Entry(f1b, textvariable=self._stat41_var, font=('Arial', 9),
+                 relief='solid', bd=1).pack(side='left', fill='x', expand=True)
+        tk.Button(f1b, text='📂', bg=self._SEC_BG, relief='flat',
+                  font=('Arial', 11), cursor='hand2',
+                  command=self._browse_stat41).pack(side='left', padx=(4,0))
+
+        self._conv_btn = tk.Button(sec2,
                   text='Επεξεργασία & άνοιγμα  →',
                   bg=C['btn_bg'], fg=C['btn_fg'],
                   font=('Arial', 9, 'bold'), relief='flat',
@@ -3922,15 +3952,15 @@ class DipePlacementsDialog(tk.Toplevel):
         self._conv_btn.grid(row=1, column=0, sticky='e', pady=(6,0))
         self._status_var = tk.StringVar(value='')
         tk.Label(body, textvariable=self._status_var, bg=C['bg'], fg=C['status_run'],
-                 font=('Arial', 8), anchor='w').grid(row=1, column=0, sticky='w', pady=(0,4))
+                 font=('Arial', 8), anchor='w').grid(row=2, column=0, sticky='w', pady=(0,4))
         tk.Label(body, text='Αρχείο καταγραφής:',
                  bg=C['bg'], fg=C['hdr_bg'],
-                 font=('Arial', 9, 'bold')).grid(row=2, column=0, sticky='w', pady=(4,2))
+                 font=('Arial', 9, 'bold')).grid(row=3, column=0, sticky='w', pady=(4,2))
         self._log = st2.ScrolledText(body, height=6, font=('Consolas', 8),
                                       relief='solid', bd=1, state='disabled',
                                       bg='#F5F5F5', wrap=tk.WORD)
-        self._log.grid(row=3, column=0, sticky='nsew', pady=(0,4))
-        body.rowconfigure(3, weight=1)
+        self._log.grid(row=4, column=0, sticky='nsew', pady=(0,4))
+        body.rowconfigure(4, weight=1)
 
     def _browse_raw(self):
         from tkinter import filedialog
@@ -3940,6 +3970,14 @@ class DipePlacementsDialog(tk.Toplevel):
         if path:
             self._raw_var.set(path)
 
+    def _browse_stat41(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(parent=self,
+            title='Επιλογή αρχείου stat4_1 (Οργανικές τοποθετήσεις)',
+            filetypes=[('Excel/CSV/ZIP', '*.xlsx *.xls *.csv *.zip'), ('Όλα', '*.*')])
+        if path:
+            self._stat41_var.set(path)
+
     def _log_msg(self, msg):
         def _do():
             self._log.configure(state='normal')
@@ -3948,6 +3986,99 @@ class DipePlacementsDialog(tk.Toplevel):
             self._log.configure(state='disabled')
         self.after(0, _do)
 
+    def _ask_batch_fields(self):
+        """
+        Popup: ζητά ΕΙΔΟΣ ΤΟΠΟΘΕΤΗΣΗΣ + ΑΠΟ/ΕΩΣ μία φορά, για εφαρμογή
+        σε ΟΛΕΣ τις γραμμές του αρχείου. Κενά πεδία = δεν συμπληρώνεται
+        αυτόματα (μένει όπως πριν, χειροκίνητα στο Excel).
+        Επιστρέφει dict {'eidos','apo','eos'} ή None αν πατηθεί Άκυρο.
+        """
+        win = tk.Toplevel(self)
+        win.title('Στοιχεία τοποθέτησης (όλο το αρχείο)')
+        win.configure(bg=C['bg'])
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+
+        from datetime import datetime as _dt_bf
+        from tkinter import ttk as _ttk_bf
+        result = {}
+
+        body = tk.Frame(win, bg=C['bg'], padx=16, pady=14)
+        body.pack(fill='both', expand=True)
+
+        tk.Label(body, text='Οι τιμές αυτές θα εφαρμοστούν σε ΟΛΕΣ τις γραμμές.\n'
+                             'Άφησε κενό ό,τι θέλεις να συμπληρώσεις χειροκίνητα.',
+                 bg=C['bg'], fg=C['desc'], font=('Arial', 8),
+                 justify='left').grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 10))
+
+        tk.Label(body, text='Είδος τοποθέτησης:', bg=C['bg'], fg=self._HDR,
+                 font=('Arial', 9, 'bold')).grid(row=1, column=0, sticky='w', pady=4)
+        eidos_var = tk.StringVar()
+        cb = _ttk_bf.Combobox(body, textvariable=eidos_var, values=self._EIDOS_OPTIONS,
+                           state='readonly', width=42, font=('Arial', 9))
+        cb.grid(row=1, column=1, sticky='ew', pady=4, padx=(8, 0))
+
+        tk.Label(body, text='Από (ΗΗ/ΜΜ/ΕΕΕΕ):', bg=C['bg'], fg=self._HDR,
+                 font=('Arial', 9, 'bold')).grid(row=2, column=0, sticky='w', pady=4)
+        apo_var = tk.StringVar()
+        tk.Entry(body, textvariable=apo_var, font=('Arial', 9),
+                  relief='solid', bd=1, width=15).grid(row=2, column=1, sticky='w', pady=4, padx=(8, 0))
+
+        tk.Label(body, text='Έως (ΗΗ/ΜΜ/ΕΕΕΕ):', bg=C['bg'], fg=self._HDR,
+                 font=('Arial', 9, 'bold')).grid(row=3, column=0, sticky='w', pady=4)
+        eos_var = tk.StringVar()
+        tk.Entry(body, textvariable=eos_var, font=('Arial', 9),
+                  relief='solid', bd=1, width=15).grid(row=3, column=1, sticky='w', pady=4, padx=(8, 0))
+
+        def _valid_date(s):
+            s = s.strip()
+            if not s:
+                return True
+            try:
+                _dt_bf.strptime(s, '%d/%m/%Y')
+                return True
+            except ValueError:
+                return False
+
+        def _ok():
+            apo = apo_var.get().strip()
+            eos = eos_var.get().strip()
+            if not _valid_date(apo) or not _valid_date(eos):
+                messagebox.showwarning('Προσοχή',
+                    'Οι ημερομηνίες πρέπει να είναι σε μορφή ΗΗ/ΜΜ/ΕΕΕΕ (π.χ. 01/09/2025).',
+                    parent=win)
+                return
+            result['eidos'] = eidos_var.get().strip()
+            result['apo']   = apo
+            result['eos']   = eos
+            win.destroy()
+
+        def _cancel():
+            result.clear()
+            result['_cancelled'] = True
+            win.destroy()
+
+        btn_row = tk.Frame(body, bg=C['bg'])
+        btn_row.grid(row=4, column=0, columnspan=2, sticky='e', pady=(14, 0))
+        tk.Button(btn_row, text='Άκυρο', bg=C['bg2'], fg=C['desc'],
+                  font=('Arial', 9), relief='flat', padx=10, pady=4,
+                  cursor='hand2', command=_cancel).pack(side='right', padx=(6, 0))
+        tk.Button(btn_row, text='Συνέχεια →', bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat', padx=12, pady=4,
+                  cursor='hand2', command=_ok).pack(side='right')
+
+        win.protocol('WM_DELETE_WINDOW', _cancel)
+        win.update_idletasks()
+        pw = self.winfo_x() + (self.winfo_width() - win.winfo_width()) // 2
+        ph = self.winfo_y() + (self.winfo_height() - win.winfo_height()) // 2
+        win.geometry(f'+{pw}+{ph}')
+        win.wait_window()
+
+        if result.get('_cancelled'):
+            return None
+        return result
+
     def _convert(self):
         import threading as _th
         src = self._raw_var.get().strip()
@@ -3955,25 +4086,43 @@ class DipePlacementsDialog(tk.Toplevel):
             messagebox.showwarning('Προσοχή',
                 'Επίλεξε πρώτα το αρχικό αρχείο.', parent=self)
             return
+        batch = self._ask_batch_fields()
+        if batch is None:
+            return
         self._conv_btn.configure(state='disabled', text='Μετατροπή...')
         self._log_msg('→ Μετατροπή αρχείου...')
+        if batch.get('eidos'):
+            self._log_msg(f"  Είδος τοποθέτησης (όλο το αρχείο): {batch['eidos']}")
+        if batch.get('apo'):
+            self._log_msg(f"  Από (όλο το αρχείο): {batch['apo']}")
+        if batch.get('eos'):
+            self._log_msg(f"  Έως (όλο το αρχείο): {batch['eos']}")
+        stat41 = self._stat41_var.get().strip()
         def _do():
             try:
                 import placements
-                dest, n, warns = placements.convert_raw_file(src)
+                dest, n, warns = placements.convert_raw_file(
+                    src,
+                    eidos=batch.get('eidos') or None,
+                    apo_override=batch.get('apo') or None,
+                    eos_override=batch.get('eos') or None,
+                    stat41_path=stat41 or None,
+                )
                 def _after():
                     self._conv_btn.configure(state='normal', text='Επεξεργασία & άνοιγμα  →')
                     self._log_msg(f'✓ Δημιουργήθηκε: {os.path.basename(dest)} ({n} γραμμές)')
-                    # Πρώτο warn είναι πάντα το info για stat2_2 (αν βρέθηκε)
-                    info_warns  = [w for w in warns if w.startswith('stat2_2')]
-                    other_warns = [w for w in warns if not w.startswith('stat2_2')]
+                    # Πρώτα τα info για stat2_2 / stat4_1 (αν βρέθηκαν)
+                    info_warns  = [w for w in warns if w.startswith('stat2_2') or w.startswith('stat4_1')]
+                    afm_warns   = [w for w in warns if w.startswith('Δεν βρέθηκε ΑΦΜ')]
+                    other_warns = [w for w in warns if w not in info_warns and w not in afm_warns]
                     for w in info_warns:
                         self._log_msg(f'  📂 {w}')
-                    if info_warns:
-                        found = n - len(other_warns)
-                        self._log_msg(f'  Κωδικοί: {found}/{n} βρέθηκαν αυτόματα')
-                    else:
+                    if not any(w.startswith('stat2_2') for w in info_warns):
                         self._log_msg('  ℹ stat2_2 δεν βρέθηκε — κωδικοί κενοί')
+                    if not any(w.startswith('stat4_1') for w in info_warns):
+                        self._log_msg('  ℹ stat4_1 δεν βρέθηκε — ΑΦΜ κενά')
+                    for w in afm_warns:
+                        self._log_msg(f'  ⚠ {w}')
                     for w in other_warns:
                         self._log_msg(f'  ⚠ {w}')
                     self._log_msg('  Άνοιγμα Excel — συμπλήρωσε τα πορτοκαλί κελιά και αποθήκευσε.')
@@ -4194,19 +4343,76 @@ class PlacementsDialog(tk.Toplevel):
             self._log.configure(state='disabled')
         self.after(0, _do)
 
+    def _ask_decision_mode(self):
+        """
+        Popup: ρωτά αν ο χρήστης θα ανοίξει ο ίδιος μια υπάρχουσα απόφαση
+        τοποθέτησης (χρήσιμο όταν μια καταχώρηση είχε διακοπεί στη μέση),
+        ή αν θέλει να δημιουργηθεί νέα (προεπιλεγμένη συμπεριφορά).
+        Επιστρέφει 'existing', 'new', ή None αν ακυρωθεί.
+        """
+        win = tk.Toplevel(self)
+        win.title('Απόφαση τοποθέτησης')
+        win.configure(bg=C['bg'])
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+
+        result = {}
+
+        body = tk.Frame(win, bg=C['bg'], padx=18, pady=16)
+        body.pack(fill='both', expand=True)
+
+        tk.Label(body,
+                 text='Θα ανοίξεις εσύ μια υπάρχουσα απόφαση τοποθέτησης\n'
+                      'στο παράθυρο Chrome (π.χ. μια που είχε διακοπεί),\n'
+                      'ή να δημιουργήσω νέα;',
+                 bg=C['bg'], fg=self._LBL_STEP, font=('Arial', 10),
+                 justify='left').pack(pady=(0, 14))
+
+        def _pick(mode):
+            result['mode'] = mode
+            win.destroy()
+
+        btn_row = tk.Frame(body, bg=C['bg'])
+        btn_row.pack()
+        tk.Button(btn_row, text='📂  Θα ανοίξω υπάρχουσα', bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat', padx=10, pady=6,
+                  cursor='hand2', command=lambda: _pick('existing')).pack(side='left', padx=(0, 8))
+        tk.Button(btn_row, text='➕  Δημιουργία νέας', bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat', padx=10, pady=6,
+                  cursor='hand2', command=lambda: _pick('new')).pack(side='left')
+
+        tk.Button(body, text='Άκυρο', bg=C['bg2'], fg=C['desc'], font=('Arial', 8),
+                  relief='flat', padx=8, pady=3, cursor='hand2',
+                  command=lambda: _pick(None)).pack(pady=(12, 0))
+
+        win.protocol('WM_DELETE_WINDOW', lambda: _pick(None))
+        win.update_idletasks()
+        pw = self.winfo_x() + (self.winfo_width() - win.winfo_width()) // 2
+        ph = self.winfo_y() + (self.winfo_height() - win.winfo_height()) // 2
+        win.geometry(f'+{pw}+{ph}')
+        win.wait_window()
+
+        return result.get('mode')
+
     def _run(self):
         import threading as _th
         path = self._excel_var.get().strip()
         if not path:
             messagebox.showwarning('Προσοχή', 'Επίλεξε αρχείο Excel πρώτα.', parent=self)
             return
+        mode = 'new'
+        if not self._driver:
+            mode = self._ask_decision_mode()
+            if mode is None:
+                return
         self._run_btn.configure(state='disabled', bg=C['btn_dis'])
         self._status_var.set('Σύνδεση στο MySchool...')
         def _do():
             import placements
             if not self._driver:
                 self._log_msg('→ Εκκίνηση σύνδεσης...')
-                drv = placements.connect(log=self._log_msg)
+                drv = placements.connect(log=self._log_msg, mode=mode)
                 if not drv:
                     def _fail():
                         self._run_btn.configure(state='normal', bg=C['btn_bg'])
