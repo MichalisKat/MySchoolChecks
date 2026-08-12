@@ -34,6 +34,17 @@ absences.py
   γραμμή, δεν βρέθηκε καθόλου ο εκπαιδευτικός, dropdown/πεδίο απέτυχε κ.λπ.)
   εμφανίζεται μήνυμα στον χρήστη — ο χρήστης το κλείνει και συνεχίζει στον
   επόμενο εκπαιδευτικό.
+
+Resume & προστασία από διπλοεγγραφές:
+  - Δίπλα στο αρχείο δημιουργείται αρχείο προόδου "<όνομα>_status.xlsx" που
+    ενημερώνεται μετά από ΚΑΘΕ εκπαιδευτικό. Αν το script σταματήσει (crash,
+    κλείσιμο, διακοπή δικτύου), μια επόμενη εκτέλεση με το ΙΔΙΟ αρχείο δεν
+    ξαναπερνάει όσους έχουν ήδη καταχωρηθεί (ΕΠΙΤΥΧΙΑ/ΥΠΑΡΧΕΙ ΗΔΗ) — μόνο
+    όσους έμειναν σε ΑΠΟΤΥΧΙΑ ή δεν προλάβαιναν να τρέξουν.
+  - Επιπλέον, πριν προσθέσει νέα γραμμή απουσίας, ελέγχει το ίδιο το grid
+    Απουσιών στο MySchool — αν βρει ήδη καταχωρημένη την ίδια απουσία (π.χ.
+    από προηγούμενη εκτέλεση που δεν πρόλαβε να γραφτεί στο αρχείο προόδου),
+    δεν την ξαναπροσθέτει, το καταγράφει ως "ΥΠΑΡΧΕΙ ΗΔΗ" και προχωράει.
 """
 
 import os
@@ -157,6 +168,64 @@ def load_data(file_path, log=print):
     return records, skipped
 
 
+# ── Αρχείο προόδου (resume — σαν στις Τοποθετήσεις) ───────────────────────────
+#
+# Το αρχικό αρχείο εξαγωγής (.xls από το MySchool) δεν ξαναγράφεται απευθείας
+# (η εγγραφή .xls δεν υποστηρίζεται αξιόπιστα από pandas). Αντ' αυτού κρατάμε
+# ένα "αρχείο προόδου" (.xlsx) δίπλα στο αρχικό, με στήλες Α.Μ./ΚΑΤΑΣΤΑΣΗ/
+# ΣΧΟΛΙΟ. Ενημερώνεται μετά από ΚΑΘΕ εκπαιδευτικό, ώστε αν σταματήσει το
+# script (crash, κλείσιμο, διακοπή σύνδεσης) η επόμενη εκτέλεση με το ΙΔΙΟ
+# αρχείο να συνεχίζει από εκεί που έμεινε — δεν ξαναπερνάει όσους έχουν ήδη
+# ΕΠΙΤΥΧΙΑ ή ΥΠΑΡΧΕΙ ΗΔΗ.
+
+STATUS_SUFFIX  = '_status.xlsx'
+DONE_STATUSES  = {'ΕΠΙΤΥΧΙΑ', 'ΥΠΑΡΧΕΙ ΗΔΗ'}
+
+
+def _status_file_path(source_path):
+    base, _ = os.path.splitext(source_path)
+    return base + STATUS_SUFFIX
+
+
+def _load_status(status_path, log=print):
+    """Επιστρέφει dict Α.Μ. → {'name','status','comment'} από προηγούμενη εκτέλεση."""
+    if not os.path.exists(status_path):
+        return {}
+    try:
+        sdf = pd.read_excel(status_path, dtype=str)
+        out = {}
+        for _, r in sdf.iterrows():
+            am = str(r.get('Α.Μ.', '')).strip()
+            if am and am not in ('nan', 'None'):
+                out[am] = {
+                    'name':    str(r.get('Όνομα', '')).strip(),
+                    'status':  str(r.get('ΚΑΤΑΣΤΑΣΗ', '')).strip(),
+                    'comment': str(r.get('ΣΧΟΛΙΟ', '')).strip(),
+                }
+        return out
+    except Exception as e:
+        log(f'⚠ Δεν διαβάστηκε το αρχείο προόδου ({status_path}): {e}')
+        return {}
+
+
+def _save_status(status_path, status_dict):
+    """Γράφει το dict προόδου στο δίσκο (κλήση μετά από ΚΑΘΕ εκπαιδευτικό)."""
+    rows = []
+    for am, info in status_dict.items():
+        rows.append({
+            'Α.Μ.':      am,
+            'Όνομα':     info.get('name', ''),
+            'ΚΑΤΑΣΤΑΣΗ': info.get('status', ''),
+            'ΣΧΟΛΙΟ':    info.get('comment', ''),
+            'ΗΜ/ΝΙΑ':    info.get('date', ''),
+        })
+    sdf = pd.DataFrame(rows, columns=['Α.Μ.', 'Όνομα', 'ΚΑΤΑΣΤΑΣΗ', 'ΣΧΟΛΙΟ', 'ΗΜ/ΝΙΑ'])
+    try:
+        sdf.to_excel(status_path, index=False)
+    except Exception:
+        pass  # δεν μπλοκάρουμε την εκτέλεση αν αποτύχει προσωρινά η εγγραφή
+
+
 # ── Βοηθητικές Selenium ───────────────────────────────────────────────────────
 
 STRIKE_INTERVAL = 0.3
@@ -212,6 +281,32 @@ def _select_dxe_combo(driver, base_id, text):
         return True
     except Exception:
         return False
+
+
+def _absence_already_exists(driver):
+    """
+    Ελέγχει αν το πινακάκι Απουσιών (gridAbsences) έχει ΗΔΗ γραμμή με το
+    λεκτικό ΟΛΙΚΗ ΔΙΑΘΕΣΗ — π.χ. από προηγούμενη (διακεκομμένη) εκτέλεση που
+    δεν πρόλαβε να καταγράψει την επιτυχία στο αρχείο προόδου.
+    Στοχεύουμε ρητά στο container του grid (όχι όλη τη σελίδα) γιατί το ίδιο
+    λεκτικό εμφανίζεται και μέσα στη λίστα του dropdown.
+    """
+    from selenium.webdriver.common.by import By
+    try:
+        container = driver.find_element(By.ID, 'ctl00_ContentData_gridAbsences')
+        if ABSENCE_TYPE_TEXT in container.text:
+            return True
+    except Exception:
+        pass
+    try:
+        containers = driver.find_elements(
+            By.XPATH, '//*[contains(@id,"gridAbsences") and not(contains(@id,"editnew"))]')
+        for c in containers:
+            if ABSENCE_TYPE_TEXT in c.text:
+                return True
+    except Exception:
+        pass
+    return False
 
 
 # ── Σύνδεση (καλείται από το UI) ─────────────────────────────────────────────
@@ -314,18 +409,52 @@ def run(ctx, driver, callback=None, ask_user=None):
         log('Καμία εγγραφή προς επεξεργασία.')
         return
 
-    total = len(records)
-    log(f'\n{total} εγγραφές προς καταχώρηση.')
+    # ── Αρχείο προόδου: φόρτωση + φιλτράρισμα ήδη-ολοκληρωμένων ──────────────
+    status_path = _status_file_path(file_path)
+    status = _load_status(status_path, log=log)
+    log(f'Αρχείο προόδου: {status_path}')
+
+    def _mark(am, name, status_val, comment):
+        status[am] = {
+            'name':    name,
+            'status':  status_val,
+            'comment': comment,
+            'date':    time.strftime('%d/%m/%Y %H:%M'),
+        }
+        _save_status(status_path, status)
+
+    already_done = []
+    to_process   = []
+    for rec in records:
+        prev = status.get(rec['am'])
+        if prev and prev['status'] in DONE_STATUSES:
+            already_done.append(f"{rec['name']} ({rec['am']}) — {prev['status']}")
+        else:
+            to_process.append(rec)
+
+    if already_done:
+        log(f'\n⏭ {len(already_done)} ήδη ολοκληρωμένες από προηγούμενη εκτέλεση '
+            f'(δεν ξαναγίνονται):')
+        for s in already_done:
+            log(f'   {s}')
+
+    if not to_process:
+        log('\nΌλες οι εγγραφές του αρχείου έχουν ήδη ολοκληρωθεί.')
+        return
+
+    total = len(to_process)
+    log(f'\n{total} εγγραφές προς καταχώρηση σε αυτή την εκτέλεση.')
 
     ok = fail = 0
     ok_list = []
     fail_list = []
+    already_live_list = []   # βρέθηκαν ήδη καταχωρημένες στο ίδιο το MySchool
 
     def _notify(msg):
         """Ειδοποίηση διαφοροποίησης — ο χρήστης κλείνει και προχωράμε."""
         _ask('Διαφοροποίηση', msg, ['Συνέχεια στον επόμενο'])
 
-    for idx, rec in enumerate(records, 1):
+    for idx, rec in enumerate(to_process, 1):
         am    = rec['am']
         name  = rec['name']
         eos   = rec['eos']
@@ -339,6 +468,7 @@ def run(ctx, driver, callback=None, ask_user=None):
         except Exception as e:
             log(f'  ✗ Πλοήγηση: {e}')
             _notify(f'{label}\nΣφάλμα πλοήγησης: {e}')
+            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', f'Πλοήγηση: {e}')
             fail += 1
             fail_list.append(label)
             continue
@@ -366,6 +496,7 @@ def run(ctx, driver, callback=None, ask_user=None):
         except Exception as e:
             log(f'  ✗ Α.Μ. field: {e}')
             _notify(f'{label}\nΔεν βρέθηκε το πεδίο Α.Μ.: {e}')
+            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', f'Πεδίο Α.Μ.: {e}')
             fail += 1
             fail_list.append(label)
             continue
@@ -379,6 +510,7 @@ def run(ctx, driver, callback=None, ask_user=None):
         except Exception as e:
             log(f'  ✗ Αναζήτηση: {e}')
             _notify(f'{label}\nΣφάλμα αναζήτησης: {e}')
+            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', f'Αναζήτηση: {e}')
             fail += 1
             fail_list.append(label)
             continue
@@ -390,6 +522,7 @@ def run(ctx, driver, callback=None, ask_user=None):
         if not edit_links:
             log('  ✗ Δεν βρέθηκε ο εκπαιδευτικός')
             _notify(f'{label}\nΔεν βρέθηκε καμία εγγραφή για το Α.Μ. {am}.')
+            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', 'Δεν βρέθηκε ο εκπαιδευτικός')
             fail += 1
             fail_list.append(label)
             continue
@@ -410,6 +543,7 @@ def run(ctx, driver, callback=None, ask_user=None):
             _notify(f'{label}\nΔεν βρέθηκε γραμμή με Σχέση τοποθέτησης από την '
                      f'1η τριάδα (Οργανικά / Οργανικά σε Τμήμα Ένταξης / '
                      f'Οργανικά από Αρση Υπεραριθμίας).')
+            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', 'Δεν βρέθηκε γραμμή 1ης τριάδας')
             fail += 1
             fail_list.append(label)
             continue
@@ -422,9 +556,22 @@ def run(ctx, driver, callback=None, ask_user=None):
         except Exception as e:
             log(f'  ✗ Άνοιγμα καρτέλας: {e}')
             _notify(f'{label}\nΣφάλμα ανοίγματος καρτέλας: {e}')
+            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', f'Άνοιγμα καρτέλας: {e}')
             fail += 1
             fail_list.append(label)
             continue
+
+        # ── Έλεγχος διπλοεγγραφής: υπάρχει ήδη η απουσία στο grid; ────────
+        # Καλύπτει την περίπτωση προηγούμενης διακεκομμένης εκτέλεσης που
+        # πρόλαβε να αποθηκεύσει στο MySchool αλλά όχι στο αρχείο προόδου.
+        try:
+            if _absence_already_exists(driver):
+                log('  ⏭ Η απουσία υπάρχει ήδη καταχωρημένη — παράλειψη')
+                _mark(am, name, 'ΥΠΑΡΧΕΙ ΗΔΗ', 'Βρέθηκε ήδη στο grid κατά τον έλεγχο')
+                already_live_list.append(label)
+                continue
+        except Exception:
+            pass  # αν αποτύχει ο έλεγχος, συνεχίζουμε κανονικά με την προσθήκη
 
         # ── Πινακάκι Απουσιών (gridAbs): scroll + κλικ ➕ (Προσθήκη) ────────
         # Σημείωση: η καρτέλα έχει κι άλλο πινακάκι ("Λεπτομέρειες ωραρίου
@@ -446,6 +593,7 @@ def run(ctx, driver, callback=None, ask_user=None):
         except Exception as e:
             log(f'  ✗ Κουμπί Προσθήκη: {e}')
             _notify(f'{label}\nΔεν βρέθηκε/άνοιξε το κουμπί Προσθήκη απουσίας: {e}')
+            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', f'Κουμπί Προσθήκη: {e}')
             fail += 1
             fail_list.append(label)
             continue
@@ -460,6 +608,7 @@ def run(ctx, driver, callback=None, ask_user=None):
         except Exception as e:
             log(f'  ✗ Δεν βρέθηκε το πεδίο τύπου απουσίας: {e}')
             _notify(f'{label}\nΔεν βρέθηκε το πεδίο τύπου απουσίας μετά το Προσθήκη.')
+            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', 'Δεν βρέθηκε το πεδίο τύπου απουσίας')
             fail += 1
             fail_list.append(label)
             continue
@@ -513,6 +662,7 @@ def run(ctx, driver, callback=None, ask_user=None):
         except Exception as e:
             log(f'  ✗ Αποδοχή: {e}')
             _notify(f'{label}\nΣφάλμα κατά την Αποδοχή: {e}')
+            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', f'Αποδοχή: {e}')
             fail += 1
             fail_list.append(label)
             continue
@@ -528,9 +678,11 @@ def run(ctx, driver, callback=None, ask_user=None):
             log('  ✓ Αποθήκευση')
             ok += 1
             ok_list.append(label)
+            _mark(am, name, 'ΕΠΙΤΥΧΙΑ', 'Καταχωρήθηκε')
         except Exception as e:
             log(f'  ✗ Αποθήκευση: {e}')
             _notify(f'{label}\nΣφάλμα κατά την Αποθήκευση: {e}')
+            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', f'Αποθήκευση: {e}')
             fail += 1
             fail_list.append(label)
 
@@ -538,15 +690,31 @@ def run(ctx, driver, callback=None, ask_user=None):
     log(f'\n{"═" * 55}')
     log(f'  ΑΠΟΤΕΛΕΣΜΑΤΑ ΚΑΤΑΧΩΡΗΣΗΣ ΑΠΟΥΣΙΩΝ')
     log(f'{"─" * 55}')
-    log(f'  ✓  Καταχωρήθηκαν  : {ok}')
-    log(f'  ✗  Αποτυχίες      : {fail}')
+    log(f'  ✓  Καταχωρήθηκαν τώρα        : {ok}')
+    log(f'  ⏭ Υπήρχαν ήδη (live έλεγχος) : {len(already_live_list)}')
+    log(f'  ⏭ Ήδη ολοκληρωμένες (προηγ. εκτέλεση) : {len(already_done)}')
+    log(f'  ✗  Αποτυχίες                 : {fail}')
     log(f'  ⏭ Παραλείφθηκαν (φιλτράρισμα αρχείου) : {len(skipped_load)}')
     log(f'{"═" * 55}')
 
+    if ok_list:
+        log(f'\n✓ ΚΑΤΑΧΩΡΗΘΗΚΑΝ ΤΩΡΑ ({len(ok_list)}):')
+        for e in ok_list:
+            log(f'   {e}')
+
+    if already_live_list:
+        log(f'\n⏭ ΥΠΗΡΧΑΝ ΗΔΗ ΣΤΟ MYSCHOOL ({len(already_live_list)}):')
+        for e in already_live_list:
+            log(f'   {e}')
+
     if fail_list:
-        log('\n✗ ΑΠΟΤΥΧΙΕΣ:')
+        log(f'\n✗ ΑΠΟΤΥΧΙΕΣ ({len(fail_list)}) — θα ξαναδοκιμαστούν στην επόμενη εκτέλεση:')
         for e in fail_list:
             log(f'   {e}')
+
+    log(f'\nΤο αρχείο προόδου ({status_path}) ενημερώνεται μετά από κάθε '
+        f'εκπαιδευτικό — αν ξανατρέξεις με το ίδιο αρχείο, δεν θα ξαναγίνουν '
+        f'όσοι έχουν ήδη ΕΠΙΤΥΧΙΑ ή ΥΠΑΡΧΕΙ ΗΔΗ.')
 
 
 # ── Fallback ask (για terminal / testing) ─────────────────────────────────────
