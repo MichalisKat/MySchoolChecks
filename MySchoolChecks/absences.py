@@ -3,7 +3,8 @@
 """
 absences.py
 ============
-Αυτόματη καταχώρηση απουσίας (Ολική Διάθεση) σε οργανική τοποθέτηση στο MySchool.
+Αυτόματη καταχώρηση απουσίας (Ολική Διάθεση ή Απόσπαση) σε οργανική
+τοποθέτηση στο MySchool.
 
 Πλαίσιο:
   Κάθε εκπαιδευτικός έχει 2 εγγραφές τοποθέτησης στο αρχείο εξαγωγής (Στήλη
@@ -14,19 +15,23 @@ absences.py
                                           κύριος φορέας) / Απόσπαση (με αίτηση -
                                           κύριος φορέας) / Επί Θητεία
 
-  Επεξεργάζονται ΜΟΝΟ οι εκπαιδευτικοί με 2η εγγραφή = "Ολική Διάθεση
-  (ανάγκες υπηρεσίας - κύριος φορέας)". Οι υπόλοιποι (Απόσπαση/Επί Θητεία)
-  εξαιρούνται (χειροκίνητη καταχώρηση).
+  Επεξεργάζονται οι εκπαιδευτικοί με 2η εγγραφή ΕΝΑ από τα δύο:
+    - "Ολική Διάθεση (ανάγκες υπηρεσίας - κύριος φορέας)"
+      → λεκτικό απουσίας: ΟΛΙΚΗ ΔΙΑΘΕΣΗ ΣΕ ΑΛΛΗ ΣΧΟΛΙΚΗ ΜΟΝΑΔΑ - Σχολικές
+        Μονάδες Πρωτοβάθμιας
+    - "Απόσπαση (με αίτηση - κύριος φορέας)"
+      → λεκτικό απουσίας: ΑΠΟΣΠΑΣΗ ΣΕ ΣΧΟΛΙΚΗ ΜΟΝΑΔΑ ΕΝΤΟΣ ΤΟΥ ΠΥΣΔΕ / ΠΥΣΠΕ -
+        Αλλη Σχολική Μονάδα
+  Το «Επί Θητεία» παραμένει εκτός (χειροκίνητη καταχώρηση).
 
 Ροή ανά εκπαιδευτικό:
   1. Αναζήτηση με Α.Μ. στο Worker.list.myEmplUnit.aspx
   2. Εντοπισμός της γραμμής με Σχέση τοποθέτησης από την 1η τριάδα → κλικ γρανάζι
   3. Scroll στο πινακάκι Απουσιών (gridAbsences) → κλικ ➕ (Προσθήκη)
   4. Συμπλήρωση:
-       Τύπος απουσίας: ΟΛΙΚΗ ΔΙΑΘΕΣΗ ΣΕ ΑΛΛΗ ΣΧΟΛΙΚΗ ΜΟΝΑΔΑ - Σχολικές
-                        Μονάδες Πρωτοβάθμιας
+       Τύπος απουσίας: ανάλογα με τη 2η εγγραφή (βλ. πλαίσιο παραπάνω)
        Ισχύει από: 1/9/2026 (σταθερό για όλους)
-       Ισχύει έως: από τη στήλη "Έως" της εγγραφής Ολικής Διάθεσης
+       Ισχύει έως: από τη στήλη "Έως" της αντίστοιχης 2ης εγγραφής
   5. Κλικ ✓ (Αποδοχή) → Αποθήκευση
   6. Επόμενος
 
@@ -56,7 +61,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 CHECK_TITLE       = 'Καταχώρηση Απουσίας σε Οργανική'
-CHECK_DESCRIPTION = 'Αυτόματη καταχώρηση απουσίας (Ολική Διάθεση) στο MySchool'
+CHECK_DESCRIPTION = 'Αυτόματη καταχώρηση απουσίας (Ολική Διάθεση / Απόσπαση) στο MySchool'
 HAS_EMAIL         = False
 CUSTOM_RUN        = True
 
@@ -73,12 +78,15 @@ FIRST_TRIAD = {
     'Οργανικά από Αρση Υπεραριθμίας',
 }
 
-# 2η τριάδα — μόνο αυτή η τιμή γίνεται δεκτή (οι άλλες δύο εξαιρούνται)
-SECOND_TRIAD_TARGET = 'Ολική Διάθεση (ανάγκες υπηρεσίας - κύριος φορέας)'
-
-# Λεκτικό τύπου απουσίας στο dropdown MySchool
-ABSENCE_TYPE_TEXT = ('ΟΛΙΚΗ ΔΙΑΘΕΣΗ ΣΕ ΑΛΛΗ ΣΧΟΛΙΚΗ ΜΟΝΑΔΑ - '
-                      'Σχολικές Μονάδες Πρωτοβάθμιας')
+# 2η τριάδα — αποδεκτές τιμές (Σχέση τοποθέτησης) → αντίστοιχο λεκτικό
+# τύπου απουσίας στο dropdown MySchool. Το «Επί Θητεία» ΔΕΝ περιλαμβάνεται
+# (παραμένει χειροκίνητη καταχώρηση).
+SECOND_TRIAD_ABSENCE_TYPE = {
+    'Ολική Διάθεση (ανάγκες υπηρεσίας - κύριος φορέας)':
+        'ΟΛΙΚΗ ΔΙΑΘΕΣΗ ΣΕ ΑΛΛΗ ΣΧΟΛΙΚΗ ΜΟΝΑΔΑ - Σχολικές Μονάδες Πρωτοβάθμιας',
+    'Απόσπαση (με αίτηση - κύριος φορέας)':
+        'ΑΠΟΣΠΑΣΗ ΣΕ ΣΧΟΛΙΚΗ ΜΟΝΑΔΑ ΕΝΤΟΣ ΤΟΥ ΠΥΣΔΕ / ΠΥΣΠΕ - Αλλη Σχολική Μονάδα',
+}
 
 FIXED_FROM_DATE = '1/9/2026'
 
@@ -98,9 +106,10 @@ def _fmt_date(ts):
 def load_data(file_path, log=print):
     """
     Διαβάζει το αρχείο εξαγωγής τοποθετήσεων και επιστρέφει λίστα εγγραφών
-    προς επεξεργασία: μόνο εκπαιδευτικοί με 2η εγγραφή = SECOND_TRIAD_TARGET.
+    προς επεξεργασία: μόνο εκπαιδευτικοί με 2η εγγραφή σε
+    SECOND_TRIAD_ABSENCE_TYPE (Ολική Διάθεση ή Απόσπαση).
 
-    Επιστρέφει: [{'am', 'afm', 'name', 'eos'}], skipped: [str, ...]
+    Επιστρέφει: [{'am', 'afm', 'name', 'eos', 'absence_type'}], skipped: [str, ...]
     """
     ext = os.path.splitext(file_path)[1].lower()
     try:
@@ -138,7 +147,7 @@ def load_data(file_path, log=print):
 
     for am, grp in df.groupby(am_col):
         first_row  = grp[grp[rel_col].isin(FIRST_TRIAD)]
-        second_row = grp[grp[rel_col] == SECOND_TRIAD_TARGET]
+        second_row = grp[grp[rel_col].isin(SECOND_TRIAD_ABSENCE_TYPE.keys())]
 
         epon = str(grp.iloc[0].get(name_col, '')).strip()  if name_col  else ''
         onom = str(grp.iloc[0].get(fname_col, '')).strip() if fname_col else ''
@@ -149,18 +158,25 @@ def load_data(file_path, log=print):
             skipped.append(f'{full_name} ({am_str}) — δεν βρέθηκε το κατάλληλο ζεύγος εγγραφών')
             continue
 
+        second_rel_value = str(second_row.iloc[0][rel_col]).strip()
+        absence_type = SECOND_TRIAD_ABSENCE_TYPE.get(second_rel_value)
+        if not absence_type:
+            skipped.append(f'{full_name} ({am_str}) — άγνωστη 2η εγγραφή: {second_rel_value}')
+            continue
+
         eos = _fmt_date(second_row.iloc[0][eos_col])
         if not eos:
-            skipped.append(f'{full_name} ({am_str}) — κενή ημ. Έως στην Ολική Διάθεση')
+            skipped.append(f'{full_name} ({am_str}) — κενή ημ. Έως στη 2η εγγραφή')
             continue
 
         afm = str(grp.iloc[0].get(afm_col, '')).strip() if afm_col else ''
 
         records.append({
-            'am':   am_str,
-            'afm':  afm,
-            'name': full_name,
-            'eos':  eos,
+            'am':           am_str,
+            'afm':          afm,
+            'name':         full_name,
+            'eos':          eos,
+            'absence_type': absence_type,
         })
 
     log(f'Φορτώθηκαν {len(records)} εγγραφές προς καταχώρηση '
@@ -283,18 +299,18 @@ def _select_dxe_combo(driver, base_id, text):
         return False
 
 
-def _absence_already_exists(driver):
+def _absence_already_exists(driver, type_text):
     """
     Ελέγχει αν το πινακάκι Απουσιών (gridAbsences) έχει ΗΔΗ γραμμή με το
-    λεκτικό ΟΛΙΚΗ ΔΙΑΘΕΣΗ — π.χ. από προηγούμενη (διακεκομμένη) εκτέλεση που
-    δεν πρόλαβε να καταγράψει την επιτυχία στο αρχείο προόδου.
+    δοσμένο λεκτικό τύπου απουσίας — π.χ. από προηγούμενη (διακεκομμένη)
+    εκτέλεση που δεν πρόλαβε να καταγράψει την επιτυχία στο αρχείο προόδου.
     Στοχεύουμε ρητά στο container του grid (όχι όλη τη σελίδα) γιατί το ίδιο
     λεκτικό εμφανίζεται και μέσα στη λίστα του dropdown.
     """
     from selenium.webdriver.common.by import By
     try:
         container = driver.find_element(By.ID, 'ctl00_ContentData_gridAbsences')
-        if ABSENCE_TYPE_TEXT in container.text:
+        if type_text in container.text:
             return True
     except Exception:
         pass
@@ -302,7 +318,7 @@ def _absence_already_exists(driver):
         containers = driver.find_elements(
             By.XPATH, '//*[contains(@id,"gridAbsences") and not(contains(@id,"editnew"))]')
         for c in containers:
-            if ABSENCE_TYPE_TEXT in c.text:
+            if type_text in c.text:
                 return True
     except Exception:
         pass
@@ -455,11 +471,13 @@ def run(ctx, driver, callback=None, ask_user=None):
         _ask('Διαφοροποίηση', msg, ['Συνέχεια στον επόμενο'])
 
     for idx, rec in enumerate(to_process, 1):
-        am    = rec['am']
-        name  = rec['name']
-        eos   = rec['eos']
+        am           = rec['am']
+        name         = rec['name']
+        eos          = rec['eos']
+        absence_type = rec['absence_type']
         label = f'{name} ({am})' if name else am
-        log(f'\n[{idx}/{total}] Α.Μ.: {am}  |  {name}  |  Ισχύει έως: {eos}')
+        log(f'\n[{idx}/{total}] Α.Μ.: {am}  |  {name}  |  Τύπος: {absence_type}  |  '
+            f'Ισχύει έως: {eos}')
 
         # ── Σελίδα αναζήτησης ─────────────────────────────────────────────
         try:
@@ -565,7 +583,7 @@ def run(ctx, driver, callback=None, ask_user=None):
         # Καλύπτει την περίπτωση προηγούμενης διακεκομμένης εκτέλεσης που
         # πρόλαβε να αποθηκεύσει στο MySchool αλλά όχι στο αρχείο προόδου.
         try:
-            if _absence_already_exists(driver):
+            if _absence_already_exists(driver, absence_type):
                 log('  ⏭ Η απουσία υπάρχει ήδη καταχωρημένη — παράλειψη')
                 _mark(am, name, 'ΥΠΑΡΧΕΙ ΗΔΗ', 'Βρέθηκε ήδη στο grid κατά τον έλεγχο')
                 already_live_list.append(label)
@@ -619,8 +637,8 @@ def run(ctx, driver, callback=None, ask_user=None):
         to_field_id   = 'ctl00_ContentData_gridAbsences_DXEditor6_I'
 
         # ── Τύπος απουσίας ─────────────────────────────────────────────────
-        ok_c = _select_dxe_combo(driver, combo_base_id, ABSENCE_TYPE_TEXT)
-        log(f'  {"✓" if ok_c else "⚠"} Τύπος απουσίας')
+        ok_c = _select_dxe_combo(driver, combo_base_id, absence_type)
+        log(f'  {"✓" if ok_c else "⚠"} Τύπος απουσίας: {absence_type}')
         if not ok_c:
             _notify(f'{label}\nΑποτυχία επιλογής τύπου απουσίας από τη λίστα.')
 
