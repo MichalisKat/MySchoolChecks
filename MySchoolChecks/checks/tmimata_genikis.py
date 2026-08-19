@@ -57,6 +57,12 @@ REQUIRED_REPORTS  = [
     '5.4 — Αποτύπωση δημοτικών',
 ]
 
+# Αποτέλεσμα της τελευταίας επιτυχούς Εκτέλεσης (df_ds/df_nip/today) — το
+# χρησιμοποιεί το open_email_from_last_result() παρακάτω, ώστε το tab
+# «✉ Αποστολή» του CheckRunDialog να μπορεί να ανοίξει το email dialog χωρίς
+# να χρειάζεται να περάσει από το παράθυρο Αποτελεσμάτων.
+_LAST_RESULT = None
+
 DEFAULT_EMAIL_SUBJECT = (
     'Τμήματα Γενικής Παιδείας {school_year} — αποκλίσεις MySchool'
 )
@@ -481,28 +487,45 @@ def _build_mini_excel(row_df, col_defs, label, today):
     return buf.getvalue()
 
 
-def _qualifying_schools(df_ds, df_nip, threshold):
+def _split_dir_for(out_path):
+    """Ο φάκελος «split» που αντιστοιχεί σε ένα συγκεντρωτικό αρχείο αποτελεσμάτων."""
+    return os.path.join(os.path.dirname(out_path), 'split')
+
+
+def _schools_from_split_dir(split_dir):
     """
-    Επιστρέφει list of (code, name, email, row_df, col_defs, label)
-    για σχολεία με |Διαφορά Μαθητές| > threshold ή Διαφορά Τμήματα ≠ 0.
+    Διαβάζει κάθε αρχείο Excel μέσα στον φάκελο «split» (βλ.
+    split_tmimata_workbook) και επιστρέφει list of (code, name, email,
+    file_path) — ένα ανά σχολείο.
+
+    Αυτός είναι ο ΜΟΝΑΔΙΚΟΣ κατάλογος παραληπτών για την κανονική αποστολή:
+    στέλνεται email ΜΟΝΟ σε σχολεία που έχουν ήδη ατομικό αρχείο εδώ (δηλ.
+    που πέρασαν το φίλτρο αποκλίσεων στο tab «✂ Διαχωρισμός»).
     """
     result = []
-    for df, col_defs, label in (
-        (df_ds,  columns_ds(),  'Δημοτικά'),
-        (df_nip, columns_nip(), 'Νηπιαγωγεία'),
-    ):
-        if df.empty:
+    if not split_dir or not os.path.isdir(split_dir):
+        return result
+    for fn in sorted(os.listdir(split_dir)):
+        if not fn.lower().endswith('.xlsx'):
             continue
-        mask = (df['Διαφορά Τμήματα'] != 0) | (df['Διαφορά Μαθητές'].abs() > threshold)
-        for _, row in df[mask].iterrows():
-            result.append((
-                row['Κωδ. ΥΠΠΘ'],
-                row['Ονομασία'],
-                row.get('Email Σχολείου', ''),
-                pd.DataFrame([row]),
-                col_defs,
-                label,
-            ))
+        fp = os.path.join(split_dir, fn)
+        name, email, code = fn, '', ''
+        try:
+            df = pd.read_excel(fp, skiprows=2)
+            if not df.empty:
+                row   = df.iloc[0]
+                name  = str(row.get('Ονομασία', '')).strip() or fn
+                email = str(row.get('Email Σχολείου', '')).strip()
+                if email.lower() in ('nan', 'none'):
+                    email = ''
+                code = row.get('Κωδ. ΥΠΠΘ', '')
+                try:
+                    code = int(code)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        result.append((code, name, email, fp))
     return result
 
 
@@ -586,9 +609,18 @@ def _send_summary_tmimata(config, sent, failed, today, log):
         log(f'  ✗ Summary: {e}')
 
 
-def _do_send_emails(df_ds, df_nip, threshold, dry_run, subj_tpl, body_tpl,
-                    config, today, log):
-    """Αποστολή email ανά σχολείο. Επιστρέφει (sent, failed)."""
+def _do_send_emails(dry_run, subj_tpl, body_tpl, config, today, log,
+                    out_path=None, split_dir=None):
+    """
+    Αποστολή email. Επιστρέφει (sent, failed).
+
+    - Κανονική αποστολή (dry_run=False): ένα email ανά σχολείο, ΜΟΝΟ για όσα
+      έχουν ατομικό αρχείο μέσα στον φάκελο «split» (βλ. tab «✂ Διαχωρισμός» /
+      _schools_from_split_dir) — συνημμένο ακριβώς το ίδιο αρχείο.
+    - Test mode (dry_run=True): ΕΝΑ συγκεντρωτικό email προς το FROM_EMAIL,
+      με ολόκληρο το ΣΥΝΟΛΙΚΟ Excel (out_path) συνημμένο — αντί για ένα
+      email ανά σχολείο (θα ήταν πολλά ξεχωριστά test emails).
+    """
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
     from email.mime.base import MIMEBase
@@ -601,19 +633,64 @@ def _do_send_emails(df_ds, df_nip, threshold, dry_run, subj_tpl, body_tpl,
     if not ef:
         log('  ✗ FROM_EMAIL δεν έχει οριστεί στις Ρυθμίσεις.')
         return [], []
-    if not pw and not dry_run:
+    if not pw:
         log('  ✗ Κωδικός email δεν έχει οριστεί στις Ρυθμίσεις.')
         return [], []
 
-    schools = _qualifying_schools(df_ds, df_nip, threshold)
+    schools = _schools_from_split_dir(split_dir)
     if not schools:
-        log('  ℹ Κανένα σχολείο δεν πληροί τα κριτήρια αποστολής.')
+        log('  ℹ Δεν βρέθηκαν αρχεία στο φάκελο «split» — τρέξε πρώτα το tab '
+            '«✂ Διαχωρισμός» (χωρίζει το συγκεντρωτικό αρχείο σε ένα Excel '
+            'ανά σχολείο, μόνο για όσα έχουν απόκλιση).')
         return [], []
 
-    log(f'  → {len(schools)} σχολεία για αποστολή (όριο μαθητών: {threshold})')
+    # ── Test mode: ένα συγκεντρωτικό email με το συνολικό Excel ────────────
+    if dry_run:
+        if not out_path or not os.path.exists(out_path):
+            log('  ✗ Δεν βρέθηκε το συνολικό αρχείο Excel για το test email.')
+            return [], []
+
+        names = [name for _, name, *_ in schools]
+        log(f'  → Test mode: 1 συγκεντρωτικό email ({len(schools)} σχολεία) → {ef}')
+
+        subj = (f'[TEST] {subj_tpl}'.replace('{school_year}', SCHOOL_YEAR)
+                .replace('{school_name}', f'Συγκεντρωτικό ({len(schools)} σχολεία)'))
+        body_txt = (
+            f'Δοκιμαστική αποστολή — συνολικό αρχείο Excel (όλα τα σχολεία).\n\n'
+            f'Σχολεία με απόκλιση: {len(schools)}\n'
+            + '\n'.join(f'  • {n}' for n in sorted(names))
+        )
+
+        with open(out_path, 'rb') as f:
+            xls_bytes = f.read()
+
+        msg = MIMEMultipart()
+        msg['Subject'] = subj
+        msg['From']    = formataddr((str(Header('ΔΙ.Π.Ε. Αν. Θεσ/νίκης', 'utf-8')), ef))
+        msg['To']      = ef
+        msg['Date']    = formatdate(localtime=True)
+        msg.attach(MIMEText(body_txt, 'plain', 'utf-8'))
+        part = MIMEBase('application',
+                        'vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        part.set_payload(xls_bytes)
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', 'attachment',
+                        filename=Header(os.path.basename(out_path), 'utf-8').encode())
+        msg.attach(part)
+
+        try:
+            _smtp_send(config, ef, msg.as_string())
+            log(f'  ✓ → {ef}  (συγκεντρωτικό, {len(schools)} σχολεία)')
+            return [(n, ef) for n in names], []
+        except Exception as e:
+            log(f'  ✗ {e}')
+            return [], [(n, ef) for n in names]
+
+    # ── Κανονική αποστολή: ένα email ανά σχολείο (μόνο όσα έχουν αρχείο split) ─
+    log(f'  → {len(schools)} σχολεία για αποστολή (βρέθηκαν στο φάκελο split)')
     sent, failed = [], []
 
-    for code, name, email_to, row_df, col_defs, label in schools:
+    for code, name, email_to, file_path in schools:
         if not email_to:
             log(f'  ⚠ {name}: κενό email — παράλειψη')
             failed.append((name, '—'))
@@ -621,14 +698,19 @@ def _do_send_emails(df_ds, df_nip, threshold, dry_run, subj_tpl, body_tpl,
 
         subj     = subj_tpl.replace('{school_year}', SCHOOL_YEAR).replace('{school_name}', name)
         body_txt = body_tpl.replace('{school_year}', SCHOOL_YEAR).replace('{school_name}', name)
-        xls_bytes = _build_mini_excel(row_df, col_defs, label, today)
-        fname_att = f'{today.strftime("%Y%m%d")}_{code}_{label}.xlsx'
-        dest      = ef if dry_run else email_to
+        try:
+            with open(file_path, 'rb') as f:
+                xls_bytes = f.read()
+        except Exception as e:
+            log(f'  ✗ {name}: δεν ήταν δυνατή η ανάγνωση του αρχείου split: {e}')
+            failed.append((name, email_to))
+            continue
+        fname_att = os.path.basename(file_path)
 
         msg = MIMEMultipart()
         msg['Subject'] = subj
         msg['From']    = formataddr((str(Header('ΔΙ.Π.Ε. Αν. Θεσ/νίκης', 'utf-8')), ef))
-        msg['To']      = formataddr((str(Header(name, 'utf-8')), dest))
+        msg['To']      = formataddr((str(Header(name, 'utf-8')), email_to))
         msg['Date']    = formatdate(localtime=True)
         msg.attach(MIMEText(body_txt, 'plain', 'utf-8'))
         part = MIMEBase('application',
@@ -639,20 +721,15 @@ def _do_send_emails(df_ds, df_nip, threshold, dry_run, subj_tpl, body_tpl,
                         filename=Header(fname_att, 'utf-8').encode())
         msg.attach(part)
 
-        if dry_run:
-            log(f'  (test) → {ef}  [{name}]')
-            sent.append((name, email_to))
-            continue
-
         try:
-            _smtp_send(config, dest, msg.as_string())
+            _smtp_send(config, email_to, msg.as_string())
             log(f'  ✓ → {email_to}  [{name}]')
             sent.append((name, email_to))
         except Exception as e:
             log(f'  ✗ {name}: {e}')
             failed.append((name, email_to))
 
-    if not dry_run and sent:
+    if sent:
         _send_summary_tmimata(config, sent, failed, today, log)
 
     return sent, failed
@@ -780,20 +857,15 @@ def _show_results_dialog(config, df_ds, df_nip, today, out_path, summary_text):
             import tkinter.messagebox as _mb
             _mb.showerror('Σφάλμα', f'Δεν ήταν δυνατό το άνοιγμα του αρχείου:\n{e}', parent=win)
 
-    def _open_email():
-        win.destroy()
-        _show_email_dialog(config, df_ds, df_nip, today)
+    # Σημείωση: το κουμπί «✉ Αποστολή Email» μετακόμισε στο tab «✉ Αποστολή»
+    # του CheckRunDialog (βλ. CUSTOM_SEND_TAB / open_email_from_last_result
+    # παρακάτω) — δεν εμφανίζεται πια εδώ στο παράθυρο αποτελεσμάτων.
 
     tk.Button(btn_f, text='📄 Άνοιγμα Excel',
               bg='#E65100', fg='white',
               font=('Arial', 9, 'bold'), relief='flat',
               padx=14, pady=5, cursor='hand2',
               command=_open_excel).pack(side='left', padx=4)
-    tk.Button(btn_f, text='✉  Αποστολή Email',
-              bg='#1F4E79', fg='white',
-              font=('Arial', 9, 'bold'), relief='flat',
-              padx=14, pady=5, cursor='hand2',
-              command=_open_email).pack(side='left', padx=4)
     tk.Button(btn_f, text='Κλείσιμο',
               bg='#E8EDF3', fg='#333333',
               font=('Arial', 9), relief='flat',
@@ -801,89 +873,76 @@ def _show_results_dialog(config, df_ds, df_nip, today, out_path, summary_text):
               command=win.destroy).pack(side='left', padx=4)
 
 
-def _show_email_dialog(config, df_ds, df_nip, today):
-    """Dialog αποστολής email ανά σχολείο με απόκλιση."""
+def _build_email_form(parent, config, df_ds, df_nip, today, out_path, C):
+    """
+    Χτίζει τη φόρμα αποστολής email (πρότυπο / όριο απόκλισης / τρόπος
+    αποστολής / log / κουμπί Αποστολή) μέσα στο δοσμένο `parent`.
+
+    Κοινή υλοποίηση — χρησιμοποιείται από το build_send_tab() για να χτίσει
+    τη φόρμα ΑΠΕΥΘΕΙΑΣ μέσα στο tab «✉ Αποστολή» του CheckRunDialog (χωρίς
+    ξεχωριστό popup παράθυρο, όπως ζητήθηκε).
+    """
     import tkinter as tk
     from tkinter import scrolledtext
     import threading
 
-    root = tk._default_root
-    if root is None:
-        return
-
-    C = {
-        'bg': '#F5F7FA', 'bg2': '#E8EDF3', 'hdr_bg': '#1F4E79',
-        'btn_bg': '#1F4E79', 'btn_fg': '#FFFFFF',
-        'desc': '#666666',   'sel_bg': '#D6E4F0',
-    }
-    # Αν δεν υπάρχουν καθόλου αποκλίσεις, δεν εμφανίζουμε το dialog
-    all_dev = (
-        (not df_ds.empty  and ((df_ds['Διαφορά Τμήματα']  != 0) | (df_ds['Διαφορά Μαθητές']  != 0)).any()) or
-        (not df_nip.empty and ((df_nip['Διαφορά Τμήματα'] != 0) | (df_nip['Διαφορά Μαθητές'] != 0)).any())
-    )
-    if not all_dev:
-        return
-
-    dlg = tk.Toplevel(root)
-    dlg.title('Αποστολή Email — Τμήματα Γενικής Παιδείας')
-    dlg.configure(bg=C['bg'])
-    dlg.resizable(False, False)
-    # Ίδιος λόγος με το _show_results_dialog — χωρίς δικό της grab, αυτή η
-    # Toplevel δεν λαμβάνει events όσο το CheckRunDialog από πίσω κρατάει grab.
-    dlg.transient(root)
-    dlg.grab_set()
-
     pad = dict(padx=14, pady=5)
-
-    # Header
-    hdr = tk.Frame(dlg, bg=COLOR_HDR)
-    hdr.pack(fill='x')
-    tk.Label(hdr, text='Αποστολή Email ανά Σχολείο',
-             bg=COLOR_HDR, fg='white', font=('Arial', 11, 'bold'),
-             padx=14, pady=8).pack(side='left')
-
-    body_f = tk.Frame(dlg, bg=C['bg'])
-    body_f.pack(fill='both', expand=True)
+    split_dir = _split_dir_for(out_path)
 
     # Κουμπί πρότυπου
-    tk.Button(body_f, text='✉  Πρότυπο Email (Θέμα & Κείμενο)',
+    tk.Button(parent, text='✉  Πρότυπο Email (Θέμα & Κείμενο)',
               bg=C['bg2'], fg=C['hdr_bg'], font=('Arial', 9),
               relief='flat', padx=10, pady=4, cursor='hand2',
-              command=lambda: _open_tmimata_template_editor(dlg, C)
+              command=lambda: _open_tmimata_template_editor(parent, C)
               ).pack(anchor='w', **pad)
 
-    # Όριο απόκλισης μαθητών
-    thr_f = tk.Frame(body_f, bg=C['bg'])
-    thr_f.pack(fill='x', **pad)
-    tk.Label(thr_f, text='Ελάχιστη απόκλιση μαθητών για αποστολή:',
-             bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9)).pack(side='left')
-    thr_var = tk.IntVar(value=0)
-    tk.Spinbox(thr_f, from_=0, to=99, textvariable=thr_var,
-               width=5, font=('Arial', 9)).pack(side='left', padx=6)
-    count_lbl = tk.Label(thr_f, text='', bg=C['bg'], fg=C['desc'], font=('Arial', 8))
-    count_lbl.pack(side='left', padx=6)
+    # Πληροφορία: η «Αποστολή σε σχολεία» στέλνει ΜΟΝΟ σε όσα έχουν ατομικό
+    # αρχείο μέσα στο φάκελο «split» — δηλ. πρέπει να έχει τρέξει πρώτα το
+    # tab «✂ Διαχωρισμός» (αυτό φιλτράρει και τα σχολεία χωρίς απόκλιση).
+    # ΣΗΜΕΙΩΣΗ: αυτό το tab («✉ Αποστολή») χτίζεται ΜΙΑ φορά, μόλις τελειώσει
+    # η Εκτέλεση — αν ο χρήστης τρέξει τον Διαχωρισμό ΜΕΤΑ από αυτό, το
+    # μήνυμα πρέπει να ανανεωθεί (δεν ξαναχτίζεται μόνο του το tab), γι' αυτό
+    # ανανεώνεται (α) κάθε φορά που αλλάζει tab στο Notebook και (β) με το
+    # χειροκίνητο κουμπί «↻ Ανανέωση» παρακάτω.
+    count_row = tk.Frame(parent, bg=C['bg'])
+    count_row.pack(fill='x', **pad)
+    count_lbl = tk.Label(count_row, text='', bg=C['bg'], fg=C['desc'],
+                          font=('Arial', 8, 'italic'), anchor='w',
+                          justify='left', wraplength=480)
+    count_lbl.pack(side='left', fill='x', expand=True)
 
-    def _update_count(*args):
-        try:
-            t = thr_var.get()
-        except Exception:
-            return
-        try:
-            schools   = _qualifying_schools(df_ds, df_nip, t)
-            with_e    = sum(1 for s in schools if s[2])
-            without_e = len(schools) - with_e
-            txt = f'→ {len(schools)} σχολεία'
+    def _update_count(*_args):
+        schools   = _schools_from_split_dir(split_dir)
+        with_e    = sum(1 for s in schools if s[2])
+        without_e = len(schools) - with_e
+        if not schools:
+            count_lbl.config(
+                text='⚠ Δεν βρέθηκαν αρχεία στο φάκελο «split» — τρέξε πρώτα '
+                     'το tab «✂ Διαχωρισμός».', fg='#B00020')
+        else:
+            txt = f'→ {len(schools)} σχολεία θα λάβουν email (βρέθηκαν στο φάκελο split)'
             if without_e:
                 txt += f'  ({without_e} χωρίς email)'
-            count_lbl.config(text=txt)
-        except Exception:
-            pass
+            count_lbl.config(text=txt, fg=C['desc'])
 
-    thr_var.trace_add('write', _update_count)
+    tk.Button(count_row, text='↻ Ανανέωση', bg=C['bg2'], fg=C['desc'],
+              font=('Arial', 8), relief='flat', padx=8, pady=2, cursor='hand2',
+              command=_update_count).pack(side='right')
+
     _update_count()
 
+    # Ανανέωση αυτόματα κάθε φορά που αλλάζει tab στο Notebook (π.χ. ο
+    # χρήστης πάει Διαχωρισμός → Αποστολή) — βρίσκουμε το Notebook ανεβαίνοντας
+    # στο δέντρο widget· αν κάτι αλλάξει σε αυτή τη δομή, απλά δεν ανανεώνει
+    # αυτόματα (παραμένει πάντα το χειροκίνητο κουμπί).
+    try:
+        _nb = parent.master.master
+        _nb.bind('<<NotebookTabChanged>>', _update_count, add='+')
+    except Exception:
+        pass
+
     # Τρόπος αποστολής
-    mode_f = tk.Frame(body_f, bg=C['bg'])
+    mode_f = tk.Frame(parent, bg=C['bg'])
     mode_f.pack(fill='x', **pad)
     mode_var = tk.StringVar(value='schools')
     fe = getattr(config, 'FROM_EMAIL', '') or '...'
@@ -897,7 +956,7 @@ def _show_email_dialog(config, df_ds, df_nip, today):
                    activebackground=C['bg'], font=('Arial', 9)).pack(anchor='w')
 
     # Log
-    log_w = scrolledtext.ScrolledText(body_f, height=10, font=('Courier', 8),
+    log_w = scrolledtext.ScrolledText(parent, height=10, font=('Courier', 8),
                                        wrap='word', relief='solid', bd=1,
                                        state='disabled')
     log_w.pack(fill='both', expand=True, padx=14, pady=8)
@@ -909,44 +968,40 @@ def _show_email_dialog(config, df_ds, df_nip, today):
             log_w.see('end')
             log_w.config(state='disabled')
         try:
-            dlg.after(0, _append)
+            # Χρησιμοποιούμε .after() πάνω στο ίδιο το widget (όχι σε
+            # dlg/Toplevel) — δουλεύει το ίδιο είτε είμαστε μέσα σε popup
+            # είτε embedded σε tab, αφού όλα τα widgets μοιράζονται τον ίδιο
+            # Tcl interpreter.
+            log_w.after(0, _append)
         except Exception:
             pass
 
-    # Κουμπιά
-    btn_f = tk.Frame(body_f, bg=C['bg'])
+    # Κουμπί αποστολής
+    btn_f = tk.Frame(parent, bg=C['bg'])
     btn_f.pack(fill='x', padx=14, pady=(0, 12))
     send_btn = tk.Button(btn_f, text='✉  Αποστολή',
                          bg=C['btn_bg'], fg=C['btn_fg'],
                          font=('Arial', 9, 'bold'), relief='flat',
                          padx=14, pady=5, cursor='hand2')
     send_btn.pack(side='left', padx=(0, 8))
-    tk.Button(btn_f, text='Κλείσιμο',
-              bg=C['bg2'], fg=C['desc'],
-              font=('Arial', 9), relief='flat', padx=14, pady=5,
-              cursor='hand2', command=dlg.destroy).pack(side='left')
 
     def _start():
         send_btn.config(state='disabled')
-        try:
-            threshold = thr_var.get()
-        except Exception:
-            threshold = 0
         dry_run       = (mode_var.get() == 'test')
         subj, body_tpl = _load_tmimata_email_template()
 
         def _worker():
             try:
                 sent, failed = _do_send_emails(
-                    df_ds, df_nip, threshold, dry_run,
-                    subj, body_tpl, config, today, _log)
+                    dry_run, subj, body_tpl, config, today, _log,
+                    out_path=out_path, split_dir=split_dir)
                 _log(f'\n{"─"*40}')
                 _log(f'✓ Εστάλησαν: {len(sent)}   ✗ Αποτυχίες: {len(failed)}')
             except Exception as e:
                 _log(f'✗ Σφάλμα: {e}')
             finally:
                 try:
-                    dlg.after(0, lambda: send_btn.config(state='normal'))
+                    send_btn.after(0, lambda: send_btn.config(state='normal'))
                 except Exception:
                     pass
 
@@ -954,13 +1009,257 @@ def _show_email_dialog(config, df_ds, df_nip, today):
 
     send_btn.config(command=_start)
 
-    dlg.update_idletasks()
-    x = root.winfo_x() + (root.winfo_width()  - 560) // 2
-    y = root.winfo_y() + (root.winfo_height() - 480) // 2
-    dlg.geometry(f'560x480+{x}+{y}')
-    dlg.lift()
-    dlg.focus_force()
-    dlg.wait_window()
+
+_TMIMATA_PALETTE = {
+    'bg': '#F5F7FA', 'bg2': '#E8EDF3', 'hdr_bg': '#1F4E79',
+    'btn_bg': '#1F4E79', 'btn_fg': '#FFFFFF', 'desc': '#666666',
+    'sel_bg': '#D6E4F0',
+}
+
+
+def build_send_tab(parent, config):
+    """
+    Χτίζει ΑΠΕΥΘΕΙΑΣ μέσα στο δοσμένο `parent` (το body του tab «✉ Αποστολή»
+    του CheckRunDialog) τη φόρμα αποστολής email, με βάση το αποτέλεσμα της
+    τελευταίας επιτυχούς Εκτέλεσης (_LAST_RESULT — γεμίζει μέσα στο run()).
+
+    Καλείται από core/check_dialog.py (βλ. CUSTOM_SEND_TAB παρακάτω) αφού
+    ολοκληρωθεί επιτυχώς η Εκτέλεση — αντικαθιστά το παλιότερο κουμπί
+    «✉ Αποστολή Email» που άνοιγε ξεχωριστό popup παράθυρο.
+    """
+    import tkinter as tk
+
+    if not _LAST_RESULT or not _LAST_RESULT.get('out_path'):
+        tk.Label(parent, text='Τρέξε πρώτα την «▶ Εκτέλεση» για να ενεργοποιηθεί η αποστολή.',
+                 bg=_TMIMATA_PALETTE['bg'], fg=_TMIMATA_PALETTE['desc'],
+                 font=('Arial', 9), anchor='w', justify='left',
+                 wraplength=520).pack(fill='x', padx=14, pady=14)
+        return
+
+    _build_email_form(parent, config, _LAST_RESULT['df_ds'], _LAST_RESULT['df_nip'],
+                       _LAST_RESULT['today'], _LAST_RESULT['out_path'], _TMIMATA_PALETTE)
+
+
+# Σηματοδοτεί στο core/check_dialog.py ότι το tab «✉ Αποστολή» πρέπει να
+# χτίσει τη φόρμα αποστολής ΑΠΕΥΘΕΙΑΣ μέσα στο tab (χωρίς ξεχωριστό popup) —
+# βλ. CheckRunDialog._build_send / _start_execute._done.
+CUSTOM_SEND_TAB = build_send_tab
+
+
+# ── Tab «✂ Διαχωρισμός» — Excel ανά σχολείο ─────────────────────────────────
+# Ίδια λογική με το tab Διαχωρισμός του ελέγχου Ε.Ε.Α. (smeae/dialog.py +
+# smeae/compare.py::split_xlsx): παίρνει το συγκεντρωτικό αρχείο
+# αποτελεσμάτων και το χωρίζει σε ένα Excel ανά σχολείο. Εδώ δεν χρειάζεται
+# επιλογή σχολικού έτους (SCHOOL_YEAR είναι σταθερό — βλ. πάνω), και κάθε
+# γραμμή του συγκεντρωτικού αρχείου αντιστοιχεί ήδη σε ένα σχολείο (όχι
+# πολλαπλές εγγραφές ανά σχολείο όπως στο Ε.Ε.Α.) — οπότε ο «διαχωρισμός»
+# είναι απλά: μία μορφοποιημένη γραμμή → ένα αρχείο, ξαναχρησιμοποιώντας το
+# ίδιο _build_mini_excel που ήδη φτιάχνει τα συνημμένα των email.
+def _sanitize_filename(name):
+    import re
+    return re.sub(r'[^\w\s-]', '_', str(name)).strip() or 'σχολειο'
+
+
+def _find_latest_output():
+    """
+    Βρίσκει το πιο πρόσφατο συγκεντρωτικό αρχείο αποτελεσμάτων
+    (Documents/MySchoolChecks/results_*/tmimata_genikis/*_tmimata_genikis.xlsx).
+    """
+    docs = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks')
+    pattern = os.path.join(docs, 'results_*', RESULTS_FOLDER, f'*_{RESULTS_FOLDER}.xlsx')
+    matches = [f for f in _glob.glob(pattern) if os.path.isfile(f)]
+    if not matches:
+        return None
+    matches.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+    return matches[0]
+
+
+def split_tmimata_workbook(file_path, output_dir, log=print):
+    """
+    Διαβάζει το συγκεντρωτικό αρχείο αποτελεσμάτων (φύλλα «ΔΣ-...» / «ΝΗΠ-...»)
+    και γράφει ένα ξεχωριστό, μορφοποιημένο Excel ανά σχολείο μέσα στο
+    output_dir — ίδια μορφοποίηση με το mini Excel που στέλνεται ως συνημμένο
+    email (βλ. _build_mini_excel). Επιστρέφει το πλήθος αρχείων που γράφτηκαν.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    today = datetime.today()
+    n_written = 0
+
+    for sheet_name in pd.ExcelFile(file_path).sheet_names:
+        if sheet_name.startswith('ΔΣ-'):
+            col_defs, label = columns_ds(), 'Δημοτικά'
+        elif sheet_name.startswith('ΝΗΠ-'):
+            col_defs, label = columns_nip(), 'Νηπιαγωγεία'
+        else:
+            log(f'  ⚠ Άγνωστο φύλλο «{sheet_name}» — παράλειψη.')
+            continue
+
+        col_names = [c[0] for c in col_defs]
+        # Οι 2 πρώτες γραμμές του φύλλου είναι τίτλος/υπότιτλος (merged
+        # cells) — οι στήλες είναι στη γραμμή 3, άρα skiprows=2.
+        try:
+            df = pd.read_excel(file_path, sheet_name=sheet_name, skiprows=2)
+        except Exception as e:
+            log(f'  ✗ Σφάλμα ανάγνωσης φύλλου «{sheet_name}»: {e}')
+            continue
+
+        missing = [c for c in col_names if c not in df.columns]
+        if missing:
+            log(f'  ✗ Λείπουν στήλες στο «{sheet_name}»: {", ".join(missing)}')
+            continue
+        df = df[col_names]
+
+        n_skipped_sheet = 0
+        for _, row in df.iterrows():
+            name = str(row.get('Ονομασία', '')).strip()
+            if not name or name.lower() == 'nan':
+                continue
+
+            # Εξαίρεση: σχολεία χωρίς καμία απόκλιση (και οι δύο στήλες
+            # Διαφορά Τμήματα / Διαφορά Μαθητές = 0) — δεν χρειάζονται
+            # ξεχωριστό αρχείο, γι' αυτό ούτε θα εμφανιστούν στο tab
+            # «Αποστολή» (βλ. _schools_from_split_dir παρακάτω).
+            diff_tm = row.get('Διαφορά Τμήματα', 0)
+            diff_ma = row.get('Διαφορά Μαθητές', 0)
+            try:
+                diff_tm = int(diff_tm)
+            except Exception:
+                diff_tm = 0
+            try:
+                diff_ma = int(diff_ma)
+            except Exception:
+                diff_ma = 0
+            if diff_tm == 0 and diff_ma == 0:
+                n_skipped_sheet += 1
+                continue
+
+            code = row.get('Κωδ. ΥΠΠΘ', '')
+            try:
+                code = int(code)
+            except Exception:
+                pass
+
+            row_df = pd.DataFrame([row])
+            xls_bytes = _build_mini_excel(row_df, col_defs, label, today)
+            fname = f'{code}_{_sanitize_filename(name)}.xlsx'
+            with open(os.path.join(output_dir, fname), 'wb') as f:
+                f.write(xls_bytes)
+            n_written += 1
+            log(f'  ✓ {fname}')
+
+        if n_skipped_sheet:
+            log(f'  ℹ «{sheet_name}»: {n_skipped_sheet} σχολεία χωρίς αποκλίσεις — παραλείφθηκαν.')
+
+    log(f'\n✓ Διαχωρισμός ολοκληρώθηκε — {n_written} αρχεία (με αποκλίσεις) → {output_dir}')
+    return n_written
+
+
+def build_split_tab(parent, config):
+    """
+    Χτίζει το tab «✂ Διαχωρισμός» ΑΠΕΥΘΕΙΑΣ μέσα στο δοσμένο `parent`.
+    Ανιχνεύει αυτόματα το πιο πρόσφατο αρχείο αποτελεσμάτων (δεν εξαρτάται
+    από το αν έτρεξε η Εκτέλεση μέσα σε αυτή τη σύνοδο) και το χωρίζει σε
+    ένα Excel ανά σχολείο μέσα σε υποφάκελο «split».
+    """
+    import tkinter as tk
+    from tkinter import scrolledtext
+    import threading
+
+    C = _TMIMATA_PALETTE
+    pad = dict(padx=14, pady=5)
+
+    tk.Label(parent,
+             text='Παίρνει το πιο πρόσφατο συγκεντρωτικό αρχείο αποτελεσμάτων του '
+                  'ελέγχου και το χωρίζει σε ξεχωριστά αρχεία Excel — ένα ανά '
+                  'σχολείο — μέσα σε φάκελο «split» δίπλα στο αρχείο.\n'
+                  'Εξαιρούνται τα σχολεία χωρίς καμία απόκλιση (Διαφορά Τμήματα = 0 '
+                  'ΚΑΙ Διαφορά Μαθητές = 0) — δημιουργείται αρχείο μόνο για τα '
+                  'υπόλοιπα. Στο tab «✉ Αποστολή» θα σταλούν emails μόνο σε αυτά '
+                  'τα σχολεία (όσα έχουν ατομικό αρχείο εδώ).',
+             bg=C['bg'], fg=C['desc'], font=('Arial', 8),
+             wraplength=560, justify='left', anchor='w').pack(fill='x', **pad)
+
+    info_lbl = tk.Label(parent, text='', bg=C['bg'], fg=C['desc'],
+                         font=('Arial', 8, 'italic'), anchor='w',
+                         justify='left', wraplength=560)
+    info_lbl.pack(fill='x', padx=14, pady=(0, 4))
+
+    state = {'file': None}
+
+    def _detect():
+        f = _find_latest_output()
+        state['file'] = f
+        if f:
+            info_lbl.config(text=f'✓ {os.path.basename(f)}', fg='#2E7D32')
+        else:
+            info_lbl.config(
+                text='Δεν βρέθηκε αρχείο αποτελεσμάτων — τρέξε πρώτα την «▶ Εκτέλεση».',
+                fg='#B00020')
+
+    _detect()
+
+    log_w = scrolledtext.ScrolledText(parent, height=10, font=('Courier', 8),
+                                       wrap='word', relief='solid', bd=1,
+                                       state='disabled')
+    log_w.pack(fill='both', expand=True, padx=14, pady=8)
+
+    def _log(msg):
+        def _append():
+            log_w.config(state='normal')
+            log_w.insert('end', msg + '\n')
+            log_w.see('end')
+            log_w.config(state='disabled')
+        try:
+            log_w.after(0, _append)
+        except Exception:
+            pass
+
+    btn_f = tk.Frame(parent, bg=C['bg'])
+    btn_f.pack(fill='x', padx=14, pady=(0, 12))
+    split_btn = tk.Button(btn_f, text='✂  Διαχωρισμός ανά Σχολείο',
+                           bg=C['btn_bg'], fg=C['btn_fg'],
+                           font=('Arial', 9, 'bold'), relief='flat',
+                           padx=14, pady=5, cursor='hand2')
+    split_btn.pack(side='left', padx=(0, 8))
+
+    tk.Button(btn_f, text='Ανίχνευση αρχείου', bg=C['bg2'], fg=C['desc'],
+              font=('Arial', 9), relief='flat', padx=10, pady=5, cursor='hand2',
+              command=_detect).pack(side='left')
+
+    def _start():
+        if not state['file']:
+            _detect()
+        if not state['file']:
+            import tkinter.messagebox as _mb
+            _mb.showwarning(
+                'Προσοχή',
+                'Δεν βρέθηκε αρχείο αποτελεσμάτων.\nΤρέξε πρώτα την «▶ Εκτέλεση».',
+                parent=parent)
+            return
+
+        split_btn.config(state='disabled')
+        f = state['file']
+        out_dir = os.path.join(os.path.dirname(f), 'split')
+
+        def _worker():
+            try:
+                split_tmimata_workbook(f, out_dir, log=_log)
+            except Exception as e:
+                _log(f'✗ Σφάλμα: {e}')
+            finally:
+                try:
+                    split_btn.after(0, lambda: split_btn.config(state='normal'))
+                except Exception:
+                    pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    split_btn.config(command=_start)
+
+
+# Σηματοδοτεί στο core/check_dialog.py ότι υπάρχει επιπλέον tab «✂ Διαχωρισμός»
+# — βλ. CheckRunDialog._build.
+CUSTOM_SPLIT_TAB = build_split_tab
 
 
 # ── Λήψη δεδομένων (μέσα στον έλεγχο — απαιτεί αλλαγή σχολικού έτους) ───────
@@ -1102,6 +1401,9 @@ def run(config):
         _mb.showerror('Σφάλμα επεξεργασίας', str(e))
         return
 
+    global _LAST_RESULT
+    _LAST_RESULT = {'df_ds': df_ds, 'df_nip': df_nip, 'today': today}
+
     dev_ds  = int((df_ds['Διαφορά Τμήματα']  != 0).sum() + (df_ds['Διαφορά Μαθητές']  != 0).sum()) if not df_ds.empty  else 0
     dev_nip = int((df_nip['Διαφορά Τμήματα'] != 0).sum() + (df_nip['Διαφορά Μαθητές'] != 0).sum()) if not df_nip.empty else 0
     print(f'  ✓ Δημοτικά    : {len(df_ds)} σχολεία, {dev_ds} αποκλίσεις')
@@ -1126,6 +1428,7 @@ def run(config):
     try:
         build_workbook(df_ds, df_nip, perif, today, out_path)
         print(f'\n  ✓ Αποθηκεύτηκε: {os.path.basename(out_path)}')
+        _LAST_RESULT['out_path'] = out_path
     except PermissionError:
         import tkinter.messagebox as _mb
         _mb.showwarning(

@@ -1301,6 +1301,88 @@ def execute_check(check_module, config):
     }
 
 
+def split_exec_result(exec_result, log=print):
+    """
+    Χωρίζει το συνολικό αρχείο αποτελεσμάτων (path_all) σε ένα Excel ανά
+    σχολείο, μέσα σε υποφάκελο «split» του out_dir — ώστε ο χρήστης να δει
+    ΤΙ αρχείο θα σταλεί σε κάθε σχολείο ΠΡΙΝ πατήσει «Αποστολή» (tab
+    «✂ Διαχωρισμός» στο core/check_dialog.py, πριν το tab «✉ Αποστολή» —
+    ίδια λογική με το tab Διαχωρισμός του ελέγχου Τμημάτων/Ε.Ε.Α.).
+
+    Προς το παρόν δεν εξαιρεί κανένα σχολείο (θα προστεθεί αργότερα
+    φιλτράρισμα όπου χρειάζεται, π.χ. εξαίρεση σχολείων χωρίς πραγματική
+    απόκλιση) — απλώς σπάει το αρχείο σε ένα ανά σχολείο.
+
+    Αν το check_module ορίζει CUSTOM_SPLIT_SOURCE(exec_result, log) →
+    DataFrame|None, χρησιμοποιείται ΑΥΤΟ ως πηγή δεδομένων αντί για το
+    ακατέργαστο exec_result['df_out'] (π.χ. apontes_xwris_adeia: ζητά από
+    τον χρήστη το ΕΠΕΞΕΡΓΑΣΜΕΝΟ αρχείο μέσω file dialog). Σε αυτή την
+    περίπτωση ενημερώνονται και τα exec_result['df_out']/['schools'], ώστε η
+    επόμενη Αποστολή να δουλέψει πάνω στο επεξεργασμένο περιεχόμενο.
+    Επιστροφή None από το hook σημαίνει ότι ο χρήστης ακύρωσε — δεν γράφεται
+    τίποτα (επιστρέφει 0).
+
+    Ενημερώνει exec_result['school_files'] (dict {school: path}) και
+    exec_result['split_dir'] — αυτά τα διαβάζει στη συνέχεια το
+    send_from_exec_result() για την κανονική αποστολή: στέλνεται email ΜΟΝΟ
+    σε σχολεία που υπάρχουν εδώ.
+
+    Επιστρέφει το πλήθος αρχείων που γράφτηκαν.
+    """
+    if exec_result.get('status') != 'ok':
+        raise RuntimeError('Δεν υπάρχει αποτέλεσμα εκτέλεσης προς διαχωρισμό — '
+                            'τρέξε πρώτα την Εκτέλεση.')
+
+    check_module  = exec_result.get('check_module')
+    custom_source = getattr(check_module, 'CUSTOM_SPLIT_SOURCE', None) if check_module else None
+
+    title   = exec_result['title']
+    today   = exec_result['today']
+    scol    = exec_result['scol']
+    cols    = exec_result['cols']
+    ccols   = exec_result['ccols']
+    hlcol   = exec_result['hlcol']
+    hlclrs  = exec_result['hlclrs']
+    sclrs   = exec_result['sclrs']
+    scol2   = exec_result['scol2']
+    out_dir = exec_result['out_dir']
+
+    if callable(custom_source):
+        df_out = custom_source(exec_result, log)
+        if df_out is None or df_out.empty:
+            log('  ✗ Ο διαχωρισμός ακυρώθηκε ή δεν βρέθηκαν εγγραφές.')
+            return 0
+        if scol not in df_out.columns:
+            raise RuntimeError(f'Το επιλεγμένο αρχείο δεν έχει στήλη «{scol}».')
+        schools = sorted(df_out[scol].dropna().unique())
+        exec_result['df_out']  = df_out
+        exec_result['schools'] = schools
+    else:
+        df_out  = exec_result['df_out']
+        schools = exec_result['schools']
+
+    split_dir = os.path.join(out_dir, 'split')
+    os.makedirs(split_dir, exist_ok=True)
+
+    school_files = {}
+    log(f'  Διαχωρισμός {len(schools)} σχολείων...')
+    for school in sorted(schools):
+        df_s      = df_out[df_out[scol] == school].copy()
+        safe_name = ''.join(c for c in str(school) if c not in r'\/:*?"<>|').strip()[:60]
+        path_s    = os.path.join(split_dir, f'{today.strftime("%Y%m%d")}_{safe_name}.xlsx')
+        save_workbook(df_s, title, cols, ccols, today, path_s,
+                      subtitle_extra=f'  |  {school}',
+                      highlight_col=hlcol, highlight_colors=hlclrs,
+                      status_colors=sclrs, status_col=scol2)
+        school_files[school] = path_s
+        log(f'  ✓ {os.path.basename(path_s)}  ({len(df_s)} εγγραφές)')
+
+    exec_result['school_files'] = school_files
+    exec_result['split_dir']    = split_dir
+    log(f'\n✓ Διαχωρισμός ολοκληρώθηκε — {len(school_files)} αρχεία → {split_dir}')
+    return len(school_files)
+
+
 def send_from_exec_result(exec_result, test_mode):
     """
     Στέλνει email με βάση αποτέλεσμα του execute_check() (status='ok').
@@ -1334,22 +1416,27 @@ def send_from_exec_result(exec_result, test_mode):
     schools       = exec_result['schools']
     test_only     = exec_result['test_only']
 
-    _has_custom_send = callable(getattr(check_module, 'custom_full_send', None))
-    school_files = exec_result.setdefault('school_files', {})
+    # ΣΗΜΕΙΩΣΗ: το παλιό «custom_full_send» hook (μόνο το
+    # apontes_xwris_adeia το χρησιμοποιούσε) καταργήθηκε — αντικαταστάθηκε
+    # από το CUSTOM_SPLIT_SOURCE (βλ. split_exec_result() παραπάνω): το
+    # module πλέον απλώς δίνει το DataFrame προς διαχωρισμό (ζητώντας το
+    # επεξεργασμένο αρχείο μέσω file dialog στο tab «✂ Διαχωρισμός»), και η
+    # πραγματική αποστολή γίνεται πάντα γενικά, από τον κοινό _send_loop
+    # παρακάτω — έτσι ο χρήστης βλέπει τα ατομικά αρχεία στο «split» ΠΡΙΝ
+    # πατήσει «Αποστολή», ακριβώς όπως και στους υπόλοιπους ελέγχους.
+    school_files = exec_result.get('school_files') or {}
 
-    # Δημιουργία per-school αρχείων πριν από κανονική αποστολή (μία φορά)
-    if not test_mode and not _has_custom_send and not school_files:
-        print(f'\n  Δημιουργία {len(schools)} αρχείων ανά σχολείο...')
-        for school in sorted(schools):
-            df_s      = df_out[df_out[scol] == school].copy()
-            safe_name = ''.join(c for c in str(school) if c not in r'\/:*?"<>|').strip()[:60]
-            path_s    = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_{safe_name}.xlsx')
-            save_workbook(df_s, title, cols, ccols, today, path_s,
-                          subtitle_extra=f'  |  {school}',
-                          highlight_col=hlcol, highlight_colors=hlclrs,
-                          status_colors=sclrs, status_col=scol2)
-            school_files[school] = path_s
-            print(f'  ✓ {safe_name}  ({len(df_s)} εγγραφές)')
+    # Τα per-school αρχεία πλέον δημιουργούνται ΡΗΤΑ από το tab
+    # «✂ Διαχωρισμός» (βλ. split_exec_result() παραπάνω / το tab στο
+    # core/check_dialog.py, ΠΡΙΝ το tab «✉ Αποστολή») — όχι πια σιωπηλά εδώ.
+    # Έτσι ο χρήστης βλέπει ΤΙ αρχείο θα σταλεί σε κάθε σχολείο πριν πατήσει
+    # «Αποστολή» (ίδια λογική με τον έλεγχο Τμημάτων/το Ε.Ε.Α.) — και η
+    # κανονική αποστολή στέλνει email ΜΟΝΟ σε σχολεία που έχουν ήδη ατομικό
+    # αρχείο στο school_files/φάκελο «split».
+    if not test_mode and not school_files:
+        raise RuntimeError(
+            'Δεν έχει τρέξει ο Διαχωρισμός — πήγαινε πρώτα στο tab '
+            '«✂ Διαχωρισμός» και μετά ξαναδοκίμασε την αποστολή.')
 
     pre_warn = getattr(check_module, 'PRE_SEND_WARNING', None)
     if not test_mode and pre_warn:
@@ -1360,12 +1447,6 @@ def send_from_exec_result(exec_result, test_mode):
         if not proceed:
             print('  Η αποστολή ακυρώθηκε.')
             return False
-
-    _custom_send = getattr(check_module, 'custom_full_send', None)
-    if not test_mode and _custom_send:
-        subject = f"{subj} — {today.strftime('%d/%m/%Y')}"
-        _custom_send(config, today, out_dir, scol, ecol, subject, body_t, cols, ccols, title)
-        return True
 
     _send_loop(config, test_mode, title, today, subj, body_t,
                df_out, schools, school_files, scol, ecol, path_all,

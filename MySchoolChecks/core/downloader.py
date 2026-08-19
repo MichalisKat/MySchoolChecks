@@ -762,21 +762,45 @@ def get_downloads_dir(base_dir):
 
 def cleanup_old_downloads(base_dir, keep=3):
     """
-    Κρατά μόνο τους τελευταίους `keep` φακέλους downloads (default: 3).
-    Διαγράφει τους παλαιότερους.
+    Κρατά μόνο τους `keep` πιο πρόσφατους φακέλους downloads. Διαγράφει τους
+    παλαιότερους.
+
+    ΣΗΜΑΝΤΙΚΟ (bugfix): παλιότερα η ταξινόμηση γινόταν ΑΛΦΑΒΗΤΙΚΑ στα ονόματα
+    των φακέλων (sorted(..., reverse=True)). Αυτό είναι λάθος όταν υπάρχουν
+    ονόματα όπως "20260819" και "20260819_2026-2027" (ο δεύτερος τύπος
+    χρησιμοποιείται από το tmimata_genikis.py για override σχολικού έτους) —
+    αλφαβητικά το "20260819_2026-2027" "νικάει" το "20260819", με αποτέλεσμα
+    να διαγράφεται σαν «παλιός» ο φάκελος που μόλις χρησιμοποιήθηκε για
+    λήψη, χάνοντας τα αρχεία πριν προλάβει η Εκτέλεση να τα διαβάσει.
+
+    Διορθώθηκε ταξινομώντας βάσει πραγματικού χρόνου τροποποίησης, ΚΑΙ
+    προσθέτοντας σκληρή προστασία: φάκελοι της σημερινής ημέρας (όποιο κι αν
+    είναι το ακριβές όνομά τους) δεν διαγράφονται ποτέ.
     """
     dl_base = os.path.join(base_dir, 'downloads')
     if not os.path.exists(dl_base):
         return
-    folders = sorted([
+
+    today_str = datetime.now().strftime('%Y%m%d')
+
+    all_folders = [
         os.path.join(dl_base, d)
         for d in os.listdir(dl_base)
         if os.path.isdir(os.path.join(dl_base, d))
-    ], reverse=True)
+    ]
+    all_folders.sort(key=lambda f: os.path.getmtime(f), reverse=True)
 
-    for old_folder in folders[keep:]:
+    kept = 0
+    for folder in all_folders:
+        name = os.path.basename(folder)
+        if name.startswith(today_str):
+            kept += 1
+            continue
+        if kept < keep:
+            kept += 1
+            continue
         try:
-            shutil.rmtree(old_folder)
+            shutil.rmtree(folder)
         except Exception:
             pass
 

@@ -185,14 +185,46 @@ class CheckRunDialog(tk.Toplevel):
 
         t1 = tk.Frame(nb, bg=C['bg'], padx=16, pady=12)
         t2 = tk.Frame(nb, bg=C['bg'], padx=16, pady=12)
-        t3 = tk.Frame(nb, bg=C['bg'], padx=16, pady=12)
         nb.add(t1, text='  ⬇ Λήψη  ')
         nb.add(t2, text='  ▶ Εκτέλεση  ')
-        nb.add(t3, text='  ✉ Αποστολή  ')
-
         self._build_download(t1)
         self._build_execute(t2)
-        self._build_send(t3)
+
+        # Έλεγχοι με CUSTOM_SPLIT_TAB (π.χ. tmimata_genikis) εκθέτουν ένα
+        # επιπλέον tab «✂ Διαχωρισμός» — ΠΡΙΝ την «Αποστολή» (χωρίζει το
+        # συγκεντρωτικό αρχείο αποτελεσμάτων σε ένα Excel ανά σχολείο, ίδια
+        # λογική με το tab Διαχωρισμός του ελέγχου Ε.Ε.Α. — smeae/dialog.py).
+        # Δεν εξαρτάται από το αν έχει τρέξει η Εκτέλεση μέσα σε αυτή τη
+        # σύνοδο — ανιχνεύει το πιο πρόσφατο αρχείο από τον δίσκο.
+        custom_split = getattr(self._mod, 'CUSTOM_SPLIT_TAB', None)
+        self._has_generic_split = False
+        if callable(custom_split):
+            t3 = tk.Frame(nb, bg=C['bg'], padx=16, pady=12)
+            nb.add(t3, text='  ✂ Διαχωρισμός  ')
+            try:
+                custom_split(t3, self._cfg)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                tk.Label(t3, text=f'✗ Σφάλμα κατά τη δημιουργία του tab: {e}',
+                         bg=C['bg'], fg='#B00020', font=('Arial', 9),
+                         wraplength=560, justify='left').pack(anchor='w', pady=8)
+        elif self._generic_split_applicable():
+            # Ίδια λογική για ΟΛΟΥΣ τους «απλούς» ελέγχους (χωρίς CUSTOM_RUN,
+            # χωρίς CUSTOM_SPLIT_TAB): tab «✂ Διαχωρισμός» πριν την
+            # «Αποστολή» — χωρίζει το συνολικό αρχείο σε ένα Excel ανά
+            # σχολείο (φάκελος «split»), ώστε να φαίνεται τι θα σταλεί σε
+            # κάθε σχολείο πριν πατηθεί «Αποστολή» (βλ.
+            # core/framework.py::split_exec_result). Προς το παρόν δεν
+            # εξαιρεί κανένα σχολείο — μόνο σπάει το αρχείο.
+            t3 = tk.Frame(nb, bg=C['bg'], padx=16, pady=12)
+            nb.add(t3, text='  ✂ Διαχωρισμός  ')
+            self._build_generic_split(t3)
+            self._has_generic_split = True
+
+        t_send = tk.Frame(nb, bg=C['bg'], padx=16, pady=12)
+        nb.add(t_send, text='  ✉ Αποστολή  ')
+        self._build_send(t_send)
 
         # Η Αποστολή είναι κλειδωμένη μέχρι να τρέξει επιτυχώς η Εκτέλεση
         self._lock_send_tab(True)
@@ -417,17 +449,151 @@ class CheckRunDialog(tk.Toplevel):
                     self._ex_btn.configure(state='normal', bg=C['btn_bg'],
                                             text='▶  Εκτέλεση Ελέγχου')
                     if self._is_custom_run:
-                        self._lock_send_tab(True)
-                        self._send_hint.configure(
-                            text='Αυτός ο έλεγχος διαχειρίζεται μόνος του την αποστολή '
-                                 'email μέσα στο tab «Εκτέλεση» (θα σου ζητήσει τις '
-                                 'επιλογές εκεί) — το tab «Αποστολή» δεν χρησιμοποιείται.')
+                        custom_send = getattr(self._mod, 'CUSTOM_SEND_TAB', None)
+                        if callable(custom_send):
+                            # Ο έλεγχος εκθέτει δικό του σημείο αποστολής (π.χ.
+                            # tmimata_genikis) — χτίζουμε τη φόρμα αποστολής
+                            # ΑΠΕΥΘΕΙΑΣ μέσα στο tab «Αποστολή» (χωρίς popup).
+                            self._send_hint.configure(text='')
+                            container = self._custom_send_body
+                            # Καθαρίζουμε τυχόν προηγούμενη φόρμα, ώστε να μην
+                            # διπλασιάζονται τα widgets αν ξανατρέξει η Εκτέλεση.
+                            for child in list(container.winfo_children()):
+                                child.destroy()
+                            try:
+                                custom_send(container, self._cfg)
+                            except Exception as e:
+                                import traceback
+                                traceback.print_exc()
+                                tk.Label(container, text=f'✗ Σφάλμα: {e}',
+                                         bg=C['bg'], fg='#B00020',
+                                         font=('Arial', 9)).pack(anchor='w', pady=8)
+                        else:
+                            self._lock_send_tab(True)
+                            self._send_hint.configure(
+                                text='Αυτός ο έλεγχος διαχειρίζεται μόνος του την αποστολή '
+                                     'email μέσα στο tab «Εκτέλεση» (θα σου ζητήσει τις '
+                                     'επιλογές εκεί) — το tab «Αποστολή» δεν χρησιμοποιείται.')
                     else:
                         can_send = bool(self._exec_result
                                         and self._exec_result.get('status') == 'ok'
                                         and self._exec_result.get('has_email'))
+                        if getattr(self, '_has_generic_split', False):
+                            try:
+                                self._split_btn.configure(
+                                    state='normal' if can_send else 'disabled',
+                                    bg=C['btn_bg'] if can_send else C['btn_dis'])
+                            except Exception:
+                                pass
+                            self._split_hint.configure(
+                                text=('Πάτησε «✂ Διαχωρισμός ανά Σχολείο» για να δεις τι '
+                                      'αρχείο θα σταλεί σε κάθε σχολείο.' if can_send else
+                                      'Τρέξε πρώτα την «▶ Εκτέλεση» — μετά ενεργοποιείται '
+                                      'ο διαχωρισμός εδώ.'))
                         self._lock_send_tab(not can_send)
                 self.after(0, _done)
+
+        threading.Thread(target=task, daemon=True).start()
+
+    # ── Tab «✂ Διαχωρισμός» (γενικό, για ελέγχους χωρίς CUSTOM_RUN) ──────────
+
+    def _generic_split_applicable(self):
+        """
+        True όταν αυτός ο έλεγχος πρέπει να πάρει το γενικό tab
+        «✂ Διαχωρισμός» (χωρίζει το αρχείο σε ένα Excel ανά σχολείο πριν την
+        «Αποστολή»): έλεγχοι χωρίς CUSTOM_RUN, με HAS_EMAIL, που ΔΕΝ είναι
+        TEST_ONLY (δεν αφορούν σχολεία). Ελέγχους με ειδική πηγή δεδομένων
+        για τον διαχωρισμό (π.χ. apontes_xwris_adeia — ζητά επεξεργασμένο
+        αρχείο) τους καλύπτει επίσης το ίδιο γενικό tab, μέσω
+        CUSTOM_SPLIT_SOURCE (core/framework.py::split_exec_result). Το
+        παλιό custom_full_send hook εξαιρείται εδώ μόνο σαν προστασία, σε
+        περίπτωση που κάποιο μελλοντικό module το ξαναχρησιμοποιήσει χωρίς
+        να περάσει από το γενικό tab.
+        """
+        if self._is_custom_run:
+            return False
+        if not getattr(self._mod, 'HAS_EMAIL', False):
+            return False
+        if getattr(self._mod, 'TEST_ONLY', False):
+            return False
+        if callable(getattr(self._mod, 'custom_full_send', None)):
+            return False
+        return True
+
+    def _build_generic_split(self, body):
+        """
+        Tab «✂ Διαχωρισμός» για τους «απλούς» ελέγχους (χωρίς CUSTOM_RUN) —
+        χωρίζει το συνολικό αρχείο αποτελεσμάτων σε ένα Excel ανά σχολείο
+        μέσα σε φάκελο «split», ΠΡΙΝ την «Αποστολή» — ώστε να φαίνεται τι
+        αρχείο θα σταλεί σε κάθε σχολείο. Προς το παρόν δεν εξαιρεί κανένα
+        σχολείο (θα προστεθεί αργότερα φιλτράρισμα όπου χρειάζεται).
+        Ξεκλειδώνεται μόλις τρέξει επιτυχώς η Εκτέλεση (βλ. _start_execute/_done).
+        """
+        C = self._C
+        tk.Label(body,
+                 text='Χωρίζει το συνολικό αρχείο αποτελεσμάτων σε ένα Excel ανά '
+                      'σχολείο (φάκελος «split»), ώστε να δεις τι αρχείο θα '
+                      'σταλεί σε κάθε σχολείο πριν την αποστολή. Στο tab '
+                      '«✉ Αποστολή» θα σταλούν emails μόνο σε σχολεία που έχουν '
+                      'ατομικό αρχείο εδώ.',
+                 bg=C['bg'], fg=C['desc'], font=('Arial', 8),
+                 wraplength=560, justify='left', anchor='w').pack(fill='x', pady=(0, 8))
+
+        self._split_hint = tk.Label(
+            body,
+            text='Τρέξε πρώτα την «▶ Εκτέλεση» — μετά ενεργοποιείται ο διαχωρισμός εδώ.',
+            bg=C['bg'], fg=C['desc'], font=('Arial', 8, 'italic'),
+            justify='left', wraplength=560)
+        self._split_hint.pack(anchor='w', pady=(0, 8))
+
+        self._split_log = self._make_log(body)
+        br = tk.Frame(body, bg=C['bg'])
+        br.pack(fill='x')
+        self._split_btn = self._run_btn(br, '✂  Διαχωρισμός ανά Σχολείο',
+                                         self._start_generic_split)
+        self._split_btn.configure(state='disabled', bg=C['btn_dis'])
+
+    def _start_generic_split(self):
+        C = self._C
+        if not self._exec_result or self._exec_result.get('status') != 'ok':
+            messagebox.showwarning('Προσοχή', 'Τρέξε πρώτα την Εκτέλεση.', parent=self)
+            return
+
+        self._split_btn.configure(state='disabled', bg=C['btn_dis'], text='Διαχωρισμός...')
+        try:
+            self._split_log.configure(state='normal')
+            self._split_log.delete('1.0', tk.END)
+            self._split_log.configure(state='disabled')
+        except Exception:
+            pass
+
+        def on_log(msg):
+            self._log_append(self._split_log, msg)
+
+        install_redirect, restore_print = self._redirect_print(on_log)
+
+        def task():
+            install_redirect()
+            try:
+                from core.framework import split_exec_result
+                n = split_exec_result(self._exec_result, log=on_log)
+                self.after(0, lambda: [
+                    self._split_btn.configure(
+                        state='normal', bg=C['btn_bg'],
+                        text='✂  Διαχωρισμός ανά Σχολείο'),
+                    messagebox.showinfo('Διαχωρισμός', f'Ολοκληρώθηκε! {n} αρχεία.',
+                                         parent=self)
+                ])
+            except Exception as e:
+                err = str(e)
+                self.after(0, lambda m=err: [
+                    self._split_btn.configure(
+                        state='normal', bg=C['btn_bg'],
+                        text='✂  Διαχωρισμός ανά Σχολείο'),
+                    messagebox.showerror('Σφάλμα Διαχωρισμού', m, parent=self)
+                ])
+            finally:
+                restore_print()
 
         threading.Thread(target=task, daemon=True).start()
 
@@ -435,6 +601,15 @@ class CheckRunDialog(tk.Toplevel):
 
     def _build_send(self, body):
         C = self._C
+
+        # Έλεγχοι με CUSTOM_SEND_TAB (π.χ. tmimata_genikis) διαχειρίζονται τη
+        # δική τους λογική αποστολής (ανά σχολείο, με βάση τις αποκλίσεις) —
+        # δεν ταιριάζει το γενικό Δοκιμαστική/Κανονική radio button παρακάτω.
+        custom_send = getattr(self._mod, 'CUSTOM_SEND_TAB', None)
+        if self._is_custom_run and callable(custom_send):
+            self._build_custom_send(body, custom_send)
+            return
+
         self._send_mode = tk.StringVar(value='test')
         _from_email = getattr(self._cfg, 'FROM_EMAIL', '') or '...'
 
@@ -472,6 +647,24 @@ class CheckRunDialog(tk.Toplevel):
         br = tk.Frame(body, bg=C['bg'])
         br.pack(fill='x')
         self._send_btn = self._run_btn(br, '✉  Αποστολή', self._start_send)
+
+    def _build_custom_send(self, body, custom_send):
+        """Tab «Αποστολή» για ελέγχους με CUSTOM_SEND_TAB (π.χ. tmimata_genikis)
+        — η φόρμα αποστολής του ελέγχου χτίζεται ΑΠΕΥΘΕΙΑΣ μέσα στο tab
+        (χωρίς ξεχωριστό popup), μόλις τρέξει επιτυχώς η Εκτέλεση
+        (βλ. _start_execute/_done)."""
+        C = self._C
+        self._send_hint = tk.Label(
+            body,
+            text='Τρέξε πρώτα την «▶ Εκτέλεση» — μετά ενεργοποιείται η αποστολή εδώ.',
+            bg=C['bg'], fg=C['desc'], font=('Arial', 8, 'italic'),
+            justify='left', wraplength=560)
+        self._send_hint.pack(anchor='w', pady=(0, 10))
+
+        # Container στον οποίο ο έλεγχος (custom_send) χτίζει τη δική του
+        # φόρμα αποστολής απευθείας — γεμίζει μόλις ολοκληρωθεί η Εκτέλεση.
+        self._custom_send_body = tk.Frame(body, bg=C['bg'])
+        self._custom_send_body.pack(fill='both', expand=True)
 
     def _lock_send_tab(self, locked):
         state = 'disabled' if locked else 'normal'

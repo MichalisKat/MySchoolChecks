@@ -292,33 +292,41 @@ def _find_col(df, *keywords):
     return None
 
 
-def custom_full_send(config, today, out_dir, scol, ecol, subject, body_template,
-                     cols, ccols, title):
-    """Κανονική αποστολή: ζητά επεξεργασμένο Excel, το σπάει ανά σχολείο και στέλνει."""
+def CUSTOM_SPLIT_SOURCE(exec_result, log=print):
+    """
+    Ζητά από τον χρήστη να επιλέξει το ΕΠΕΞΕΡΓΑΣΜΕΝΟ αρχείο Excel (μετά από
+    έλεγχο/διορθώσεις στο αρχικό αποτέλεσμα) και επιστρέφει το αντίστοιχο
+    DataFrame προς διαχωρισμό — καλείται από core.framework.split_exec_result()
+    στο tab «✂ Διαχωρισμός», ΑΝΤΙ να χρησιμοποιηθεί το ακατέργαστο df_out
+    του ελέγχου. Ο γενικός διαχωρισμός/αποστολή (core/framework.py) αναλαμβάνει
+    από εκεί και πέρα — σπάει το επιστρεφόμενο DataFrame σε ένα Excel ανά
+    σχολείο και, στο tab «✉ Αποστολή», στέλνει μόνο σε όσα έχουν αρχείο εκεί.
+
+    Επιστρέφει None αν ο χρήστης ακυρώσει την επιλογή αρχείου — τότε ο
+    διαχωρισμός ματαιώνεται χωρίς να γραφτεί τίποτα.
+    """
     import tkinter as tk
     from tkinter import filedialog, messagebox
-    from core.framework import send_email, save_workbook
+    import pandas as pd
 
-    # Ζητά το επεξεργασμένο αρχείο Excel
     root = tk.Tk()
     root.withdraw()
     root.attributes('-topmost', True)
     path_xl = filedialog.askopenfilename(
-        title='Επιλέξτε το επεξεργασμένο αρχείο Excel για αποστολή',
+        title='Επιλέξτε το επεξεργασμένο αρχείο Excel για διαχωρισμό',
         filetypes=[('Excel', '*.xlsx *.xls')],
         parent=root
     )
     root.destroy()
     if not path_xl:
-        print('  ✗ Δεν επιλέχθηκε αρχείο — αποστολή ακυρώθηκε.')
-        return
+        log('  ✗ Δεν επιλέχθηκε αρχείο — ο διαχωρισμός ακυρώθηκε.')
+        return None
 
-    # Φόρτωση — το αρχείο έχει merged title rows, οι επικεφαλίδες μπορεί να είναι σε γραμμή 1, 2 ή 3
-    print(f'  Φόρτωση: {os.path.basename(path_xl)}')
+    # Φόρτωση — το αρχείο έχει merged title rows, οι επικεφαλίδες μπορεί να
+    # είναι σε γραμμή 1, 2 ή 3.
+    log(f'  Φόρτωση: {os.path.basename(path_xl)}')
     try:
-        import pandas as pd
         df = None
-        # Δοκιμάζουμε header=0,1,2 και κρατάμε αυτό που έχει 'Κωδικός' ή 'Ονομασία' στις στήλες
         for hdr_row in range(4):
             try:
                 df_try = pd.read_excel(path_xl, dtype=str, header=hdr_row)
@@ -326,19 +334,18 @@ def custom_full_send(config, today, out_dir, scol, ecol, subject, body_template,
                 cols_lower = [c.lower() for c in df_try.columns]
                 if any('κωδικός σχολείου' in c or 'ονομασία σχολείου' in c for c in cols_lower):
                     df = df_try
-                    print(f'  Βρέθηκαν επικεφαλίδες στη γραμμή {hdr_row + 1}')
+                    log(f'  Βρέθηκαν επικεφαλίδες στη γραμμή {hdr_row + 1}')
                     break
             except Exception:
                 continue
         if df is None:
-            # Fallback: φόρτωση από γραμμή 1
             df = pd.read_excel(path_xl, dtype=str)
             df.columns = [str(c).strip() for c in df.columns]
     except Exception as e:
         messagebox.showerror('Σφάλμα', f'Αδυναμία φόρτωσης αρχείου:\n{e}')
-        return
+        return None
 
-    print(f'  Στήλες Excel: {list(df.columns)}')
+    log(f'  Στήλες Excel: {list(df.columns)}')
 
     # Αναζήτηση στήλης split (Κωδικός ή Ονομασία) — case-insensitive
     split_col = _find_col(df, 'Κωδικός Σχολείου', 'Ονομασία Σχολείου')
@@ -346,44 +353,20 @@ def custom_full_send(config, today, out_dir, scol, ecol, subject, body_template,
         messagebox.showerror('Σφάλμα',
             f'Δεν βρέθηκε στήλη "Κωδικός Σχολείου" ή "Ονομασία Σχολείου" στο αρχείο.\n\n'
             f'Στήλες που βρέθηκαν:\n{", ".join(df.columns)}')
-        return
+        return None
 
-    # Στήλες ονόματος και email — case-insensitive
+    # Στήλες κωδικού/ονόματος/email — case-insensitive, με κανονικοποίηση
+    # ώστε να ταιριάζουν με SCHOOL_COLUMN/EMAIL_COLUMN που περιμένει ο
+    # γενικός μηχανισμός διαχωρισμού/αποστολής (core/framework.py).
+    code_col    = _find_col(df, 'Κωδικός Σχολείου') or split_col
     name_col    = _find_col(df, 'Ονομασία Σχολείου') or split_col
-    ecol_actual = _find_col(df, ecol, 'Email Σχολείου', 'Email') or ecol
+    ecol_actual = _find_col(df, 'Email Σχολείου', 'Email')
 
-    school_codes = sorted(df[split_col].dropna().unique())
-    print(f'  Βρέθηκαν {len(school_codes)} σχολεία ({split_col}), {len(df)} εγγραφές.')
+    if code_col != SCHOOL_COLUMN:
+        df[SCHOOL_COLUMN] = df[code_col]
+    if name_col != 'Ονομασία Σχολείου':
+        df['Ονομασία Σχολείου'] = df[name_col]
+    df[EMAIL_COLUMN] = df[ecol_actual] if ecol_actual else ''
 
-    # Split ανά σχολείο + αποστολή
-    ok = fail = 0
-    sent_school_names = []
-    for code in school_codes:
-        df_s = df[df[split_col] == code].copy()
-        school_name = str(df_s[name_col].iloc[0]).strip() if name_col in df_s.columns else str(code)
-        email_s = ''
-        if ecol_actual in df_s.columns:
-            email_s = str(df_s[ecol_actual].iloc[0]).strip()
-        if not email_s or email_s in ('', 'nan', 'None'):
-            print(f'  ⚠  [{code}] {school_name[:45]} — ΔΕΝ ΥΠΑΡΧΕΙ EMAIL, παράλειψη.')
-            fail += 1
-            continue
-
-        safe_name = ''.join(c for c in school_name if c not in r'\/:*?"<>|').strip()[:55]
-        path_s = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_{code}_{safe_name}.xlsx')
-        try:
-            save_workbook(df_s, title, cols, ccols, today, path_s,
-                          subtitle_extra=f'  |  {school_name}')
-            body = body_template(school_name) if callable(body_template) else body_template
-            send_email(config, [email_s], subject, body, path_s)
-            print(f'  ✓ [{code}] {school_name[:45]} → {email_s}')
-            ok += 1
-            sent_school_names.append(school_name)
-        except Exception as e:
-            print(f'  ✗ [{code}] {school_name[:45]} → {e}')
-            fail += 1
-
-    print(f'\n  Αποστολές: {ok} επιτυχείς, {fail} αποτυχίες')
-    if ok > 0:
-        from core.framework import _send_notify
-        _send_notify(config, 'Απουσία χωρίς Δήλωση Άδειας', today, ok, sent_school_names)
+    log(f'  ✓ {df[SCHOOL_COLUMN].nunique()} σχολεία, {len(df)} εγγραφές.')
+    return df
