@@ -18,14 +18,14 @@
   "SMTP_HOST": "mail.sch.gr",
   "EMAIL_SIGNATURE": "Με εκτίμηση,\n\nΓια τη Δ/νση ΠΕ Ανατ. Θεσ/νίκης,\nΜιχάλης Κατσιρντάκης\nΤμ. Προσωπικού\nΥπεύθυνος MySchool (Θέματα προσωπικού)\nτηλ. 2310954145",
   "BROWSER": "firefox",
-  "MYSCHOOL_USER": "9919101",
-  "MYSCHOOL_PASS": "Dipea@M@y26!",
-  "FROM_PASSWORD": "it@DIPEA$141",
   "symvouloi_tool": {
     "subject": "Στοιχεία τοποθετήσεων εκπ/κών \"{specialty}\" — {thesi}",
     "body": "Αποτύπωση Myschool {date}.\n\nΚαλημέρα σας,\n\nΕπισυνάπτεται πίνακας excel με τους εκπαιδευτικούς ειδικότητας {specialty} που υπηρετούν στη Δ/νση μας σύμφωνα με τα καταχωρημένα στοιχεία στο myschool.\n\n\nΣτη διάθεσή σας για οποιαδήποτε πληροφορία",
     "advisor_email": "",
     "direction": "Α΄ ΘΕΣΣΑΛΟΝΙΚΗΣ (Π.Ε.) 2018",
     "include_private": false
-  }
+  },
+  "MYSCHOOL_USER": "9919101",
+  "MYSCHOOL_PASS": "@Hanayoridango",
+  "FROM_PASSWORD": "it@DIPEA$141"
 }

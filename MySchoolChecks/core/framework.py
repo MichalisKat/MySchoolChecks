@@ -1006,8 +1006,16 @@ def run_check(check_module, config):
 def _send_loop(config, test_mode, title, today, subject_base, body_template,
                df_out, schools, school_files, scol, ecol, path_all,
                cols=None, ccols=None, hlcol=None, hlclrs=None, sclrs=None, scol2=None,
-               test_only=False, check_module=None, out_dir=None):
-    """Εσωτερική συνάρτηση αποστολής email."""
+               test_only=False, check_module=None, out_dir=None,
+               interactive_escalate=True):
+    """Εσωτερική συνάρτηση αποστολής email.
+
+    interactive_escalate: αν True (προεπιλογή — ίδια συμπεριφορά με πάντα),
+    μετά από ένα test αποστολή ρωτάει με popup αν να προχωρήσει σε κανονική
+    αποστολή. Το core/check_dialog.py (νέο tab «Αποστολή» ανά έλεγχο) το
+    περνάει False, αφού η επιλογή test/κανονική γίνεται πλέον ρητά από το
+    ίδιο το tab — δεν χρειάζεται δεύτερο popup.
+    """
     import sys as _sys
     print(f'\n{"─"*62}')
 
@@ -1042,6 +1050,8 @@ def _send_loop(config, test_mode, title, today, subject_base, body_template,
 
         # Ερώτηση για κανονική αποστολή μετά το test (μόνο αν δεν είναι test_only)
         if test_only:
+            return
+        if not interactive_escalate:
             return
         import tkinter.messagebox as _mb
         proceed = _mb.askyesno(
@@ -1127,3 +1137,240 @@ def _send_loop(config, test_mode, title, today, subject_base, body_template,
                 if email_s and '@' in email_s and email_s not in ('', 'nan', 'None'):
                     sent_schools.append(str(school))
             _send_notify(config, title, today, ok, sent_schools)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ΒΗΜΑΤΑ ΓΙΑ ΤΟ ΝΕΟ 3-TAB DIALOG (core/check_dialog.py — Λήψη/Εκτέλεση/Αποστολή)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Το run_check() παραπάνω παραμένει αναλλοίωτο (compose: ask_inputs →
+# process → save → ρωτά αποστολή με popup → στέλνει), ώστε να μη σπάσει
+# τίποτα άλλο που το καλεί ήδη.
+#
+# Οι δύο συναρτήσεις εδώ κάνουν το ίδιο πράγμα σπασμένο σε 2 ανεξάρτητα
+# βήματα, ΧΩΡΙΣ κανένα popup ενδιάμεσα — μόνο print() (ο caller κάνει
+# redirect το builtins.print σε log widget). Τις χρησιμοποιεί αποκλειστικά
+# το core/check_dialog.py::CheckRunDialog, ένα ανά tab:
+#   Tab «Εκτέλεση»  → execute_check(check_module, config)
+#   Tab «Αποστολή»  → send_from_exec_result(exec_result, test_mode)
+
+
+def execute_check(check_module, config):
+    """
+    Κάνει ask_inputs() → process() → αποθήκευση Excel για έναν έλεγχο,
+    ΧΩΡΙΣ να ρωτήσει (popup) ή να στείλει email — αυτό γίνεται ξεχωριστά
+    από το send_from_exec_result(). Δεν εμφανίζει κανένα popup αποτελεσμάτων·
+    η σύνοψη επιστρέφεται ως κείμενο (key 'summary') για να την εμφανίσει ο
+    caller μέσα στο δικό του tab.
+
+    Επιστρέφει dict με key 'status':
+      'missing_files' → {'status', 'required': [...]}
+      'empty'         → {'status', 'title', 'today'}  (δεν βρέθηκαν εγγραφές)
+      'error'         → {'status', 'message'}
+      'ok'            → πλήρες context, βλ. παρακάτω (χρειάζεται από
+                         send_from_exec_result για να στείλει email αργότερα)
+    """
+    title  = getattr(check_module, 'CHECK_TITLE',    '?')
+    cols   = getattr(check_module, 'COLUMNS',        [])
+    scol   = getattr(check_module, 'SCHOOL_COLUMN',  'Ονομασία Σχολείου')
+    ecol   = getattr(check_module, 'EMAIL_COLUMN',   'Email Σχολείου')
+    subj   = getattr(check_module, 'EMAIL_SUBJECT',  '')
+    body_t = getattr(check_module, 'EMAIL_BODY',     '')
+
+    # Custom email template αποθηκευμένο από τον χρήστη — ίδια λογική με run_check()
+    try:
+        import json, sys as _sys
+        _mod_name = check_module.__name__.split('.')[-1]
+        _exe = _sys.executable
+        if getattr(_sys, 'frozen', False):
+            _exe_dir = os.path.dirname(_exe)
+            if 'program files' in _exe_dir.lower():
+                _base = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'MySchoolChecks')
+            else:
+                _base = _exe_dir
+        else:
+            _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        _settings_path = os.path.join(_base, 'data', 'local_settings.json')
+        if os.path.exists(_settings_path):
+            with open(_settings_path, encoding='utf-8') as _f:
+                _sdata = json.load(_f)
+            _tmpl = _sdata.get('email_templates', {}).get(_mod_name)
+            if _tmpl:
+                subj   = _tmpl.get('subject', subj)
+                _cbody = _tmpl.get('body', '')
+                body_t = lambda school='', _b=_cbody: _b + config.email_signature()
+    except Exception:
+        pass
+
+    rfold  = getattr(check_module, 'RESULTS_FOLDER', 'results')
+    ccols  = getattr(check_module, 'CENTER_COLS',    set())
+    hlcol  = getattr(check_module, 'HIGHLIGHT_COL',  None)
+    hlclrs = getattr(check_module, 'HIGHLIGHT_COLORS', None)
+    sclrs  = getattr(check_module, 'STATUS_COLORS',  None)
+    scol2  = getattr(check_module, 'STATUS_COL',     None)
+    has_email = getattr(check_module, 'HAS_EMAIL',   ecol is not None)
+    test_only = getattr(check_module, 'TEST_ONLY',   False)
+
+    print('=' * 62)
+    print(f'  {title}')
+    print('=' * 62)
+
+    global _current_check_title
+    _current_check_title = title
+
+    ctx = check_module.ask_inputs()
+
+    missing_keys = [k for k in ctx if k == 'path' or k.endswith('_path') or k.startswith('path_') or k == 'paths']
+    for k in missing_keys:
+        val = ctx[k]
+        if val is None or (isinstance(val, list) and None in val):
+            return {'status': 'missing_files',
+                    'required': getattr(check_module, 'REQUIRED_REPORTS', [])}
+
+    today = ctx.get('today') or datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    print(f'\n  Ημερομηνία : {today.strftime("%d/%m/%Y")}')
+    print('-' * 62)
+    print('\nΕπεξεργασία...')
+    df_out = check_module.process(ctx)
+    print(f'  → {len(df_out)} εγγραφές βρέθηκαν')
+
+    if df_out.empty:
+        print('\n✓ Δεν βρέθηκαν εγγραφές.')
+        return {'status': 'empty', 'title': title, 'today': today}
+
+    subfolder = rfold.replace('results_', '') if rfold.startswith('results_') else rfold
+    import sys as _sys2
+    if getattr(_sys2, 'frozen', False):
+        _docs = os.path.join(os.path.expanduser('~'), 'Documents')
+        _app_base = os.path.join(_docs, 'MySchoolChecks')
+    else:
+        _app_base = os.path.normpath(os.path.join(
+            os.path.dirname(os.path.abspath(check_module.__file__)), '..'))
+    out_dir = os.path.normpath(os.path.join(
+        _app_base, f'results_{today.strftime("%Y%m%d")}', subfolder
+    ))
+    os.makedirs(out_dir, exist_ok=True)
+    print(f'\nΑποθήκευση → {out_dir}')
+    print('-' * 62)
+
+    path_all = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_{subfolder}.xlsx')
+    try:
+        save_workbook(df_out, title, cols, ccols, today, path_all,
+                      highlight_col=hlcol, highlight_colors=hlclrs,
+                      status_colors=sclrs, status_col=scol2)
+        print(f'  ✓ Συνολικό: {os.path.basename(path_all)}  ({len(df_out)} εγγραφές)')
+    except PermissionError:
+        return {'status': 'error',
+                'message': 'Το αρχείο ΣΥΝΟΛΟ.xlsx είναι ανοιχτό σε άλλο πρόγραμμα. '
+                           'Κλείστε το και τρέξτε ξανά τον έλεγχο.'}
+
+    schools = df_out[scol].unique()
+
+    _tb = getattr(check_module, 'test_body', None)
+    if _tb:
+        try:
+            summary = _tb(df_out, today, schools)
+        except Exception:
+            summary = None
+    else:
+        summary = None
+    if not summary:
+        summary = (
+            f'Σύνοψη ελέγχου — {today.strftime("%d/%m/%Y")}\n'
+            f'{"─" * 40}\n'
+            f'Βρέθηκαν: {len(df_out)} εγγραφές\n'
+            f'Σχολεία:  {len(schools)}\n\n'
+            + '\n'.join(f'  • {s}' for s in sorted(str(x) for x in schools))
+        )
+    summary += (
+        f'\n\n{"─" * 40}\n'
+        f'Αποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
+    )
+    print(f'\n✓ Ολοκληρώθηκε!  Αρχείο: {path_all}')
+
+    return {
+        'status': 'ok',
+        'check_module': check_module, 'config': config,
+        'title': title, 'today': today, 'df_out': df_out,
+        'out_dir': out_dir, 'path_all': path_all,
+        'scol': scol, 'ecol': ecol, 'subj': subj, 'body_t': body_t,
+        'cols': cols, 'ccols': ccols, 'hlcol': hlcol, 'hlclrs': hlclrs,
+        'sclrs': sclrs, 'scol2': scol2, 'has_email': has_email,
+        'test_only': test_only, 'schools': schools, 'summary': summary,
+    }
+
+
+def send_from_exec_result(exec_result, test_mode):
+    """
+    Στέλνει email με βάση αποτέλεσμα του execute_check() (status='ok').
+    Καλείται από το tab «Αποστολή» του CheckRunDialog.
+
+      test_mode=True  → στέλνει μόνο δοκιμαστικό στο TEST_EMAIL.
+      test_mode=False → κανονική αποστολή σε όλα τα σχολεία (δημιουργεί τα
+                         per-school Excel αν δεν υπάρχουν ήδη).
+
+    Σε αντίθεση με το παλιό _send_loop() μέσω run_check(), ΔΕΝ ρωτάει με
+    popup αν να προχωρήσει σε κανονική αποστολή μετά το test — αυτό το
+    αποφασίζει ρητά ο χρήστης επιλέγοντας ξανά «Κανονική αποστολή» στο tab.
+    """
+    if exec_result.get('status') != 'ok':
+        raise RuntimeError('Δεν υπάρχει αποτέλεσμα εκτέλεσης προς αποστολή — τρέξε πρώτα την Εκτέλεση.')
+    if not exec_result.get('has_email'):
+        raise RuntimeError('Αυτός ο έλεγχος δεν υποστηρίζει αποστολή email.')
+
+    check_module  = exec_result['check_module']
+    config        = exec_result['config']
+    title         = exec_result['title']
+    today         = exec_result['today']
+    df_out        = exec_result['df_out']
+    scol, ecol    = exec_result['scol'], exec_result['ecol']
+    subj, body_t  = exec_result['subj'], exec_result['body_t']
+    cols, ccols   = exec_result['cols'], exec_result['ccols']
+    hlcol, hlclrs = exec_result['hlcol'], exec_result['hlclrs']
+    sclrs, scol2  = exec_result['sclrs'], exec_result['scol2']
+    path_all      = exec_result['path_all']
+    out_dir       = exec_result['out_dir']
+    schools       = exec_result['schools']
+    test_only     = exec_result['test_only']
+
+    _has_custom_send = callable(getattr(check_module, 'custom_full_send', None))
+    school_files = exec_result.setdefault('school_files', {})
+
+    # Δημιουργία per-school αρχείων πριν από κανονική αποστολή (μία φορά)
+    if not test_mode and not _has_custom_send and not school_files:
+        print(f'\n  Δημιουργία {len(schools)} αρχείων ανά σχολείο...')
+        for school in sorted(schools):
+            df_s      = df_out[df_out[scol] == school].copy()
+            safe_name = ''.join(c for c in str(school) if c not in r'\/:*?"<>|').strip()[:60]
+            path_s    = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_{safe_name}.xlsx')
+            save_workbook(df_s, title, cols, ccols, today, path_s,
+                          subtitle_extra=f'  |  {school}',
+                          highlight_col=hlcol, highlight_colors=hlclrs,
+                          status_colors=sclrs, status_col=scol2)
+            school_files[school] = path_s
+            print(f'  ✓ {safe_name}  ({len(df_s)} εγγραφές)')
+
+    pre_warn = getattr(check_module, 'PRE_SEND_WARNING', None)
+    if not test_mode and pre_warn:
+        import tkinter.messagebox as _mb
+        proceed = _mb.askyesno(
+            '⚠ Προσοχή πριν την αποστολή',
+            f'{pre_warn}\n\nΘέλεις να συνεχίσεις με την αποστολή;')
+        if not proceed:
+            print('  Η αποστολή ακυρώθηκε.')
+            return False
+
+    _custom_send = getattr(check_module, 'custom_full_send', None)
+    if not test_mode and _custom_send:
+        subject = f"{subj} — {today.strftime('%d/%m/%Y')}"
+        _custom_send(config, today, out_dir, scol, ecol, subject, body_t, cols, ccols, title)
+        return True
+
+    _send_loop(config, test_mode, title, today, subj, body_t,
+               df_out, schools, school_files, scol, ecol, path_all,
+               cols=cols, ccols=ccols, hlcol=hlcol, hlclrs=hlclrs,
+               sclrs=sclrs, scol2=scol2, test_only=test_only,
+               check_module=check_module, out_dir=out_dir,
+               interactive_escalate=False)
+    return True

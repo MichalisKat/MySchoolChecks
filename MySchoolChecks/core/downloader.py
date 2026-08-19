@@ -79,6 +79,50 @@ FILE_PREFIX_MAP = {
     '5.4' : 'stat5_4',
 }
 
+# Εναλλακτικά prefixes — για αρχεία που κατεβαίνουν χειροκίνητα (π.χ. λόγω
+# προβλήματος με τη Λήψη 4.1) και μετονομάζονται από τον χρήστη σε πιο απλή
+# μορφή (π.χ. "2_1", "4_1", "4_2" αντί για "gridResults..."/"stat4_1..."/"stat4_2...").
+# Το find_latest_downloads / downloads_info ψάχνει και αυτά τα prefixes.
+FILE_PREFIX_ALIASES = {
+    '2.1': ['2_1'],
+    '4.1': ['4_1'],
+    '4.2': ['4_2'],
+}
+
+
+def _candidate_prefixes(rid, prefix):
+    """Επιστρέφει το κύριο prefix ενός report_id + τυχόν εναλλακτικά (aliases)."""
+    prefixes = [prefix]
+    prefixes.extend(FILE_PREFIX_ALIASES.get(rid, []))
+    return prefixes
+
+
+def report_ids_from_required(required_reports):
+    """
+    Εξάγει τα report-ids (π.χ. '4.21') από μια λίστα REQUIRED_REPORTS όπως
+    ορίζεται σε κάθε check module (π.χ. ['4.21 — Άδειες εκπαιδευτικών',
+    '4.9 — Παρόντες εκπαιδευτικοί']).
+
+    Χρησιμοποιείται από το tab «⬇ Λήψη» του core/check_dialog.py ώστε κάθε
+    έλεγχος να κατεβάζει αυτόματα ΜΟΝΟ τα δικά του στατιστικά (μέσω
+    MySchoolDownloader(reports=...)), αντί για το γενικό «Λήψη Δεδομένων».
+
+    Αγνοεί οτιδήποτε δεν αντιστοιχεί σε γνωστό report_id του REPORTS.
+    Χειρίζεται και σύνθετες περιπτώσεις όπως '4.26/4.27 — ...' (κρατά μόνο
+    τα ids που υπάρχουν πραγματικά στο REPORTS).
+    """
+    import re as _re
+    valid_ids = {r[0] for r in REPORTS}
+    ids = []
+    for r in required_reports or []:
+        text  = str(r).strip()
+        head  = text.split('—')[0]  # μόνο πριν την παύλα περιγραφής
+        for token in _re.findall(r'\d+(?:\.\d+)*', head):
+            if token in valid_ids and token not in ids:
+                ids.append(token)
+    return ids
+
+
 BASE_URL = 'https://app.myschool.sch.gr'
 SSO_URL  = 'https://sso.sch.gr'
 
@@ -750,7 +794,9 @@ def find_latest_downloads(base_dir):
 
     result = {}
     for rid, prefix in FILE_PREFIX_MAP.items():
-        matches = glob.glob(os.path.join(today_dir, f'{prefix}*'))
+        matches = []
+        for pfx in _candidate_prefixes(rid, prefix):
+            matches.extend(glob.glob(os.path.join(today_dir, f'{pfx}*')))
         if matches:
             result[rid] = max(matches, key=os.path.getmtime)
 
@@ -796,7 +842,9 @@ def downloads_info(base_dir):
     # Αρχεία που βρέθηκαν
     found = {}
     for rid, prefix in FILE_PREFIX_MAP.items():
-        matches = glob.glob(os.path.join(latest_path, f'{prefix}*'))
+        matches = []
+        for pfx in _candidate_prefixes(rid, prefix):
+            matches.extend(glob.glob(os.path.join(latest_path, f'{pfx}*')))
         if matches:
             found[rid] = os.path.basename(matches[0])
 

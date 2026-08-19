@@ -141,6 +141,11 @@ CHECK_ORDER = [
     'ypoloipa',
 ]
 
+# Sentinel για τη γραμμή «Έλεγχος Ε.Ε.Α.» στην κεντρική λίστα — δεν είναι
+# module τύπου checks/*.py (δεν έχει ask_inputs/process), ανοίγει το δικό
+# του 4-tab SmeaeDialog αντί για το CheckRunDialog. Βλ. LauncherApp._build_ui.
+SMEAE_MARKER = '__SMEAE__'
+
 # Checks που εξαιρούνται από το κεντρικό μενού (π.χ. έχουν μεταφερθεί αλλού)
 CHECKS_EXCLUDED = {'tmimata_genikis', 'orario_pe60'}
 
@@ -184,14 +189,11 @@ def load_checks():
             mod = importlib.import_module(mod_name)
             title = getattr(mod, 'CHECK_TITLE', None)
             if title:
+                # Σημείωση: το "(Απαιτούνται: ...)" ΔΕΝ προστίθεται πια εδώ —
+                # φαίνεται πλέον μέσα στο tab «⬇ Λήψη» όταν ανοίγει ο
+                # έλεγχος (core/check_dialog.py), οπότε η περιγραφή στη
+                # λίστα μένει καθαρή.
                 desc = getattr(mod, 'CHECK_DESCRIPTION', '')
-                req  = getattr(mod, 'REQUIRED_REPORTS', [])
-                if req:
-                    import re as _re
-                    nums = [m.group() for r in req
-                            for m in [_re.match(r'[\d.]+', r.strip())] if m]
-                    if nums:
-                        desc = f'{desc} (Απαιτούνται: {", ".join(nums)})'
                 checks.append((title, desc, mod))
         except Exception as e:
             import traceback as _tb
@@ -783,10 +785,12 @@ class LauncherApp:
 
     def __init__(self, root, checks):
         self.root         = root
-        self.checks       = checks
-        self.indicators   = []
+        self.checks       = list(checks) + [(
+            'Έλεγχος Ε.Ε.Α. — Στατιστικά',
+            'Λήψη, σύγκριση, διαχωρισμός ανά σχολείο και αποστολή στατιστικών ΣΜΕΑΕ/ΕΕΑ',
+            SMEAE_MARKER,
+        )]
         self.check_frames = []
-        self._status_q    = queue.Queue()
 
         root.title('MySchool Checks')
         root.configure(bg=C['bg'])
@@ -798,7 +802,6 @@ class LauncherApp:
         root.update()
         root.resizable(False, False)
 
-        self._poll_status()
         # Σύνδεση stdout με status bar
         _gui_stream.set_callback(self._on_print)
 
@@ -869,25 +872,18 @@ class LauncherApp:
         except Exception:
             _has_files = False
 
-        # Toolbar — γραμμή 1: Λήψη | Εκπ/κοί | Σχολικές Μονάδες | Ενημερωτικό
+        # Toolbar — γραμμή 1: Εκπ/κοί | Σχολικές Μονάδες | Ενημερωτικό
+        # Σημείωση: το γενικό «Λήψη Δεδομένων» καταργήθηκε από εδώ — κάθε
+        # έλεγχος της κεντρικής λίστας (και το Ε.Ε.Α.) κατεβάζει πλέον μόνος
+        # του τα δικά του στατιστικά, μέσα στο δικό του tab «⬇ Λήψη».
         toolbar = tk.Frame(self.root, bg=C['bg2'], pady=6)
         toolbar.pack(fill='x')
-        _dl_btn_bg = C['bg2'] if _has_files else C['btn_bg']
-        _dl_btn_fg = C['hdr_bg'] if _has_files else C['btn_fg']
-        tk.Button(toolbar, text='⬇  Λήψη Δεδομένων',
-                  bg=_dl_btn_bg, fg=_dl_btn_fg,
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=14, pady=4, cursor='hand2',
-                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
-                  command=self._open_download).pack(side='left', padx=(6, 0))
-        tk.Label(toolbar, text='|', bg=C['bg2'], fg=C['desc'],
-                 font=('Arial', 9)).pack(side='left', padx=4)
         tk.Button(toolbar, text='📋  Εκπ/κοί ανά Ειδικότητα',
                   bg=C['bg2'], fg=C['hdr_bg'],
                   font=('Arial', 9, 'bold'), relief='flat',
                   padx=14, pady=4, cursor='hand2',
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
-                  command=self._open_eidikotita_tool).pack(side='left', padx=(0, 0))
+                  command=self._open_eidikotita_tool).pack(side='left', padx=(6, 0))
         tk.Button(toolbar, text='🏫  Σχολικές Μονάδες',
                   bg=C['bg2'], fg=C['hdr_bg'],
                   font=('Arial', 9, 'bold'), relief='flat',
@@ -903,21 +899,16 @@ class LauncherApp:
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
                   command=self._open_inform_email).pack(side='left', padx=(0, 0))
 
-        # Toolbar — γραμμή 2: ΕΕΑ | Τοποθετήσεις | PANIC
+        # Toolbar — γραμμή 2: Τοποθετήσεις | Νέο Σχ. Έτος | PANIC | ΔΙ.Π.Ε.Αν.Θ.
+        # (Ο Έλεγχος Ε.Ε.Α. μετακόμισε στην κεντρική λίστα ελέγχων παρακάτω.)
         toolbar2 = tk.Frame(self.root, bg=C['bg2'], pady=2)
         toolbar2.pack(fill='x')
-        tk.Button(toolbar2, text='📊  Έλεγχος Ε.Ε.Α.',
-                  bg=C['bg2'], fg=C['hdr_bg'],
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=14, pady=4, cursor='hand2',
-                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
-                  command=self._open_smeae).pack(side='left', padx=(6, 0))
         tk.Button(toolbar2, text='👥  Τοποθετήσεις',
                   bg=C['bg2'], fg=C['hdr_bg'],
                   font=('Arial', 9, 'bold'), relief='flat',
                   padx=14, pady=4, cursor='hand2',
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
-                  command=self._open_placements).pack(side='left', padx=(0, 0))
+                  command=self._open_placements).pack(side='left', padx=(6, 0))
         tk.Label(toolbar2, text='|', bg=C['bg2'], fg=C['desc'],
                  font=('Arial', 9)).pack(side='left', padx=4)
         tk.Button(toolbar2, text='🗓  Νέο Σχ. Έτος',
@@ -983,16 +974,9 @@ class LauncherApp:
 
         lbl_row = tk.Frame(body_top, bg=C['bg'])
         lbl_row.pack(fill='x', pady=(0, 4))
-        tk.Label(lbl_row, text='Επιλέξτε ένα ή περισσότερους ελέγχους:',
+        tk.Label(lbl_row, text='Διαθέσιμοι έλεγχοι — άνοιξε έναν για Λήψη / Εκτέλεση / Αποστολή:',
                  bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 10, 'bold'), anchor='w').pack(side='left')
-        self._all_btn = tk.Button(lbl_row, text='Όλοι',
-                  bg=C['hdr_bg'], fg='white',
-                  font=('Arial', 8, 'bold'), relief='flat',
-                  padx=8, pady=2, cursor='hand2',
-                  command=self._toggle_all)
-        self._all_btn.pack(side='right')
-        self._all_selected = False
 
         # Scrollable περιοχή ελέγχων — χωράει στην οθόνη αφαιρώντας header/toolbar/btn/status
         _screen_h = self.root.winfo_screenheight()
@@ -1027,12 +1011,10 @@ class LauncherApp:
 
         _canvas.bind_all('<MouseWheel>', _on_mousewheel)
 
-        self._check_vars = []
-
+        # Κάθε έλεγχος τρέχει πλέον ξεχωριστά, μέσα στο δικό του 3-tab
+        # παράθυρο (core/check_dialog.py::CheckRunDialog) — δεν υπάρχει
+        # πια μαζική εκτέλεση με checkboxes.
         for i, (title, desc, mod) in enumerate(self.checks):
-            var = tk.BooleanVar(value=False)
-            self._check_vars.append(var)
-
             f = tk.Frame(checks_inner, bg=C['norm_bg'],
                          highlightbackground=C['norm_bd'],
                          highlightthickness=1,
@@ -1043,12 +1025,18 @@ class LauncherApp:
             top = tk.Frame(f, bg=C['norm_bg'])
             top.pack(fill='x')
 
-            ind = Indicator(top, bg=C['norm_bg'])
-            ind.pack(side='left', padx=(0, 6))
-            self.indicators.append(ind)
+            _is_smeae = (mod == SMEAE_MARKER)
+            _open_cmd = self._open_smeae if _is_smeae else (lambda m=mod: self._open_check(m))
+            tk.Button(top, text='▶  Άνοιγμα',
+                      bg=C['btn_bg'], fg=C['btn_fg'],
+                      font=('Arial', 9, 'bold'), relief='flat',
+                      padx=10, pady=3, cursor='hand2',
+                      activebackground=C['btn_act'],
+                      command=_open_cmd
+                      ).pack(side='right', padx=(4, 0))
 
-            # Κουμπί επεξεργασίας email (μόνο για ελέγχους με email)
-            if getattr(mod, 'HAS_EMAIL', False):
+            # Κουμπί επεξεργασίας email (μόνο για ελέγχους με email — όχι για το Ε.Ε.Α.)
+            if not _is_smeae and getattr(mod, 'HAS_EMAIL', False):
                 mod_name = mod.__name__.split('.')[-1]
                 tk.Button(top, text='✏',
                           bg=C['norm_bg'], fg=C['hdr_bg'],
@@ -1057,34 +1045,15 @@ class LauncherApp:
                           command=lambda m=mod, mn=mod_name: self._open_email_editor(mn, m)
                           ).pack(side='right', padx=(4, 0))
 
-            cb = tk.Checkbutton(top, text=title,
-                                variable=var,
-                                bg=C['norm_bg'], selectcolor=C['sel_bg'],
-                                activebackground=C['norm_bg'],
-                                font=('Arial', 10), anchor='w',
-                                command=self._refresh_highlights)
-            cb.pack(fill='x', expand=True)
+            tk.Label(top, text=title,
+                     bg=C['norm_bg'], fg=C['hdr_bg'],
+                     font=('Arial', 10, 'bold'), anchor='w'
+                     ).pack(side='left', fill='x', expand=True)
 
             if desc:
                 tk.Label(f, text=desc, bg=C['norm_bg'], fg=C['desc'],
                          font=('Arial', 8), anchor='w',
-                         wraplength=430, justify='left').pack(fill='x', padx=20)
-
-        self._refresh_highlights()
-
-        # Κουμπί εκκίνησης
-        btn_frame = tk.Frame(self.root, bg=C['bg'], pady=10)
-        btn_frame.pack()
-        self.btn_run = tk.Button(btn_frame,
-                                  text='▶  Εκκίνηση ελέγχου',
-                                  font=('Arial', 11, 'bold'),
-                                  bg=C['btn_bg'], fg=C['btn_fg'],
-                                  activebackground=C['btn_act'],
-                                  padx=26, pady=9,
-                                  relief='flat',
-                                  cursor='hand2',
-                                  command=self._run)
-        self.btn_run.pack()
+                         wraplength=430, justify='left').pack(fill='x', padx=4)
 
         # Κουμπί ρυθμίσεων ⚙ στο header
         tk.Button(hdr, text='⚙', font=('Arial', 11),
@@ -1098,7 +1067,7 @@ class LauncherApp:
 
         # Status bar
         _init_status = ('Έτοιμο  •  Δεδομένα σήμερα: ✓' if _has_files
-                        else '💡 Ξεκινήστε με  ⬇ Λήψη Δεδομένων  πριν εκτελέσετε ελέγχους')
+                        else '💡 Άνοιξε έναν έλεγχο — κατεβάζει μόνος του ό,τι χρειάζεται')
         self.status_var = tk.StringVar(value=_init_status)
         status_bar = tk.Frame(self.root, bg=C['bg2'],
                               highlightbackground=C['border'],
@@ -1120,6 +1089,11 @@ class LauncherApp:
 
     def _open_download(self):
         DownloadDialog(self.root)
+
+    def _open_check(self, mod):
+        """Ανοίγει το 3-tab dialog (Λήψη/Εκτέλεση/Αποστολή) για έναν έλεγχο."""
+        from core.check_dialog import CheckRunDialog
+        CheckRunDialog(self.root, config, _docs_base(), C, mod)
 
     def _open_eidikotita_tool(self):
         EidikotitaDialog(self.root)
@@ -1157,29 +1131,6 @@ class LauncherApp:
 
     def _open_inform_email(self):
         InformEmailDialog(self.root)
-
-    def _refresh_highlights(self):
-        for i, (f, ind) in enumerate(zip(self.check_frames, self.indicators)):
-            sel = self._check_vars[i].get()
-            bg  = C['sel_bg']   if sel else C['norm_bg']
-            bd  = C['sel_bd']   if sel else C['norm_bd']
-            f.configure(bg=bg, highlightbackground=bd)
-            for w in f.winfo_children():
-                try:
-                    w.configure(bg=bg)
-                    for ww in w.winfo_children():
-                        try: ww.configure(bg=bg)
-                        except Exception: pass
-                except Exception:
-                    pass
-            ind.configure(bg=bg)
-
-    def _toggle_all(self):
-        self._all_selected = not self._all_selected
-        for var in self._check_vars:
-            var.set(self._all_selected)
-        self._all_btn.config(text='Κανένας' if self._all_selected else 'Όλοι')
-        self._refresh_highlights()
 
     # ── Email template editor ────────────────────────────────────────────────
 
@@ -1305,234 +1256,9 @@ class LauncherApp:
         """Παράθυρο ρυθμίσεων (email + MySchool credentials)."""
         SettingsDialog(self.root)
 
-    def _run(self):
-        selected = [i for i, v in enumerate(self._check_vars) if v.get()]
-        if not selected:
-            messagebox.showinfo('Επιλογή', 'Επιλέξτε τουλάχιστον έναν έλεγχο.', parent=self.root)
-            return
-
-        multi = len(selected) > 1
-        self.btn_run.config(state='disabled', bg=C['btn_dis'], text='  Εκτελείται...')
-
-        def task():
-            import core.framework as _fw
-            _fw._multi_run_mode    = multi
-            _fw._multi_run_results = [] if multi else _fw._multi_run_results
-
-            for pos, idx in enumerate(selected, 1):
-                _, _, mod = self.checks[idx]
-                self._status_q.put(('running', idx, pos, len(selected)))
-                try:
-                    if getattr(mod, 'CUSTOM_RUN', False):
-                        mod.run(config)
-                    else:
-                        from core.framework import run_check
-                        run_check(mod, config)
-                    self._status_q.put(('chk_ok', idx))
-                except SystemExit:
-                    self._status_q.put(('chk_ok', idx))
-                except Exception as e:
-                    import traceback
-                    self._status_q.put(('chk_err', idx, str(e), traceback.format_exc()))
-
-            if multi:
-                _fw._multi_run_mode = False
-                results = list(_fw._multi_run_results)
-            else:
-                results = None
-
-            self._status_q.put(('all_done', selected, results))
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def _poll_status(self):
-        try:
-            while True:
-                msg  = self._status_q.get_nowait()
-                kind = msg[0]
-
-                if kind == 'running':
-                    _, idx, pos, total = msg
-                    self.indicators[idx].set_state('running')
-                    title = self.checks[idx][0]
-                    suffix = f' [{pos}/{total}]' if total > 1 else ''
-                    self._set_status(f'Εκτέλεση{suffix}: {title}', C['status_run'])
-                    self.btn_run.config(text=f'  Εκτελείται {pos}/{total}...' if total > 1
-                                             else '  Εκτελείται...')
-
-                elif kind == 'chk_ok':
-                    self.indicators[msg[1]].set_state('ok')
-
-                elif kind == 'chk_err':
-                    _, idx, err, tb = msg
-                    self.indicators[idx].set_state('error')
-                    self._set_status(f'Σφάλμα: {err}', C['status_err'])
-                    messagebox.showerror('Σφάλμα', f'{err}\n\n{tb[-600:]}', parent=self.root)
-
-                elif kind == 'all_done':
-                    _, selected, results = msg
-                    self.btn_run.config(state='normal', bg=C['btn_bg'],
-                                        text='▶  Εκκίνηση ελέγχου')
-                    if results is None:
-                        # single run — popup εμφανίστηκε ήδη από το framework
-                        self._set_status(
-                            f'Ολοκληρώθηκε: {self.checks[selected[0]][0]}', C['status_ok'])
-                    else:
-                        # multi-run
-                        n = len(selected)
-                        self._set_status(f'Ολοκληρώθηκαν {n} έλεγχοι', C['status_ok'])
-                        self.root.after(0, lambda r=results, n=n: self._ask_show_results(r, n))
-
-        except queue.Empty:
-            pass
-        self.root.after(100, self._poll_status)
-
-    def _ask_show_results(self, results, total_ran):
-        answer = messagebox.askyesno(
-            'Αποτελέσματα',
-            f'Θέλεις να δεις τα αποτελέσματα;\n(Σύνολο: {total_ran} έλεγχοι που έτρεξαν)',
-            parent=self.root
-        )
-        if answer and results:
-            self._show_results_navigator(results)
-
-    def _show_results_navigator(self, results):
-        import tkinter as tk
-        from tkinter import scrolledtext
-
-        COLORS = {
-            'ok':   ('#E8F5E9', '#2E7D32'),
-            'warn': ('#FFF8E1', '#E65100'),
-        }
-        total   = len(results)
-        cur     = [0]
-
-        win = tk.Toplevel(self.root)
-        win.resizable(True, True)
-        win.grab_set()
-        win.attributes('-topmost', True)
-        _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
-        if os.path.exists(_ico):
-            try: win.iconbitmap(_ico)
-            except Exception: pass
-        win.update_idletasks()
-        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-        win.geometry(f'560x520+{sw//2-280}+{sh//2-260}')
-
-        # Header
-        hdr_frame = tk.Frame(win)
-        hdr_frame.pack(fill='x')
-        hdr_lbl = tk.Label(hdr_frame, fg='white', font=('Arial', 11, 'bold'), pady=8)
-        hdr_lbl.pack(fill='x')
-
-        # Μετρητής
-        counter_lbl = tk.Label(win, font=('Arial', 9, 'bold'))
-        counter_lbl.pack(pady=(4, 0))
-
-        # Κουμπιά πλοήγησης — pack πρώτα (bottom)
-        nav_frame = tk.Frame(win)
-        nav_frame.pack(side='bottom', pady=(4, 12))
-
-        btn_prev = tk.Button(nav_frame, text='◀  Προηγούμενο',
-                             font=('Arial', 9), relief='flat',
-                             padx=12, pady=5, cursor='hand2',
-                             command=lambda: navigate(-1))
-        btn_prev.pack(side='left', padx=4)
-
-        btn_next = tk.Button(nav_frame, text='Συνέχεια  ▶',
-                             font=('Arial', 9, 'bold'), relief='flat',
-                             padx=12, pady=5, cursor='hand2',
-                             command=lambda: navigate(+1))
-        btn_next.pack(side='left', padx=4)
-
-        btn_close = tk.Button(nav_frame, text='Κλείσιμο',
-                              font=('Arial', 9), relief='flat',
-                              padx=12, pady=5, cursor='hand2',
-                              command=win.destroy)
-        btn_close.pack(side='left', padx=4)
-
-        # Link άνοιγμα Excel — pack πριν το body text (bottom)
-        excel_frame = tk.Frame(win)
-        excel_frame.pack(side='bottom', fill='x', padx=14, pady=(0, 2))
-        excel_lbl = tk.Label(
-            excel_frame,
-            text='',
-            font=('Arial', 9, 'underline'),
-            cursor='hand2',
-            anchor='w'
-        )
-        excel_lbl.pack(fill='x')
-
-        # Body text
-        txt = scrolledtext.ScrolledText(
-            win, wrap=tk.WORD, font=('Consolas', 9),
-            relief='flat', bd=0, padx=14, pady=10)
-        txt.pack(fill='both', expand=True, padx=10, pady=(6, 4))
-
-        def show(i):
-            row = results[i]
-            title  = row[0]
-            body   = row[1]
-            rtype  = row[2]
-            xpath  = row[3] if len(row) > 3 else None
-
-            bg, hdr_bg = COLORS.get(rtype, COLORS['warn'])
-            icon = '✓' if rtype == 'ok' else '⚠'
-
-            win.configure(bg=bg)
-            hdr_frame.configure(bg=hdr_bg)
-            hdr_lbl.configure(text=f'{icon}  {title}', bg=hdr_bg)
-            counter_lbl.configure(text=f'{i + 1} / {total}', bg=bg, fg=hdr_bg)
-            nav_frame.configure(bg=bg)
-            excel_frame.configure(bg=bg)
-
-            txt.configure(state='normal', bg=bg, fg='#212121')
-            txt.delete('1.0', tk.END)
-            txt.insert('1.0', body)
-            txt.configure(state='disabled')
-
-            # Excel link(s) — xpath μπορεί να είναι str ή list[str]
-            # Καθαρισμός προηγούμενων labels
-            for _w in excel_frame.winfo_children():
-                _w.destroy()
-            _paths = ([xpath] if isinstance(xpath, str) else (xpath or []))
-            _valid = [p for p in _paths if p and os.path.exists(p)]
-            for _ep in _valid:
-                _fname = os.path.basename(_ep)
-                _lnk = tk.Label(
-                    excel_frame,
-                    text=f'📄 {_fname}',
-                    font=('Arial', 9, 'underline'),
-                    fg='#1565C0', bg=bg,
-                    cursor='hand2', anchor='w'
-                )
-                _lnk.pack(fill='x')
-                _lnk.bind('<Button-1>', lambda e, p=_ep: os.startfile(os.path.normpath(p)))
-            excel_frame.configure(bg=bg)
-
-            # Προηγούμενο: ορατό μόνο από το 2ο
-            if i == 0:
-                btn_prev.pack_forget()
-            else:
-                btn_prev.pack(side='left', padx=4)
-                btn_prev.configure(bg=hdr_bg, fg='white')
-
-            # Συνέχεια vs Κλείσιμο
-            if i == total - 1:
-                btn_next.pack_forget()
-                btn_close.configure(bg=hdr_bg, fg='white', font=('Arial', 9, 'bold'))
-            else:
-                btn_next.pack(side='left', padx=4)
-                btn_next.configure(bg=hdr_bg, fg='white')
-                btn_close.configure(bg=bg, fg='#777', font=('Arial', 9))
-
-        def navigate(direction):
-            cur[0] = max(0, min(total - 1, cur[0] + direction))
-            show(cur[0])
-
-        show(0)
-        win.wait_window()
-
+    # (Η παλιά μαζική εκτέλεση με checkboxes καταργήθηκε — κάθε έλεγχος
+    #  τρέχει πλέον μέσα στο δικό του CheckRunDialog: core/check_dialog.py.
+    #  Το _on_print/_set_status παραμένουν για γενικά μηνύματα status bar.)
     def _on_print(self, text):
         """Λαμβάνει μηνύματα από sys.stdout και τα εμφανίζει στο status bar."""
         self.root.after(0, lambda t=text: self._set_status(t))

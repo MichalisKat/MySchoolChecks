@@ -727,6 +727,70 @@ def _open_tmimata_template_editor(parent, C):
     ed.geometry(f'+{x}+{y}')
 
 
+def _show_results_dialog(config, df_ds, df_nip, today, out_path, summary_text):
+    """
+    Αντικαθιστά το _show_results_popup — εμφανίζει σύνοψη αποτελεσμάτων
+    και κουμπί για άνοιγμα του email dialog.  Τρέχει στο main thread.
+    """
+    import tkinter as tk
+    from tkinter import scrolledtext
+
+    root = tk._default_root
+    if root is None:
+        return
+
+    win = tk.Toplevel(root)
+    win.title(f'Αποτελέσματα — {CHECK_TITLE}')
+    win.configure(bg='#FFF8E1')
+    win.resizable(True, True)
+    win.attributes('-topmost', True)
+    win.update_idletasks()
+    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    win.geometry(f'520x380+{sw//2-260}+{sh//2-190}')
+
+    tk.Frame(win, bg='#E65100', pady=8).pack(fill='x')
+    tk.Label(win.children[list(win.children)[-1]],
+             text=f'⚠  {CHECK_TITLE}',
+             bg='#E65100', fg='white',
+             font=('Arial', 11, 'bold')).pack()
+
+    txt = scrolledtext.ScrolledText(win, font=('Arial', 9), wrap='word',
+                                     relief='flat', bg='#FFF8E1', height=10)
+    txt.pack(fill='both', expand=True, padx=14, pady=8)
+    txt.insert('1.0', summary_text)
+    txt.config(state='disabled')
+
+    btn_f = tk.Frame(win, bg='#FFF8E1')
+    btn_f.pack(pady=(0, 12))
+
+    def _open_excel():
+        import subprocess
+        try:
+            subprocess.Popen(['start', '', out_path], shell=True)
+        except Exception:
+            pass
+
+    def _open_email():
+        win.destroy()
+        _show_email_dialog(config, df_ds, df_nip, today)
+
+    tk.Button(btn_f, text='📄 Άνοιγμα Excel',
+              bg='#E65100', fg='white',
+              font=('Arial', 9, 'bold'), relief='flat',
+              padx=14, pady=5, cursor='hand2',
+              command=_open_excel).pack(side='left', padx=4)
+    tk.Button(btn_f, text='✉  Αποστολή Email',
+              bg='#1F4E79', fg='white',
+              font=('Arial', 9, 'bold'), relief='flat',
+              padx=14, pady=5, cursor='hand2',
+              command=_open_email).pack(side='left', padx=4)
+    tk.Button(btn_f, text='Κλείσιμο',
+              bg='#E8EDF3', fg='#333333',
+              font=('Arial', 9), relief='flat',
+              padx=14, pady=5, cursor='hand2',
+              command=win.destroy).pack(side='left', padx=4)
+
+
 def _show_email_dialog(config, df_ds, df_nip, today):
     """Dialog αποστολής email ανά σχολείο με απόκλιση."""
     import tkinter as tk
@@ -1030,11 +1094,11 @@ def run(config):
         f'{"─"*50}\n'
         f'Αποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
     )
-    _show_results_popup(CHECK_TITLE, body, result_type='warn', excel_path=out_path)
-
-    # Το run() τρέχει σε background thread — το email dialog πρέπει να ανοίξει
+    # Το run() τρέχει σε background thread — το dialog πρέπει να ανοίξει
     # στο main thread μέσω root.after(), αλλιώς το Tkinter δεν το επιτρέπει.
     import tkinter as tk
     _root = tk._default_root
     if _root is not None:
-        _root.after(0, lambda: _show_email_dialog(config, df_ds, df_nip, today))
+        _summary = body
+        _root.after(0, lambda: _show_results_dialog(
+            config, df_ds, df_nip, today, out_path, _summary))
