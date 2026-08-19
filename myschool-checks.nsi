@@ -1,4 +1,4 @@
-; ============================================================
+﻿; ============================================================
 ; myschool-checks.nsi
 ; NSIS Installer Script - MySchool Checks 1.0.0
 ; Compile: makensis myschool-checks.nsi
@@ -11,7 +11,7 @@ SetCompressorDictSize 64
 
 ; --- Metadata ---
 !define APP_NAME      "MySchool Checks"
-!define APP_VERSION   "3.3.0"
+!define APP_VERSION   "3.4.0"
 !define APP_PUBLISHER "Michalis Katsirintakis"
 !define APP_URL       "https://github.com/mkatsirntakis/myschool-checks"
 !define APP_EXE       "MySchoolChecks.exe"
@@ -63,7 +63,7 @@ BrandingText     "${APP_PUBLISHER}"
 Section "MySchool Checks" SecMain
     SectionIn RO
 
-    ; Απεγκατάσταση παλιάς έκδοσης MySchool Checks (αν υπάρχει)
+    ; Ξ‘Ο€ΞµΞ³ΞΊΞ±Ο„Ξ¬ΟƒΟ„Ξ±ΟƒΞ· Ο€Ξ±Ξ»ΞΉΞ¬Ο‚ Ξ­ΞΊΞ΄ΞΏΟƒΞ·Ο‚ MySchool Checks (Ξ±Ξ½ Ο…Ο€Ξ¬ΟΟ‡ΞµΞΉ)
     ReadRegStr $0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MySchoolChecks" "UninstallString"
     StrCmp $0 "" skip_old_uninstall
         ExecWait '"$0" /S _?=$INSTDIR'

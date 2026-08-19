@@ -139,6 +139,7 @@ CHECK_ORDER = [
     'analipsi',
     'dioikitiko_ergo',
     'ypoloipa',
+    'tmimata_genikis',
 ]
 
 # Sentinel για τη γραμμή «Έλεγχος Ε.Ε.Α.» στην κεντρική λίστα — δεν είναι
@@ -147,7 +148,7 @@ CHECK_ORDER = [
 SMEAE_MARKER = '__SMEAE__'
 
 # Checks που εξαιρούνται από το κεντρικό μενού (π.χ. έχουν μεταφερθεί αλλού)
-CHECKS_EXCLUDED = {'tmimata_genikis', 'orario_pe60'}
+CHECKS_EXCLUDED = {'orario_pe60'}
 
 def load_checks():
     base = os.path.dirname(os.path.abspath(__file__))
@@ -164,6 +165,7 @@ def load_checks():
         all_known = list(CHECK_ORDER) + [
             'forma_82', 'orario_diafora', 'arnhtika_ypoloipa',
             'adies_aneu', 'adies', 'apontes_xwris_adeia', 'analipsi', 'dioikitiko_ergo', 'ypoloipa',
+            'tmimata_genikis',
         ]
         seen = set()
         ordered = []
@@ -872,188 +874,32 @@ class LauncherApp:
         except Exception:
             _has_files = False
 
-        # Toolbar — γραμμή 1: Εκπ/κοί | Σχολικές Μονάδες | Ενημερωτικό
-        # Σημείωση: το γενικό «Λήψη Δεδομένων» καταργήθηκε από εδώ — κάθε
-        # έλεγχος της κεντρικής λίστας (και το Ε.Ε.Α.) κατεβάζει πλέον μόνος
-        # του τα δικά του στατιστικά, μέσα στο δικό του tab «⬇ Λήψη».
-        toolbar = tk.Frame(self.root, bg=C['bg2'], pady=6)
-        toolbar.pack(fill='x')
-        tk.Button(toolbar, text='📋  Εκπ/κοί ανά Ειδικότητα',
-                  bg=C['bg2'], fg=C['hdr_bg'],
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=14, pady=4, cursor='hand2',
-                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
-                  command=self._open_eidikotita_tool).pack(side='left', padx=(6, 0))
-        tk.Button(toolbar, text='🏫  Σχολικές Μονάδες',
-                  bg=C['bg2'], fg=C['hdr_bg'],
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=14, pady=4, cursor='hand2',
-                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
-                  command=self._open_monada_tool).pack(side='left', padx=(0, 0))
-        tk.Label(toolbar, text='|', bg=C['bg2'], fg=C['desc'],
-                 font=('Arial', 9)).pack(side='left', padx=4)
-        tk.Button(toolbar, text='✉  Ενημερωτικό',
-                  bg=C['bg2'], fg=C['hdr_bg'],
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=14, pady=4, cursor='hand2',
-                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
-                  command=self._open_inform_email).pack(side='left', padx=(0, 0))
+        # Η παλιά γραμμή εργαλείων (toolbar/toolbar2) καταργήθηκε εντελώς —
+        # όλες οι λειτουργίες μοιράστηκαν σε 3 tabs: Έλεγχοι / Αναφορές &
+        # Στατιστικά / Ενέργειες MySchool (βλ. _build_checks_tab κ.λπ.).
+        from tkinter import ttk
+        style = ttk.Style()
+        style.configure('TNotebook', background=C['bg'])
+        style.configure('TNotebook.Tab', background=C['bg2'], foreground=C['desc'],
+                        font=('Arial', 10, 'bold'), padding=(14, 7))
+        style.map('TNotebook.Tab',
+                  background=[('selected', C['hdr_sub']), ('active', C['sel_bg'])],
+                  foreground=[('selected', C['hdr_bg']),  ('active', C['hdr_bg'])])
 
-        # Toolbar — γραμμή 2: Τοποθετήσεις | Νέο Σχ. Έτος | PANIC | ΔΙ.Π.Ε.Αν.Θ.
-        # (Ο Έλεγχος Ε.Ε.Α. μετακόμισε στην κεντρική λίστα ελέγχων παρακάτω.)
-        toolbar2 = tk.Frame(self.root, bg=C['bg2'], pady=2)
-        toolbar2.pack(fill='x')
-        tk.Button(toolbar2, text='👥  Τοποθετήσεις',
-                  bg=C['bg2'], fg=C['hdr_bg'],
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=14, pady=4, cursor='hand2',
-                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
-                  command=self._open_placements).pack(side='left', padx=(6, 0))
-        tk.Label(toolbar2, text='|', bg=C['bg2'], fg=C['desc'],
-                 font=('Arial', 9)).pack(side='left', padx=4)
-        tk.Button(toolbar2, text='🗓  Νέο Σχ. Έτος',
-                  bg=C['bg2'], fg=C['hdr_bg'],
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=14, pady=4, cursor='hand2',
-                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
-                  command=self._open_neo_school_year).pack(side='left', padx=(0, 0))
-        tk.Label(toolbar2, text='|', bg=C['bg2'], fg=C['desc'],
-                 font=('Arial', 9)).pack(side='left', padx=4)
-        _panic_btn = tk.Button(toolbar2, text='⚠  PANIC',
-                  bg='#B71C1C', fg='white',
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=14, pady=4, cursor='hand2',
-                  activebackground='#D32F2F', activeforeground='white')
-        _panic_btn.pack(side='left', padx=(0, 0))
+        nb = ttk.Notebook(self.root)
+        nb.pack(fill='both', padx=10, pady=(8, 0))
+        self._main_nb = nb
 
-        tk.Label(toolbar2, text='|', bg=C['bg2'], fg=C['desc'],
-                 font=('Arial', 9)).pack(side='left', padx=4)
-        _dipe_btn = tk.Button(toolbar2, text='🏛  ΔΙ.Π.Ε.Αν.Θ.',
-                  bg=C['bg2'], fg=C['hdr_bg'],
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=14, pady=4, cursor='hand2',
-                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
-                  command=self._open_dipe)
-        _dipe_btn.pack(side='left', padx=(0, 0))
+        tab_checks  = tk.Frame(nb, bg=C['bg'])
+        tab_reports = tk.Frame(nb, bg=C['bg'])
+        tab_actions = tk.Frame(nb, bg=C['bg'])
+        nb.add(tab_checks,  text='  🗂  Έλεγχοι  ')
+        nb.add(tab_reports, text='  📊  Αναφορές / Στατιστικά  ')
+        nb.add(tab_actions, text='  🏛  Ενέργειες MySchool  ')
 
-        # Tooltip για το ΔΙ.Π.Ε.Αν.Θ. κουμπί
-        _dipe_tip = None
-        def _dipe_enter(e):
-            nonlocal _dipe_tip
-            _dipe_tip = tk.Toplevel(_dipe_btn)
-            _dipe_tip.wm_overrideredirect(True)
-            _dipe_tip.wm_geometry(f'+{e.x_root+10}+{e.y_root+20}')
-            tk.Label(_dipe_tip, text='μόνο για χρήση από Δ/νση Π.Ε. Αν. Θεσσαλονίκης',
-                     bg='#FFF9C4', fg='#333333', relief='solid', bd=1,
-                     font=('Arial', 8), padx=6, pady=3).pack()
-        def _dipe_leave(e):
-            nonlocal _dipe_tip
-            if _dipe_tip:
-                _dipe_tip.destroy()
-                _dipe_tip = None
-        _dipe_btn.bind('<Enter>', _dipe_enter)
-        _dipe_btn.bind('<Leave>', _dipe_leave)
-
-        _panic_menu = tk.Menu(self.root, tearoff=0,
-                              bg='white', fg='#1A1A1A',
-                              activebackground='#B71C1C', activeforeground='white',
-                              font=('Arial', 10), relief='flat', bd=1)
-        _panic_menu.add_command(label='▶  Έναρξη', command=self._open_editor)
-        _panic_menu.add_command(label='⏹  Λήξη',   command=self._open_panic_end)
-
-        def _show_panic_menu(event=None):
-            x = _panic_btn.winfo_rootx()
-            y = _panic_btn.winfo_rooty() + _panic_btn.winfo_height()
-            _panic_menu.tk_popup(x, y)
-
-        _panic_btn.configure(command=_show_panic_menu)
-
-        # Body — label row (σταθερό)
-        body_top = tk.Frame(self.root, bg=C['bg'], padx=18, pady=8)
-        body_top.pack(fill='x')
-
-        lbl_row = tk.Frame(body_top, bg=C['bg'])
-        lbl_row.pack(fill='x', pady=(0, 4))
-        tk.Label(lbl_row, text='Διαθέσιμοι έλεγχοι — άνοιξε έναν για Λήψη / Εκτέλεση / Αποστολή:',
-                 bg=C['bg'], fg=C['hdr_bg'],
-                 font=('Arial', 10, 'bold'), anchor='w').pack(side='left')
-
-        # Scrollable περιοχή ελέγχων — χωράει στην οθόνη αφαιρώντας header/toolbar/btn/status
-        _screen_h = self.root.winfo_screenheight()
-        _canvas_h = min(len(self.checks) * 54 + 10, _screen_h - 340)
-
-        scroll_outer = tk.Frame(self.root, bg=C['bg'], padx=18)
-        scroll_outer.pack(fill='x')
-
-        _canvas = tk.Canvas(scroll_outer, bg=C['bg'],
-                            height=_canvas_h, highlightthickness=0)
-        _vsb    = tk.Scrollbar(scroll_outer, orient='vertical',
-                               command=_canvas.yview)
-        _canvas.configure(yscrollcommand=_vsb.set)
-        _vsb.pack(side='right', fill='y')
-        _canvas.pack(side='left', fill='x', expand=True)
-
-        checks_inner = tk.Frame(_canvas, bg=C['bg'])
-        _canvas_win  = _canvas.create_window((0, 0), window=checks_inner,
-                                              anchor='nw')
-
-        def _on_inner_configure(e):
-            _canvas.configure(scrollregion=_canvas.bbox('all'))
-
-        def _on_canvas_configure(e):
-            _canvas.itemconfig(_canvas_win, width=e.width)
-
-        checks_inner.bind('<Configure>', _on_inner_configure)
-        _canvas.bind('<Configure>', _on_canvas_configure)
-
-        def _on_mousewheel(e):
-            _canvas.yview_scroll(int(-1 * (e.delta / 120)), 'units')
-
-        _canvas.bind_all('<MouseWheel>', _on_mousewheel)
-
-        # Κάθε έλεγχος τρέχει πλέον ξεχωριστά, μέσα στο δικό του 3-tab
-        # παράθυρο (core/check_dialog.py::CheckRunDialog) — δεν υπάρχει
-        # πια μαζική εκτέλεση με checkboxes.
-        for i, (title, desc, mod) in enumerate(self.checks):
-            f = tk.Frame(checks_inner, bg=C['norm_bg'],
-                         highlightbackground=C['norm_bd'],
-                         highlightthickness=1,
-                         pady=6, padx=10)
-            f.pack(fill='x', pady=3)
-            self.check_frames.append(f)
-
-            top = tk.Frame(f, bg=C['norm_bg'])
-            top.pack(fill='x')
-
-            _is_smeae = (mod == SMEAE_MARKER)
-            _open_cmd = self._open_smeae if _is_smeae else (lambda m=mod: self._open_check(m))
-            tk.Button(top, text='▶  Άνοιγμα',
-                      bg=C['btn_bg'], fg=C['btn_fg'],
-                      font=('Arial', 9, 'bold'), relief='flat',
-                      padx=10, pady=3, cursor='hand2',
-                      activebackground=C['btn_act'],
-                      command=_open_cmd
-                      ).pack(side='right', padx=(4, 0))
-
-            # Κουμπί επεξεργασίας email (μόνο για ελέγχους με email — όχι για το Ε.Ε.Α.)
-            if not _is_smeae and getattr(mod, 'HAS_EMAIL', False):
-                mod_name = mod.__name__.split('.')[-1]
-                tk.Button(top, text='✏',
-                          bg=C['norm_bg'], fg=C['hdr_bg'],
-                          font=('Arial', 10), relief='flat', cursor='hand2',
-                          activebackground=C['sel_bg'],
-                          command=lambda m=mod, mn=mod_name: self._open_email_editor(mn, m)
-                          ).pack(side='right', padx=(4, 0))
-
-            tk.Label(top, text=title,
-                     bg=C['norm_bg'], fg=C['hdr_bg'],
-                     font=('Arial', 10, 'bold'), anchor='w'
-                     ).pack(side='left', fill='x', expand=True)
-
-            if desc:
-                tk.Label(f, text=desc, bg=C['norm_bg'], fg=C['desc'],
-                         font=('Arial', 8), anchor='w',
-                         wraplength=430, justify='left').pack(fill='x', padx=4)
+        self._build_checks_tab(tab_checks)
+        self._build_reports_tab(tab_reports)
+        self._build_actions_tab(tab_actions)
 
         # Κουμπί ρυθμίσεων ⚙ στο header
         tk.Button(hdr, text='⚙', font=('Arial', 11),
@@ -1083,6 +929,240 @@ class LauncherApp:
                  text=f'{len(self.checks)} έλεγχοι  •  Μιχάλης Κατσιρντάκης  •  2310954145',
                  bg=C['bg2'], fg=C['footer'],
                  font=('Arial', 8), padx=10).pack(side='right')
+
+    # ── Βοηθητικό: scrollable Canvas με mousewheel bound μόνο ενώ ο δείκτης
+    #    είναι πάνω από το συγκεκριμένο canvas (χρειάζεται γιατί τώρα υπάρχουν
+    #    3 ξεχωριστά scrollable tabs) ─────────────────────────────────────────
+    def _make_scrollable(self, parent, n_items):
+        _screen_h = self.root.winfo_screenheight()
+        # Αρχική εκτίμηση ύψους (χρησιμοποιείται μέχρι να μετρηθεί το πραγματικό
+        # ύψος του περιεχομένου — βλ. _finalize_scrollable). Γενναιόδωρη εκτίμηση
+        # (78px/γραμμή) ώστε να μην εμφανίζεται περιττή μπάρα κύλισης όσο δεν
+        # έχει γίνει ακόμα η τελική προσαρμογή.
+        _canvas_h = min(max(n_items, 1) * 78 + 10, _screen_h - 380)
+        _max_h = _screen_h - 380
+
+        outer = tk.Frame(parent, bg=C['bg'])
+        outer.pack(fill='x', padx=18, pady=(0, 10))
+
+        canvas = tk.Canvas(outer, bg=C['bg'], height=_canvas_h, highlightthickness=0)
+        vsb    = tk.Scrollbar(outer, orient='vertical', command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side='right', fill='y')
+        canvas.pack(side='left', fill='x', expand=True)
+
+        inner = tk.Frame(canvas, bg=C['bg'])
+        win_id = canvas.create_window((0, 0), window=inner, anchor='nw')
+
+        def _on_inner_configure(e):
+            canvas.configure(scrollregion=canvas.bbox('all'))
+
+        def _on_canvas_configure(e):
+            canvas.itemconfig(win_id, width=e.width)
+
+        inner.bind('<Configure>', _on_inner_configure)
+        canvas.bind('<Configure>', _on_canvas_configure)
+
+        def _on_wheel(e):
+            canvas.yview_scroll(int(-1 * (e.delta / 120)), 'units')
+
+        def _bind_wheel(_):
+            canvas.bind_all('<MouseWheel>', _on_wheel)
+
+        def _unbind_wheel(_):
+            canvas.unbind_all('<MouseWheel>')
+
+        canvas.bind('<Enter>', _bind_wheel)
+        canvas.bind('<Leave>', _unbind_wheel)
+
+        # Κρατάμε αναφορές ώστε το _finalize_scrollable (καλείται αφού έχουν
+        # προστεθεί όλες οι γραμμές) να μπορεί να προσαρμόσει το πραγματικό
+        # ύψος του canvas βάσει του πραγματικού (μετρημένου) ύψους περιεχομένου,
+        # αντί για εκτίμηση — έτσι αποφεύγεται η μπάρα κύλισης όποτε είναι δυνατό.
+        inner._msc_canvas = canvas
+        inner._msc_max_h  = _max_h
+        return inner
+
+    def _finalize_scrollable(self, inner):
+        """Προσαρμόζει το ύψος ενός scrollable canvas (βλ. _make_scrollable)
+        στο πραγματικό ύψος του περιεχομένου του, ώστε να μην εμφανίζεται
+        μπάρα κύλισης όταν το περιεχόμενο χωράει ήδη στο διαθέσιμο ύψος."""
+        canvas = getattr(inner, '_msc_canvas', None)
+        if canvas is None:
+            return
+        max_h = getattr(inner, '_msc_max_h', None)
+        try:
+            inner.update_idletasks()
+            req_h = inner.winfo_reqheight()
+            if req_h > 0:
+                new_h = min(req_h, max_h) if max_h else req_h
+                canvas.configure(height=new_h)
+        except Exception:
+            pass
+
+    def _tab_label(self, parent, text):
+        row = tk.Frame(parent, bg=C['bg'])
+        row.pack(fill='x', padx=18, pady=(10, 4))
+        tk.Label(row, text=text, bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 10, 'bold'), anchor='w').pack(side='left')
+
+    # ── Tab 1: Έλεγχοι (9 έλεγχοι + Ε.Ε.Α.) — κάθε ένας τρέχει ξεχωριστά,
+    #    μέσα στο δικό του 3-tab παράθυρο (core/check_dialog.py::CheckRunDialog).
+    #    Δεν υπάρχει πια μαζική εκτέλεση με checkboxes. ─────────────────────────
+    def _build_checks_tab(self, parent):
+        self._tab_label(parent, 'Διαθέσιμοι έλεγχοι — άνοιξε έναν για Λήψη / Εκτέλεση / Αποστολή:')
+        inner = self._make_scrollable(parent, len(self.checks))
+
+        for title, desc, mod in self.checks:
+            f = tk.Frame(inner, bg=C['norm_bg'],
+                         highlightbackground=C['norm_bd'],
+                         highlightthickness=1,
+                         pady=6, padx=10)
+            f.pack(fill='x', pady=3)
+            self.check_frames.append(f)
+
+            top = tk.Frame(f, bg=C['norm_bg'])
+            top.pack(fill='x')
+
+            _is_smeae = (mod == SMEAE_MARKER)
+            _open_cmd = self._open_smeae if _is_smeae else (lambda m=mod: self._open_check(m))
+            tk.Button(top, text='▶  Άνοιγμα',
+                      bg=C['btn_bg'], fg=C['btn_fg'],
+                      font=('Arial', 9, 'bold'), relief='flat',
+                      padx=10, pady=3, cursor='hand2',
+                      activebackground=C['btn_act'],
+                      command=_open_cmd
+                      ).pack(side='right', padx=(4, 0))
+
+            # Σημείωση: το κουμπί ✏ επεξεργασίας προτύπου email μετακόμισε
+            # μέσα στο 3ο tab «✉ Αποστολή» κάθε ελέγχου (core/check_dialog.py
+            # ::CheckRunDialog._open_email_editor) — δεν εμφανίζεται πια εδώ.
+
+            tk.Label(top, text=title,
+                     bg=C['norm_bg'], fg=C['hdr_bg'],
+                     font=('Arial', 10, 'bold'), anchor='w'
+                     ).pack(side='left', fill='x', expand=True)
+
+            if desc:
+                tk.Label(f, text=desc, bg=C['norm_bg'], fg=C['desc'],
+                         font=('Arial', 8), anchor='w',
+                         wraplength=430, justify='left').pack(fill='x', padx=4)
+
+        self._finalize_scrollable(inner)
+
+    # ── Γενικό helper για τα tabs «Αναφορές/Στατιστικά» και «Ενέργειες
+    #    MySchool»: απλή λίστα γραμμών (τίτλος + περιγραφή + «▶ Άνοιγμα»).
+    #    items: list of dict {title, desc, cmd} ή {title, desc, menu:[(label,cmd), ...]}
+    #    για γραμμές που ανοίγουν popup menu (π.χ. Επιβεβαίωση Δ/νσης). ────────
+    def _build_simple_list(self, parent, items):
+        inner = self._make_scrollable(parent, len(items))
+
+        for item in items:
+            f = tk.Frame(inner, bg=C['norm_bg'],
+                         highlightbackground=C['norm_bd'],
+                         highlightthickness=1,
+                         pady=6, padx=10)
+            f.pack(fill='x', pady=3)
+
+            top = tk.Frame(f, bg=C['norm_bg'])
+            top.pack(fill='x')
+
+            menu_items = item.get('menu')
+            btn = tk.Button(top, text='▶  Άνοιγμα',
+                      bg=C['btn_bg'], fg=C['btn_fg'],
+                      font=('Arial', 9, 'bold'), relief='flat',
+                      padx=10, pady=3, cursor='hand2',
+                      activebackground=C['btn_act'])
+            btn.pack(side='right', padx=(4, 0))
+
+            if menu_items:
+                popup = tk.Menu(self.root, tearoff=0,
+                                 bg='white', fg='#1A1A1A',
+                                 activebackground=C['hdr_bg'], activeforeground='white',
+                                 font=('Arial', 10), relief='flat', bd=1)
+                for label, cmd in menu_items:
+                    popup.add_command(label=label, command=cmd)
+
+                def _show_popup(event=None, _b=btn, _m=popup):
+                    x = _b.winfo_rootx()
+                    y = _b.winfo_rooty() + _b.winfo_height()
+                    _m.tk_popup(x, y)
+                btn.configure(command=_show_popup)
+            else:
+                btn.configure(command=item['cmd'])
+
+            tk.Label(top, text=item['title'],
+                     bg=C['norm_bg'], fg=C['hdr_bg'],
+                     font=('Arial', 10, 'bold'), anchor='w'
+                     ).pack(side='left', fill='x', expand=True)
+
+            if item.get('desc'):
+                tk.Label(f, text=item['desc'], bg=C['norm_bg'], fg=C['desc'],
+                         font=('Arial', 8), anchor='w',
+                         wraplength=430, justify='left').pack(fill='x', padx=4)
+
+        self._finalize_scrollable(inner)
+
+    # ── Tab 2: Αναφορές / Στατιστικά ─────────────────────────────────────────
+    def _build_reports_tab(self, parent):
+        self._tab_label(parent, 'Αναφορές & εξαγωγές — άνοιξε ένα εργαλείο:')
+        items = [
+            {'title': 'Ενημερωτικό',
+             'desc': 'Αποστολή ενημερωτικού email (με προαιρετικό συνημμένο αρχείο) σε σχολεία.',
+             'cmd': self._open_inform_email},
+            {'title': 'Εκπ/κοί ανά Ειδικότητα',
+             'desc': 'Εξαγωγή εκπαιδευτικών ανά ειδικότητα — για αποστολή στοιχείων ενδεικτικά σε '
+                     'Συμβούλους Εκπ/σης.',
+             'cmd': self._open_eidikotita_tool},
+            {'title': 'Σχολικές Μονάδες',
+             'desc': 'Εξαγωγή στοιχείων σχολικών μονάδων ανά Δήμο.',
+             'cmd': self._open_monada_tool},
+            {'title': 'Εκπαιδευτικοί ανά Ειδικότητα & Θέση Συμβούλου',
+             'desc': 'Εξαγωγή εκπαιδευτικών φιλτραρισμένων ανά ειδικότητα και θέση Συμβούλου Εκπ/σης.',
+             'cmd': lambda: SymbouloiDialog(self.root)},
+        ]
+        self._build_simple_list(parent, items)
+
+    # ── Tab 3: Ενέργειες MySchool (καταχωρήσεις) ────────────────────────────
+    def _build_actions_tab(self, parent):
+        self._tab_label(parent, 'Ενέργειες καταχώρησης στο MySchool — άνοιξε ένα εργαλείο:')
+        items = [
+            {'title': 'Επεξεργασία αρχείου τοποθετήσεων',
+             'desc': 'Μετατροπή αρχικού αρχείου — συμπλήρωση πεδίων και άνοιγμα στο Excel.',
+             'cmd': lambda: DipePlacementsDialog(self.root)},
+            {'title': 'Τοποθετήσεις',
+             'desc': 'Αυτόματη καταχώρηση τοποθετήσεων εκπαιδευτικών στο MySchool.',
+             'cmd': self._open_placements},
+            {'title': 'Τερματισμός Τοποθετήσεων',
+             'desc': 'Αυτόματος τερματισμός τοποθετήσεων — ορισμός ημερομηνίας λήξης (21/6/2026) '
+                     'στο MySchool.',
+             'cmd': lambda: TerminationDialog(self.root)},
+            {'title': 'Αλλαγή Λειτουργικότητας',
+             'desc': 'Αυτόματη ενημέρωση λειτουργικότητας σχολικών μονάδων στο MySchool βάσει '
+                     'αρχείου Excel.',
+             'cmd': lambda: FunctionalityDialog(self.root)},
+            {'title': 'Υποχρεωτικό Ωράριο ΠΕ60',
+             'desc': 'Έλεγχος υποχρεωτικού ωραρίου ΠΕ60/ΠΕ60.50 βάσει λειτουργικότητας νηπιαγωγείου '
+                     'τοποθέτησης (2.1 + 4.1 + 4.2).',
+             'cmd': self._run_orario_pe60},
+            {'title': 'Επιβεβαίωση Δ/νσης',
+             'desc': 'Καταχώρηση/αναίρεση Γραμματειακής Υποστήριξης (πρώην «PANIC») — Έναρξη ή Λήξη.',
+             'menu': [('▶  Έναρξη', self._open_editor), ('⏹  Λήξη', self._open_panic_end)]},
+            {'title': 'Καταχώρηση Απουσίας σε Οργανική',
+             'desc': 'Αυτόματη καταχώρηση απουσίας Ολικής Διάθεσης στην οργανική τοποθέτηση '
+                     'εκπαιδευτικών.',
+             'cmd': lambda: AbsencesDialog(self.root)},
+        ]
+        self._build_simple_list(parent, items)
+
+    def _run_orario_pe60(self):
+        """Υποχρεωτικό Ωράριο ΠΕ60 (πρώην μέσα στο «Νέο Σχ. Έτος»)."""
+        import threading, importlib
+        try:
+            mod = importlib.import_module('checks.orario_pe60')
+            threading.Thread(target=mod.run, args=(config,), daemon=True).start()
+        except Exception as e:
+            messagebox.showerror('Σφάλμα', str(e), parent=self.root)
 
     def _open_settings(self):
         SettingsDialog(self.root)
@@ -5429,6 +5509,32 @@ def main():
 
     root = tk.Tk()
     root.withdraw()
+
+    # Ασφάλεια: σφάλματα ΜΕΣΑ σε Tk callback (π.χ. κατά τη δημιουργία του
+    # κεντρικού παραθύρου) δεν φτάνουν ποτέ στο sys.excepthook — το Tk τα
+    # πιάνει μόνο του και τα τυπώνει στο sys.stderr, το οποίο όμως είναι
+    # ανακατευθυνόμενο στο GUIStream (status bar) και χάνονται σιωπηλά.
+    # Εδώ τα γράφουμε ΚΑΙ στο crash.log ΚΑΙ σε πραγματικό stderr ΚΑΙ σε
+    # popup, ώστε να μη «χάνονται» ποτέ ξανά.
+    def _tk_callback_error(exc_type, exc_val, exc_tb):
+        import traceback as _tb
+        _err = ''.join(_tb.format_exception(exc_type, exc_val, exc_tb))
+        try:
+            _log = os.path.join(os.path.expanduser('~'), 'Desktop', 'crash.log')
+            with open(_log, 'a', encoding='utf-8') as _f:
+                _f.write('\n--- Tk callback exception ---\n' + _err)
+        except Exception:
+            pass
+        try:
+            if sys.__stderr__:
+                sys.__stderr__.write(_err)
+        except Exception:
+            pass
+        try:
+            messagebox.showerror('Σφάλμα', _err[-1500:])
+        except Exception:
+            pass
+    root.report_callback_exception = _tk_callback_error
 
     ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
     if os.path.exists(ico):

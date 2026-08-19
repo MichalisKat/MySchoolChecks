@@ -31,6 +31,43 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 
 
+# ── Πρότυπα email (local_settings.json — data/local_settings.json) ─────────
+# Ίδιο path/format με ό,τι ήδη διαβάζει core/framework.py (execute_check) όταν
+# ψάχνει custom template — βλ. εκεί για το 'email_templates' key. Το tab
+# «✉ Αποστολή» (CheckRunDialog._open_email_editor) διαβάζει/γράφει εδώ.
+def _local_settings_path():
+    import sys as _sys
+    if getattr(_sys, 'frozen', False):
+        _exe_dir = os.path.dirname(_sys.executable)
+        if 'program files' in _exe_dir.lower():
+            base = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'MySchoolChecks')
+        else:
+            base = _exe_dir
+    else:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, 'data', 'local_settings.json')
+
+
+def _load_local_settings():
+    import json
+    path = _local_settings_path()
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_local_settings(data):
+    import json
+    path = _local_settings_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
 class CheckRunDialog(tk.Toplevel):
 
     def __init__(self, parent, config_ref, docs_base, C, check_module):
@@ -171,6 +208,15 @@ class CheckRunDialog(tk.Toplevel):
 
     def _build_download(self, body):
         C = self._C
+
+        # Έλεγχοι με CUSTOM_DOWNLOAD (π.χ. tmimata_genikis — χρειάζεται
+        # override σχολικού έτους) χρησιμοποιούν τη δική τους function αντί
+        # για τον γενικό μηχανισμό λήψης παρακάτω. Βλ. _build_custom_download.
+        custom_dl = getattr(self._mod, 'CUSTOM_DOWNLOAD', None)
+        if callable(custom_dl):
+            self._build_custom_download(body, custom_dl)
+            return
+
         from core.downloader import report_ids_from_required, FILE_PREFIX_MAP
         import glob as _glob
 
@@ -250,6 +296,55 @@ class CheckRunDialog(tk.Toplevel):
                 err = str(e)
                 self.after(0, lambda m=err: [
                     self._dl_btn.configure(state='normal', bg=C['btn_bg'], text=btn_label),
+                    messagebox.showerror('Σφάλμα Λήψης', m, parent=self)
+                ])
+
+        threading.Thread(target=task, daemon=True).start()
+
+    # ── Tab 1β: Λήψη για ελέγχους με CUSTOM_DOWNLOAD (π.χ. tmimata_genikis) ──
+    #    Η λήψη γίνεται εδώ (πατώντας «⬇ Λήψη»), ΟΧΙ μέσα στο tab «Εκτέλεση» —
+    #    το «Εκτέλεση» απλά ψάχνει τα ήδη κατεβασμένα αρχεία της ημέρας.
+
+    def _build_custom_download(self, body, custom_dl):
+        C = self._C
+        required = getattr(self._mod, 'REQUIRED_REPORTS', [])
+
+        self._section_lbl(body, 'Απαιτούμενα στατιστικά:')
+        txt = ('\n'.join(f'  •  {r}' for r in required) if required
+               else '  (δεν έχουν οριστεί σε αυτόν τον έλεγχο)')
+        tk.Label(body, text=txt, bg=C['bg'], fg=C['desc'],
+                 font=('Arial', 9), justify='left', anchor='w',
+                 wraplength=560).pack(fill='x', pady=(0, 8))
+
+        self._dl_log = self._make_log(body)
+        br = tk.Frame(body, bg=C['bg'])
+        br.pack(fill='x')
+        self._dl_btn = self._run_btn(br, '⬇  Λήψη', lambda: self._start_custom_download(custom_dl))
+
+    def _start_custom_download(self, custom_dl):
+        C = self._C
+        self._dl_btn.configure(state='disabled', bg=C['btn_dis'], text='Εκτελείται...')
+        try:
+            self._dl_log.configure(state='normal')
+            self._dl_log.delete('1.0', tk.END)
+            self._dl_log.configure(state='disabled')
+        except Exception:
+            pass
+
+        def on_log(msg):
+            self._log_append(self._dl_log, msg)
+
+        def task():
+            try:
+                custom_dl(self._cfg, log=on_log)
+                self.after(0, lambda: [
+                    self._dl_btn.configure(state='normal', bg=C['btn_bg'], text='⬇  Λήψη'),
+                    messagebox.showinfo('Λήψη', 'Η λήψη ολοκληρώθηκε.', parent=self)
+                ])
+            except Exception as e:
+                err = str(e)
+                self.after(0, lambda m=err: [
+                    self._dl_btn.configure(state='normal', bg=C['btn_bg'], text='⬇  Λήψη'),
                     messagebox.showerror('Σφάλμα Λήψης', m, parent=self)
                 ])
 
@@ -343,6 +438,18 @@ class CheckRunDialog(tk.Toplevel):
         self._send_mode = tk.StringVar(value='test')
         _from_email = getattr(self._cfg, 'FROM_EMAIL', '') or '...'
 
+        # Επεξεργασία προτύπου email — μετακομισμένο εδώ από το κουμπί ✏ που
+        # υπήρχε παλιότερα δίπλα σε κάθε έλεγχο στο tab «Έλεγχοι» (main.py).
+        if getattr(self._mod, 'HAS_EMAIL', False):
+            tmpl_row = tk.Frame(body, bg=C['bg'])
+            tmpl_row.pack(fill='x', pady=(0, 8))
+            tk.Button(tmpl_row, text='✏  Πρότυπο Email',
+                      bg=C['bg2'], fg=C['hdr_bg'],
+                      font=('Arial', 9), relief='flat', cursor='hand2',
+                      padx=10, pady=4,
+                      activebackground=C['sel_bg'],
+                      command=self._open_email_editor).pack(side='left')
+
         self._send_hint = tk.Label(
             body,
             text='Τρέξε πρώτα την «▶ Εκτέλεση» — μετά ενεργοποιείται η αποστολή εδώ.',
@@ -425,3 +532,111 @@ class CheckRunDialog(tk.Toplevel):
                 restore_print()
 
         threading.Thread(target=task, daemon=True).start()
+
+    # ── Πρότυπο Email (μετακομισμένο από main.py — πρώην κουμπί ✏ δίπλα σε
+    #    κάθε έλεγχο στο tab «Έλεγχοι») ──────────────────────────────────────
+
+    def _get_default_email_body(self):
+        """Επιστρέφει το default body text του ελέγχου, χωρίς υπογραφή."""
+        body_t = getattr(self._mod, 'EMAIL_BODY', '')
+        try:
+            full = body_t('') if callable(body_t) else body_t
+            sig  = self._cfg.email_signature()
+            if sig and full.endswith(sig):
+                return full[:-len(sig)]
+            return full
+        except Exception:
+            return ''
+
+    def _open_email_editor(self):
+        """Dialog επεξεργασίας email template για αυτόν τον έλεγχο."""
+        C = self._C
+        mod_name  = self._mod.__name__.split('.')[-1]
+        title_str = getattr(self._mod, 'CHECK_TITLE', mod_name)
+
+        settings  = _load_local_settings()
+        templates = settings.get('email_templates', {})
+        custom    = templates.get(mod_name)
+
+        if custom:
+            cur_subject = custom.get('subject', '')
+            cur_body    = custom.get('body', '')
+        else:
+            cur_subject = getattr(self._mod, 'EMAIL_SUBJECT', '')
+            cur_body    = self._get_default_email_body()
+
+        dlg = tk.Toplevel(self)
+        dlg.title(f'Πρότυπο Email — {title_str}')
+        dlg.configure(bg=C['bg'])
+        dlg.resizable(True, False)
+        dlg.grab_set()
+        dlg.transient(self)
+
+        pad = dict(padx=14, pady=5)
+
+        tk.Label(dlg, text='Θέμα:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **pad)
+
+        subj_var = tk.StringVar(value=cur_subject)
+        tk.Entry(dlg, textvariable=subj_var, font=('Arial', 9),
+                 width=60).pack(fill='x', padx=14, pady=(0, 8))
+
+        tk.Label(dlg, text='Κείμενο email:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **pad)
+
+        txt = tk.Text(dlg, font=('Arial', 9), width=60, height=10,
+                      wrap='word', relief='solid', bd=1)
+        txt.pack(fill='x', padx=14, pady=(0, 4))
+        txt.insert('1.0', cur_body)
+
+        tk.Label(dlg, text='Η υπογραφή σας προστίθεται αυτόματα στο τέλος.',
+                 bg=C['bg'], fg=C['desc'], font=('Arial', 8),
+                 anchor='w').pack(fill='x', padx=14, pady=(0, 10))
+
+        def _save():
+            new_subj = subj_var.get().strip()
+            new_body = txt.get('1.0', 'end-1c')
+            s = _load_local_settings()
+            s.setdefault('email_templates', {})[mod_name] = {
+                'subject': new_subj,
+                'body':    new_body,
+            }
+            _save_local_settings(s)
+            dlg.destroy()
+            messagebox.showinfo('Αποθήκευση', 'Το πρότυπο email αποθηκεύτηκε.',
+                                parent=self)
+
+        def _reset():
+            if messagebox.askyesno('Επαναφορά', 'Να επανέλθει το προεπιλεγμένο κείμενο;',
+                                   parent=dlg):
+                s = _load_local_settings()
+                s.get('email_templates', {}).pop(mod_name, None)
+                _save_local_settings(s)
+                dlg.destroy()
+
+        btn_row = tk.Frame(dlg, bg=C['bg'])
+        btn_row.pack(pady=(0, 12))
+
+        tk.Button(btn_row, text='Αποθήκευση',
+                  bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=14, pady=5, cursor='hand2',
+                  command=_save).pack(side='left', padx=4)
+
+        tk.Button(btn_row, text='Επαναφορά προεπιλογής',
+                  bg=C['bg2'], fg=C['hdr_bg'],
+                  font=('Arial', 9), relief='flat',
+                  padx=14, pady=5, cursor='hand2',
+                  command=_reset).pack(side='left', padx=4)
+
+        tk.Button(btn_row, text='Άκυρο',
+                  bg=C['bg2'], fg=C['desc'],
+                  font=('Arial', 9), relief='flat',
+                  padx=14, pady=5, cursor='hand2',
+                  command=dlg.destroy).pack(side='left', padx=4)
+
+        dlg.update_idletasks()
+        w, h = dlg.winfo_width(), dlg.winfo_height()
+        x = self.winfo_x() + (self.winfo_width() - w) // 2
+        y = self.winfo_y() + (self.winfo_height() - h) // 2
+        dlg.geometry(f'+{x}+{y}')

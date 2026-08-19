@@ -45,16 +45,16 @@ from openpyxl.utils import get_column_letter
 from core.framework import _show_results_popup
 
 # ── Μεταδεδομένα ────────────────────────────────────────────────────────────
-CHECK_TITLE       = 'Έλεγχος Τμημάτων Γενικής Παιδείας / Δυναμικού (2026-2027)'
-CHECK_DESCRIPTION = 'Πλήρης αποτύπωση Λειτουργικότητας vs Τμημάτων/Μαθητών ανά τάξη για νηπιαγωγεία (5.3) και δημοτικά (5.4), με στοιχεία κατανομής από το 3.1 — η λήψη γίνεται αυτόματα μέσα στον έλεγχο (αλλαγή σχολικού έτους σε 2026-2027)'
+CHECK_TITLE       = 'Έλεγχος Τμημάτων Γενικής Παιδείας / Δυναμικού'
+CHECK_DESCRIPTION = 'Σύγκριση Λειτουργικότητας με πραγματικά τμήματα και μαθητές ανά σχολείο.'
 RESULTS_FOLDER    = 'tmimata_genikis'
 HAS_EMAIL         = False
 CUSTOM_RUN        = True
 SCHOOL_YEAR       = '2026-2027'
 REQUIRED_REPORTS  = [
-    '3.1 — Κατανομή μαθητών ανά τάξη (κατεβαίνει αυτόματα)',
-    '5.3 — Αποτύπωση νηπιαγωγείων (κατεβαίνει αυτόματα)',
-    '5.4 — Αποτύπωση δημοτικών (κατεβαίνει αυτόματα)',
+    '3.1 — Κατανομή μαθητών ανά τάξη',
+    '5.3 — Αποτύπωση νηπιαγωγείων',
+    '5.4 — Αποτύπωση δημοτικών',
 ]
 
 DEFAULT_EMAIL_SUBJECT = (
@@ -744,6 +744,12 @@ def _show_results_dialog(config, df_ds, df_nip, today, out_path, summary_text):
     win.configure(bg='#FFF8E1')
     win.resizable(True, True)
     win.attributes('-topmost', True)
+    # Το CheckRunDialog (γονικό παράθυρο πίσω από αυτό) κάνει ήδη grab_set()
+    # στον εαυτό του — χωρίς δικό της grab, αυτή η νέα Toplevel δεν λαμβάνει
+    # κλικ/πληκτρολόγηση (τα events πάνε στο grab-owner) μέχρι να κλείσει το
+    # CheckRunDialog. Παίρνουμε το grab εδώ ώστε τα κουμπιά να δουλεύουν αμέσως.
+    win.transient(root)
+    win.grab_set()
     win.update_idletasks()
     sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
     win.geometry(f'520x380+{sw//2-260}+{sh//2-190}')
@@ -764,11 +770,15 @@ def _show_results_dialog(config, df_ds, df_nip, today, out_path, summary_text):
     btn_f.pack(pady=(0, 12))
 
     def _open_excel():
-        import subprocess
+        # Σημείωση: subprocess.Popen(['start', '', path], shell=True) ΔΕΝ
+        # δουλεύει σωστά στα Windows — με shell=True + λίστα ορισμάτων, το
+        # Python χρησιμοποιεί μόνο το πρώτο στοιχείο ('start') και αγνοεί το
+        # path, οπότε δεν άνοιγε ποτέ το αρχείο. Το σωστό είναι os.startfile.
         try:
-            subprocess.Popen(['start', '', out_path], shell=True)
-        except Exception:
-            pass
+            os.startfile(os.path.normpath(out_path))
+        except Exception as e:
+            import tkinter.messagebox as _mb
+            _mb.showerror('Σφάλμα', f'Δεν ήταν δυνατό το άνοιγμα του αρχείου:\n{e}', parent=win)
 
     def _open_email():
         win.destroy()
@@ -818,6 +828,10 @@ def _show_email_dialog(config, df_ds, df_nip, today):
     dlg.title('Αποστολή Email — Τμήματα Γενικής Παιδείας')
     dlg.configure(bg=C['bg'])
     dlg.resizable(False, False)
+    # Ίδιος λόγος με το _show_results_dialog — χωρίς δικό της grab, αυτή η
+    # Toplevel δεν λαμβάνει events όσο το CheckRunDialog από πίσω κρατάει grab.
+    dlg.transient(root)
+    dlg.grab_set()
 
     pad = dict(padx=14, pady=5)
 
@@ -1000,12 +1014,50 @@ def _download_inputs(config, log=print):
             username=ms_user, password=ms_pass, dest_dir=dest_dir,
             callback=log, reports=rids,
             browser=getattr(config, 'BROWSER', 'chrome'),
+            # force=rids: κάθε πάτημα του «⬇ Λήψη» ξανακατεβάζει (override) τα
+            # 3.1/5.3/5.4, ακόμα κι αν υπάρχουν ήδη από νωρίτερα μέσα στην
+            # ίδια μέρα — χρήσιμο για επικαιροποίηση εντός της ημέρας.
+            force=rids,
         )
         results = dl.run()
     finally:
         _dl.REPORTS = orig_reports_backup
 
     return results.get('3.1'), results.get('5.3'), results.get('5.4'), results.get('2.2')
+
+
+# Public alias — το tab «⬇ Λήψη» (core/check_dialog.py) καλεί αυτή τη
+# συνάρτηση αντί για τον γενικό μηχανισμό λήψης, ώστε να διατηρηθεί το
+# override σχολικού έτους (SCHOOL_YEAR) που χρειάζεται το 3.1/5.3/5.4.
+download = _download_inputs
+# Σηματοδοτεί στο core/check_dialog.py ότι υπάρχει custom download function
+# (βλ. download() παραπάνω) — έτσι το tab «⬇ Λήψη» χρησιμοποιεί αυτήν αντί
+# για τον γενικό MySchoolDownloader.
+CUSTOM_DOWNLOAD = download
+
+
+def _find_downloaded_inputs():
+    """
+    Ψάχνει για 3.1/5.3/5.4 (+2.2) που έχουν ΗΔΗ κατέβει σήμερα μέσω του tab
+    «⬇ Λήψη» (βλ. download() / CUSTOM_DOWNLOAD) — ΔΕΝ κατεβάζει τίποτα.
+    Επιστρέφει (path_31, path_53, path_54, path_22), None όπου δεν βρέθηκε.
+    """
+    import glob as _glob2
+    from core.downloader import FILE_PREFIX_MAP
+
+    today_str = datetime.today().strftime('%Y%m%d')
+    dest_dir  = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks',
+                             'downloads', f'{today_str}_{SCHOOL_YEAR}')
+    if not os.path.isdir(dest_dir):
+        return None, None, None, None
+
+    def _match(rid):
+        prefix  = FILE_PREFIX_MAP.get(rid, rid)
+        matches = [f for f in _glob2.glob(os.path.join(dest_dir, f'{prefix}*'))
+                   if not f.endswith(('.tmp', '.crdownload'))]
+        return matches[0] if matches else None
+
+    return _match('3.1'), _match('5.3'), _match('5.4'), _match('2.2')
 
 
 # ── CUSTOM RUN ────────────────────────────────────────────────────────────
@@ -1017,25 +1069,20 @@ def run(config):
     print(f'  {CHECK_TITLE}')
     print('=' * 65)
 
-    print(f'\n  Λήψη 3.1 / 5.3 / 5.4 για το σχολικό έτος {SCHOOL_YEAR}...')
-    print('  (περιλαμβάνει αυτόματη αλλαγή σχολικού έτους — μπορεί να πάρει 1-2 λεπτά)')
-    print('-' * 65)
-    try:
-        path_31, path_53, path_54, path_22 = _download_inputs(config, log=print)
-    except Exception as e:
-        import tkinter.messagebox as _mb
-        _mb.showerror('Σφάλμα λήψης', str(e))
-        return
+    path_31, path_53, path_54, path_22 = _find_downloaded_inputs()
 
     missing = [rid for rid, p in (('3.1', path_31), ('5.3', path_53), ('5.4', path_54)) if not p]
     if missing:
         import tkinter.messagebox as _mb
-        _mb.showerror(
-            'Λείπουν αρχεία',
-            f'Δεν κατέβηκαν: {", ".join(missing)}.\n\n'
-            f'Δες το log (run_log.txt στον φάκελο λήψης) για λεπτομέρειες.'
+        _mb.showwarning(
+            'Λείπει η λήψη',
+            f'Δεν έχουν κατέβει σήμερα: {", ".join(missing)}.\n\n'
+            f'Πήγαινε πρώτα στο tab «⬇ Λήψη» και πάτησε το κουμπί λήψης.'
         )
         return
+
+    print(f'\n  ✓ Χρήση ήδη κατεβασμένων αρχείων (σχολικό έτος {SCHOOL_YEAR}).')
+    print('-' * 65)
 
     today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -1061,12 +1108,14 @@ def run(config):
     print(f'  ✓ Νηπιαγωγεία : {len(df_nip)} σχολεία, {dev_nip} αποκλίσεις')
 
     if df_ds.empty and df_nip.empty:
-        _show_results_popup(
-            CHECK_TITLE,
-            f'Ημερομηνία ελέγχου: {today.strftime("%d/%m/%Y")}\n\n'
-            f'✓  Δεν βρέθηκαν σχολεία στα αρχεία 5.3/5.4.',
-            result_type='ok'
-        )
+        # Το run() τρέχει σε background thread — τα Tk widgets (messagebox)
+        # πρέπει να ανοίγουν στο main thread μέσω root.after().
+        import tkinter as tk
+        import tkinter.messagebox as _mb
+        _root = tk._default_root
+        if _root is not None:
+            _root.after(0, lambda: _mb.showinfo(
+                CHECK_TITLE, '✓  Δεν βρέθηκαν σχολεία στα αρχεία 5.3/5.4.'))
         return
 
     _docs   = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks')
