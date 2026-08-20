@@ -1272,13 +1272,52 @@ def _with_year(entry, year, idx=11):
     return tuple(entry)
 
 
-def _download_inputs(config, log=print):
+def _download_rids():
+    """Τα report-ids που κατεβάζει το _download_inputs — χωρίς να χρειάζεται
+    credentials, μόνο ελέγχει αν υπάρχει ρύθμιση 2.2 στο core/downloader."""
+    import core.downloader as _dl
+    orig_22 = next((r for r in _dl.REPORTS if r[0] == '2.2'), None)
+    return ['3.1', '5.3', '5.4'] + (['2.2'] if orig_22 else [])
+
+
+def _download_target_dir():
+    """Ο φάκελος όπου κατεβαίνουν 3.1/5.3/5.4/2.2 — υποφάκελος ΜΕΣΑ στον
+    σημερινό φάκελο λήψεων (downloads/{today}/{SCHOOL_YEAR}), ΟΧΙ ξεχωριστός
+    φάκελος-αδερφός (downloads/{today}_{SCHOOL_YEAR}) όπως παλιότερα — έτσι
+    όλες οι λήψεις της ημέρας εμφανίζονται μαζεμένες σε ΕΝΑΝ φάκελο στα
+    Windows, ενώ παραμένουν σε ξεχωριστό υποφάκελο ώστε το 3.1/2.2 (override
+    σχολικού έτους 2026-2027) να ΜΗΝ συγκρούεται/αντικαθιστά το 3.1/2.2 που
+    κατεβάζουν άλλα εργαλεία (π.χ. Σχολικές Μονάδες) για το τρέχον έτος."""
+    today_str = datetime.today().strftime('%Y%m%d')
+    return os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks',
+                        'downloads', today_str, SCHOOL_YEAR)
+
+
+def _download_target_info():
+    """Επιστρέφει (dest_dir, rids) — καλείται από core/check_dialog.py ΠΡΙΝ
+    τη λήψη, ώστε να ελεγχθεί αν υπάρχουν ήδη αρχεία (π.χ. από άλλον έλεγχο)
+    και να ρωτηθεί ο χρήστης αν θέλει επανάληψη, αντί για σιωπηλή
+    επαναχρησιμοποίηση/πάντα-εκ-νέου λήψη."""
+    return _download_target_dir(), _download_rids()
+
+
+# Σηματοδοτεί στο core/check_dialog.py ότι το tab «⬇ Λήψη» μπορεί να
+# ελέγξει ΠΡΙΝ τη λήψη αν υπάρχουν ήδη αρχεία (βλ. _download_target_info).
+CUSTOM_DOWNLOAD_INFO = _download_target_info
+
+
+def _download_inputs(config, log=print, force=None):
     """
     Κατεβάζει 3.1, 5.3, 5.4 απευθείας, αφού πρώτα οριστεί το σχολικό έτος
     SCHOOL_YEAR (2026-2027) στο MySchool. Το 3.1 δεν έχει προεπιλεγμένο
     report_year στο core/downloader.py (το χρησιμοποιούν και άλλα εργαλεία
     με το τρέχον έτος) — εδώ γίνεται τοπικό override μόνο για αυτή τη λήψη,
     χωρίς να πειραχτεί η καθολική ρύθμιση.
+
+    `force`: λίστα από report-ids προς αναγκαστική επαναλήψη (αγνοώντας
+    τυχόν ήδη υπάρχον αρχείο). `None` (προεπιλογή — π.χ. όταν καλείται
+    απευθείας, χωρίς να έχει προηγηθεί ο έλεγχος ύπαρξης του
+    core/check_dialog.py) σημαίνει «όλα» — ίδια συμπεριφορά με πριν.
 
     Επιστρέφει (path_31, path_53, path_54) — None όπου δεν κατέβηκε.
     """
@@ -1300,10 +1339,9 @@ def _download_inputs(config, log=print):
         ([orig_22] if orig_22 else [])
     )
     rids = ['3.1', '5.3', '5.4'] + (['2.2'] if orig_22 else [])
+    force_list = list(rids) if force is None else list(force)
 
-    today_str = datetime.today().strftime('%Y%m%d')
-    dest_dir  = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks',
-                             'downloads', f'{today_str}_{SCHOOL_YEAR}')
+    dest_dir = _download_target_dir()
     os.makedirs(dest_dir, exist_ok=True)
 
     orig_reports_backup = _dl.REPORTS
@@ -1313,10 +1351,7 @@ def _download_inputs(config, log=print):
             username=ms_user, password=ms_pass, dest_dir=dest_dir,
             callback=log, reports=rids,
             browser=getattr(config, 'BROWSER', 'chrome'),
-            # force=rids: κάθε πάτημα του «⬇ Λήψη» ξανακατεβάζει (override) τα
-            # 3.1/5.3/5.4, ακόμα κι αν υπάρχουν ήδη από νωρίτερα μέσα στην
-            # ίδια μέρα — χρήσιμο για επικαιροποίηση εντός της ημέρας.
-            force=rids,
+            force=force_list,
         )
         results = dl.run()
     finally:
@@ -1345,10 +1380,17 @@ def _find_downloaded_inputs():
     from core.downloader import FILE_PREFIX_MAP
 
     today_str = datetime.today().strftime('%Y%m%d')
-    dest_dir  = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks',
-                             'downloads', f'{today_str}_{SCHOOL_YEAR}')
+    dest_dir  = _download_target_dir()
     if not os.path.isdir(dest_dir):
-        return None, None, None, None
+        # Πίσω-συμβατότητα: παλιότερη μορφή φακέλου (downloads/{today}_{SCHOOL_YEAR}
+        # ως αδερφός φάκελος, αντί για υποφάκελος) — σε περίπτωση που υπάρχουν ήδη
+        # σημερινές λήψεις από πριν αυτή την αλλαγή.
+        _docs_dl   = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks', 'downloads')
+        legacy_dir = os.path.join(_docs_dl, f'{today_str}_{SCHOOL_YEAR}')
+        if os.path.isdir(legacy_dir):
+            dest_dir = legacy_dir
+        else:
+            return None, None, None, None
 
     def _match(rid):
         prefix  = FILE_PREFIX_MAP.get(rid, rid)

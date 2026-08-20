@@ -45,6 +45,7 @@ CHECK_DESCRIPTION = 'Έλεγχος υποχρεωτικού ωραρίου ΠΕ
 RESULTS_FOLDER    = 'orario_pe60'
 HAS_EMAIL         = False
 CUSTOM_RUN        = True
+NO_SEND_TAB       = True   # Χωρίς email — καθόλου tab «Αποστολή»
 REQUIRED_REPORTS  = [
     '2.1 — Κατάλογος σχολείων',
     '4.1 — Οργανικές τοποθετήσεις',

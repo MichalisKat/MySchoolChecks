@@ -123,6 +123,30 @@ def report_ids_from_required(required_reports):
     return ids
 
 
+def find_existing_reports(dest_dir, rids):
+    """
+    Επιστρέφει το υποσύνολο των `rids` που έχουν ήδη αρχείο (οποιασδήποτε
+    μορφής, μη-.tmp/.crdownload) μέσα στο `dest_dir` — π.χ. επειδή κατέβηκαν
+    ήδη σήμερα για κάποιον άλλο έλεγχο/εργαλείο που χρησιμοποιεί το ίδιο
+    στατιστικό (π.χ. 2.1, 3.1, 2.2). Χρησιμοποιείται ΠΡΙΝ την εκκίνηση μιας
+    λήψης ώστε να ρωτηθεί ο χρήστης αν θέλει να τα ξαναϊκατεβάσει, αντί να
+    γίνεται σιωπηλή επαναχρησιμοποίηση.
+    """
+    import glob as _glob
+    if not dest_dir or not os.path.isdir(dest_dir):
+        return []
+    found = []
+    for rid in rids:
+        prefix = FILE_PREFIX_MAP.get(rid, rid)
+        for pfx in _candidate_prefixes(rid, prefix):
+            matches = [f for f in _glob.glob(os.path.join(dest_dir, f'{pfx}*'))
+                       if not f.endswith(('.tmp', '.crdownload'))]
+            if matches:
+                found.append(rid)
+                break
+    return found
+
+
 BASE_URL = 'https://app.myschool.sch.gr'
 SSO_URL  = 'https://sso.sch.gr'
 

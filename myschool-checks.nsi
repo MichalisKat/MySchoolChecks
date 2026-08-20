@@ -11,7 +11,7 @@ SetCompressorDictSize 64
 
 ; --- Metadata ---
 !define APP_NAME      "MySchool Checks"
-!define APP_VERSION   "3.4.1"
+!define APP_VERSION   "3.5.0"
 !define APP_PUBLISHER "Michalis Katsirintakis"
 !define APP_URL       "https://github.com/mkatsirntakis/myschool-checks"
 !define APP_EXE       "MySchoolChecks.exe"
@@ -24,6 +24,8 @@ SetCompressorDictSize 64
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "x64.nsh"
+!include "nsDialogs.nsh"
+!include "WordFunc.nsh"
 
 ; --- Installer Info ---
 Name             "${APP_NAME} ${APP_VERSION}"
@@ -38,10 +40,20 @@ BrandingText     "${APP_PUBLISHER}"
 !define MUI_ICON   "${APP_ICON}"
 !define MUI_UNICON "${APP_ICON}"
 
+; --- Vars: Επιλογή Διεύθυνσης Εκπαίδευσης ---
+Var Dialog
+Var RadioPE
+Var RadioDE
+Var ComboBox
+Var DirType
+Var DirName
+Var HasPrevDir
+
 ; --- Pages ---
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY
+Page custom DirectoratePageCreate DirectoratePageLeave
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_RUN          "$INSTDIR\${APP_EXE}"
 !define MUI_FINISHPAGE_RUN_TEXT     "Launch MySchool Checks"
@@ -95,6 +107,11 @@ Section "MySchool Checks" SecMain
     ; Create data folder (for settings)
     SetOutPath "$INSTDIR\data"
 
+    ; Αποθήκευση επιλεγμένης Διεύθυνσης Εκπαίδευσης (βλ. σελίδα DirectoratePage)
+    FileOpen $4 "$INSTDIR\data\directorate.txt" w
+    FileWrite $4 "$DirType|$DirName"
+    FileClose $4
+
     ; Back to root
     SetOutPath "$INSTDIR"
 
@@ -144,6 +161,219 @@ Function .onInit
         Abort
         ExecWait 'taskkill /f /im "${APP_EXE}"'
     ${EndIf}
+
+    StrCpy $DirType "ΠΕ"
+FunctionEnd
+
+; ============================================================
+; PAGE: Επιλογή Διεύθυνσης Εκπαίδευσης
+; ============================================================
+Function DirectoratePageCreate
+    !insertmacro MUI_HEADER_TEXT "Διεύθυνση Εκπαίδευσης" "Επιλέξτε τη Διεύθυνση Εκπαίδευσης στην οποία ανήκετε"
+
+    ; Αν υπάρχει ήδη καταχωρημένη επιλογή (π.χ. update πάνω σε ήδη
+    ; εγκατεστημένη έκδοση), την κρατάμε ΩΣ ΕΧΕΙ — δεν εμφανίζουμε καθόλου
+    ; επιλογές προς αλλαγή (μόνο ενημερωτικό μήνυμα), ώστε να μην υπάρχει
+    ; περίπτωση να αλλάξει κατά λάθος σε update.
+    StrCpy $DirType "ΠΕ"
+    StrCpy $DirName ""
+    StrCpy $HasPrevDir ""
+    ${If} ${FileExists} "$INSTDIR\data\directorate.txt"
+        FileOpen $5 "$INSTDIR\data\directorate.txt" r
+        FileRead $5 $6
+        FileClose $5
+        ${WordFind} "$6" "|" "+1" $DirType
+        ${WordFind} "$6" "|" "+2" $DirName
+        ${If} $DirName != ""
+            StrCpy $HasPrevDir "1"
+        ${EndIf}
+    ${EndIf}
+
+    nsDialogs::Create 1018
+    Pop $Dialog
+    ${If} $Dialog == error
+        Abort
+    ${EndIf}
+
+    ${If} $HasPrevDir == "1"
+        ; Ήδη καταχωρημένη Διεύθυνση — μόνο ενημερωτικό μήνυμα, τίποτα προς
+        ; επιλογή· ο χρήστης απλά πατάει «Επόμενο».
+        ${NSD_CreateLabel} 0 0u 100% 60u "Η εφαρμογή είναι ήδη καταχωρημένη για τη Διεύθυνση:$\n$\n$DirType   $DirName$\n$\nΔεν χρειάζεται καμία ενέργεια εδώ — πάτησε «Επόμενο»."
+        Pop $0
+    ${Else}
+        ${NSD_CreateLabel} 0 0u 100% 20u "Η επιλογή χρησιμοποιείται μόνο για να φαίνεται ποιες Διευθύνσεις χρησιμοποιούν το πρόγραμμα (καμία σχέση με τα στοιχεία σύνδεσης MySchool)."
+        Pop $0
+
+        ${NSD_CreateRadioButton} 0 26u 45% 12u "Πρωτοβάθμια (Π.Ε.)"
+        Pop $RadioPE
+        ${NSD_SetState} $RadioPE ${BST_CHECKED}
+        ${NSD_OnClick} $RadioPE OnTypeChange
+
+        ${NSD_CreateRadioButton} 50% 26u 45% 12u "Δευτεροβάθμια (Δ.Ε.)"
+        Pop $RadioDE
+        ${NSD_OnClick} $RadioDE OnTypeChange
+
+        ${NSD_CreateLabel} 0 44u 100% 12u "Διεύθυνση:"
+        Pop $0
+
+        ${NSD_CreateDropList} 0 58u 100% 120u ""
+        Pop $ComboBox
+
+        ; Ξεκινάει ΑΔΕΙΟ (καμία προεπιλογή) — ο χρήστης πρέπει να διαλέξει ο
+        ; ίδιος συνειδητά, ώστε να μην περάσει κατά λάθος λάθος Διεύθυνση.
+        Call PopulatePE
+    ${EndIf}
+
+    nsDialogs::Show
+FunctionEnd
+
+Function OnTypeChange
+    ${NSD_GetState} $RadioPE $0
+    ${If} $0 == ${BST_CHECKED}
+        StrCpy $DirType "ΠΕ"
+        Call PopulatePE
+    ${Else}
+        StrCpy $DirType "ΔΕ"
+        Call PopulateDE
+    ${EndIf}
+FunctionEnd
+
+Function DirectoratePageLeave
+    ${If} $HasPrevDir == "1"
+        ; Τίποτα να ελέγξουμε — τα $DirType/$DirName είναι ήδη σωστά, όπως
+        ; διαβάστηκαν από το προηγούμενο directorate.txt.
+        Return
+    ${EndIf}
+    ${NSD_GetText} $ComboBox $DirName
+    ${If} $DirName == ""
+        MessageBox MB_OK|MB_ICONEXCLAMATION "Επιλέξτε τη Διεύθυνση Εκπαίδευσης."
+        Abort
+    ${EndIf}
+FunctionEnd
+
+Function PopulatePE
+    ${NSD_CB_ResetContent} $ComboBox
+    ${NSD_CB_AddString} $ComboBox "Α' Αθήνας"
+    ${NSD_CB_AddString} $ComboBox "Β' Αθήνας"
+    ${NSD_CB_AddString} $ComboBox "Γ' Αθήνας"
+    ${NSD_CB_AddString} $ComboBox "Δ' Αθήνας"
+    ${NSD_CB_AddString} $ComboBox "Ανατολικής Αττικής"
+    ${NSD_CB_AddString} $ComboBox "Δυτικής Αττικής"
+    ${NSD_CB_AddString} $ComboBox "Πειραιά"
+    ${NSD_CB_AddString} $ComboBox "Ανατολικής Θεσσαλονίκης"
+    ${NSD_CB_AddString} $ComboBox "Δυτικής Θεσσαλονίκης"
+    ${NSD_CB_AddString} $ComboBox "Ημαθίας"
+    ${NSD_CB_AddString} $ComboBox "Κιλκίς"
+    ${NSD_CB_AddString} $ComboBox "Πέλλας"
+    ${NSD_CB_AddString} $ComboBox "Πιερίας"
+    ${NSD_CB_AddString} $ComboBox "Σερρών"
+    ${NSD_CB_AddString} $ComboBox "Χαλκιδικής"
+    ${NSD_CB_AddString} $ComboBox "Δράμας"
+    ${NSD_CB_AddString} $ComboBox "Έβρου"
+    ${NSD_CB_AddString} $ComboBox "Καβάλας"
+    ${NSD_CB_AddString} $ComboBox "Ξάνθης"
+    ${NSD_CB_AddString} $ComboBox "Ροδόπης"
+    ${NSD_CB_AddString} $ComboBox "Βοιωτίας"
+    ${NSD_CB_AddString} $ComboBox "Εύβοιας"
+    ${NSD_CB_AddString} $ComboBox "Ευρυτανίας"
+    ${NSD_CB_AddString} $ComboBox "Φθιώτιδας"
+    ${NSD_CB_AddString} $ComboBox "Φωκίδας"
+    ${NSD_CB_AddString} $ComboBox "Λάρισας"
+    ${NSD_CB_AddString} $ComboBox "Μαγνησίας"
+    ${NSD_CB_AddString} $ComboBox "Τρικάλων"
+    ${NSD_CB_AddString} $ComboBox "Καρδίτσας"
+    ${NSD_CB_AddString} $ComboBox "Ηρακλείου"
+    ${NSD_CB_AddString} $ComboBox "Λασιθίου"
+    ${NSD_CB_AddString} $ComboBox "Ρεθύμνης"
+    ${NSD_CB_AddString} $ComboBox "Χανίων"
+    ${NSD_CB_AddString} $ComboBox "Άρτας"
+    ${NSD_CB_AddString} $ComboBox "Θεσπρωτίας"
+    ${NSD_CB_AddString} $ComboBox "Ιωαννίνων"
+    ${NSD_CB_AddString} $ComboBox "Πρέβεζας"
+    ${NSD_CB_AddString} $ComboBox "Γρεβενών"
+    ${NSD_CB_AddString} $ComboBox "Καστοριάς"
+    ${NSD_CB_AddString} $ComboBox "Κοζάνης"
+    ${NSD_CB_AddString} $ComboBox "Φλώρινας"
+    ${NSD_CB_AddString} $ComboBox "Ζακύνθου"
+    ${NSD_CB_AddString} $ComboBox "Κέρκυρας"
+    ${NSD_CB_AddString} $ComboBox "Κεφαλληνίας"
+    ${NSD_CB_AddString} $ComboBox "Λευκάδας"
+    ${NSD_CB_AddString} $ComboBox "Αιτωλοακαρνανίας"
+    ${NSD_CB_AddString} $ComboBox "Αχαΐας"
+    ${NSD_CB_AddString} $ComboBox "Ηλείας"
+    ${NSD_CB_AddString} $ComboBox "Λέσβου"
+    ${NSD_CB_AddString} $ComboBox "Σάμου"
+    ${NSD_CB_AddString} $ComboBox "Χίου"
+    ${NSD_CB_AddString} $ComboBox "Λήμνου"
+    ${NSD_CB_AddString} $ComboBox "Δωδεκανήσου"
+    ${NSD_CB_AddString} $ComboBox "Κυκλάδων"
+    ${NSD_CB_AddString} $ComboBox "Αργολίδας"
+    ${NSD_CB_AddString} $ComboBox "Αρκαδίας"
+    ${NSD_CB_AddString} $ComboBox "Κορινθίας"
+    ${NSD_CB_AddString} $ComboBox "Λακωνίας"
+    ${NSD_CB_AddString} $ComboBox "Μεσσηνίας"
+FunctionEnd
+
+Function PopulateDE
+    ${NSD_CB_ResetContent} $ComboBox
+    ${NSD_CB_AddString} $ComboBox "Α' Αθήνας"
+    ${NSD_CB_AddString} $ComboBox "Β' Αθήνας"
+    ${NSD_CB_AddString} $ComboBox "Γ' Αθήνας"
+    ${NSD_CB_AddString} $ComboBox "Δ' Αθήνας"
+    ${NSD_CB_AddString} $ComboBox "Ανατολικής Αττικής"
+    ${NSD_CB_AddString} $ComboBox "Δυτικής Αττικής"
+    ${NSD_CB_AddString} $ComboBox "Πειραιά"
+    ${NSD_CB_AddString} $ComboBox "Ανατολικής Θεσσαλονίκης"
+    ${NSD_CB_AddString} $ComboBox "Δυτικής Θεσσαλονίκης"
+    ${NSD_CB_AddString} $ComboBox "Ημαθίας"
+    ${NSD_CB_AddString} $ComboBox "Κιλκίς"
+    ${NSD_CB_AddString} $ComboBox "Πέλλας"
+    ${NSD_CB_AddString} $ComboBox "Πιερίας"
+    ${NSD_CB_AddString} $ComboBox "Σερρών"
+    ${NSD_CB_AddString} $ComboBox "Χαλκιδικής"
+    ${NSD_CB_AddString} $ComboBox "Δράμας"
+    ${NSD_CB_AddString} $ComboBox "Έβρου"
+    ${NSD_CB_AddString} $ComboBox "Καβάλας"
+    ${NSD_CB_AddString} $ComboBox "Ξάνθης"
+    ${NSD_CB_AddString} $ComboBox "Ροδόπης"
+    ${NSD_CB_AddString} $ComboBox "Βοιωτίας"
+    ${NSD_CB_AddString} $ComboBox "Εύβοιας"
+    ${NSD_CB_AddString} $ComboBox "Ευρυτανίας"
+    ${NSD_CB_AddString} $ComboBox "Φθιώτιδας"
+    ${NSD_CB_AddString} $ComboBox "Φωκίδας"
+    ${NSD_CB_AddString} $ComboBox "Λάρισας"
+    ${NSD_CB_AddString} $ComboBox "Μαγνησίας"
+    ${NSD_CB_AddString} $ComboBox "Τρικάλων"
+    ${NSD_CB_AddString} $ComboBox "Καρδίτσας"
+    ${NSD_CB_AddString} $ComboBox "Ηρακλείου"
+    ${NSD_CB_AddString} $ComboBox "Λασιθίου"
+    ${NSD_CB_AddString} $ComboBox "Ρεθύμνης"
+    ${NSD_CB_AddString} $ComboBox "Χανίων"
+    ${NSD_CB_AddString} $ComboBox "Άρτας"
+    ${NSD_CB_AddString} $ComboBox "Θεσπρωτίας"
+    ${NSD_CB_AddString} $ComboBox "Ιωαννίνων"
+    ${NSD_CB_AddString} $ComboBox "Πρέβεζας"
+    ${NSD_CB_AddString} $ComboBox "Γρεβενών"
+    ${NSD_CB_AddString} $ComboBox "Καστοριάς"
+    ${NSD_CB_AddString} $ComboBox "Κοζάνης"
+    ${NSD_CB_AddString} $ComboBox "Φλώρινας"
+    ${NSD_CB_AddString} $ComboBox "Ζακύνθου"
+    ${NSD_CB_AddString} $ComboBox "Κέρκυρας"
+    ${NSD_CB_AddString} $ComboBox "Κεφαλληνίας"
+    ${NSD_CB_AddString} $ComboBox "Λευκάδας"
+    ${NSD_CB_AddString} $ComboBox "Αιτωλοακαρνανίας"
+    ${NSD_CB_AddString} $ComboBox "Αχαΐας"
+    ${NSD_CB_AddString} $ComboBox "Ηλείας"
+    ${NSD_CB_AddString} $ComboBox "Λέσβου"
+    ${NSD_CB_AddString} $ComboBox "Σάμου"
+    ${NSD_CB_AddString} $ComboBox "Χίου"
+    ${NSD_CB_AddString} $ComboBox "Δωδεκανήσου"
+    ${NSD_CB_AddString} $ComboBox "Κυκλάδων"
+    ${NSD_CB_AddString} $ComboBox "Αργολίδας"
+    ${NSD_CB_AddString} $ComboBox "Αρκαδίας"
+    ${NSD_CB_AddString} $ComboBox "Κορινθίας"
+    ${NSD_CB_AddString} $ComboBox "Λακωνίας"
+    ${NSD_CB_AddString} $ComboBox "Μεσσηνίας"
 FunctionEnd
 
 ; ============================================================

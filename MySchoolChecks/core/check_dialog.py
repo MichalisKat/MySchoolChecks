@@ -222,12 +222,17 @@ class CheckRunDialog(tk.Toplevel):
             self._build_generic_split(t3)
             self._has_generic_split = True
 
-        t_send = tk.Frame(nb, bg=C['bg'], padx=16, pady=12)
-        nb.add(t_send, text='  ✉ Αποστολή  ')
-        self._build_send(t_send)
+        # NO_SEND_TAB: ελέγχοι αμιγώς εσωτερικοί (π.χ. «Διαφορές AK-AL») δεν
+        # παίρνουν καθόλου tab «✉ Αποστολή» — δεν αφορούν αποστολή σε
+        # σχολεία/τρίτους, μόνο εσωτερική προβολή αποτελεσμάτων.
+        self._has_send_tab = not getattr(self._mod, 'NO_SEND_TAB', False)
+        if self._has_send_tab:
+            t_send = tk.Frame(nb, bg=C['bg'], padx=16, pady=12)
+            nb.add(t_send, text='  ✉ Αποστολή  ')
+            self._build_send(t_send)
 
-        # Η Αποστολή είναι κλειδωμένη μέχρι να τρέξει επιτυχώς η Εκτέλεση
-        self._lock_send_tab(True)
+            # Η Αποστολή είναι κλειδωμένη μέχρι να τρέξει επιτυχώς η Εκτέλεση
+            self._lock_send_tab(True)
 
         foot = tk.Frame(self, bg=C['bg2'], pady=10)
         foot.pack(fill='x')
@@ -304,6 +309,30 @@ class CheckRunDialog(tk.Toplevel):
         rids = self._dl_rids
         n = len(rids)
         btn_label = f'⬇  Λήψη {n} Αρχεί{"ου" if n == 1 else "ων"}'
+
+        # Έλεγχος αν υπάρχουν ήδη αρχεία (πιθανόν από άλλον έλεγχο που
+        # χρησιμοποιεί το ίδιο στατιστικό, π.χ. 2.1) ΠΡΙΝ ξεκινήσει η λήψη —
+        # ρωτάμε αν θέλει επαναλήψη αντί να γίνεται σιωπηλή επαναχρησιμοποίηση.
+        from core.downloader import get_downloads_dir, find_existing_reports
+        dest = get_downloads_dir(self._base)
+        existing_rids = find_existing_reports(dest, rids)
+        force = []
+        if existing_rids:
+            redo = messagebox.askyesno(
+                'Αρχεία υπάρχουν ήδη',
+                f'Βρέθηκαν ήδη {len(existing_rids)}/{n} αρχεία σήμερα '
+                '(πιθανόν από άλλον έλεγχο).\n\nΝα γίνει λήψη εκ νέου;',
+                parent=self)
+            if redo:
+                force = existing_rids
+            elif len(existing_rids) == n:
+                # Όλα τα απαραίτητα αρχεία υπάρχουν ήδη και δεν θέλουμε νέα
+                # λήψη — δεν υπάρχει λόγος να γίνει login στο MySchool.
+                messagebox.showinfo('Λήψη',
+                    f'Όλα τα {n} αρχεία υπάρχουν ήδη σήμερα — δεν χρειάζεται νέα λήψη.',
+                    parent=self)
+                return
+
         self._dl_btn.configure(state='disabled', bg=C['btn_dis'], text='Εκτελείται...')
 
         def on_log(msg):
@@ -311,10 +340,9 @@ class CheckRunDialog(tk.Toplevel):
 
         def task():
             try:
-                from core.downloader import MySchoolDownloader, get_downloads_dir, cleanup_old_downloads
-                dest = get_downloads_dir(self._base)
+                from core.downloader import MySchoolDownloader, cleanup_old_downloads
                 dl = MySchoolDownloader(
-                    usr, pw, dest, callback=on_log, reports=rids,
+                    usr, pw, dest, callback=on_log, reports=rids, force=force,
                     browser=getattr(self._cfg, 'BROWSER', 'chrome'))
                 results = dl.run()
                 ok = sum(1 for v in results.values() if v)
@@ -355,6 +383,36 @@ class CheckRunDialog(tk.Toplevel):
 
     def _start_custom_download(self, custom_dl):
         C = self._C
+
+        # Έλεγχος αν υπάρχουν ήδη αρχεία (πιθανόν από άλλον έλεγχο που
+        # χρησιμοποιεί το ίδιο στατιστικό, π.χ. 3.1) ΠΡΙΝ ξεκινήσει η λήψη —
+        # μόνο για ελέγχους που εκθέτουν CUSTOM_DOWNLOAD_INFO (π.χ.
+        # tmimata_genikis) ώστε να ξέρουμε ΠΟΥ και ΤΙ να ελέγξουμε.
+        force = []
+        info_fn = getattr(self._mod, 'CUSTOM_DOWNLOAD_INFO', None)
+        if callable(info_fn):
+            try:
+                dest_dir, rids = info_fn()
+                from core.downloader import find_existing_reports
+                existing_rids = find_existing_reports(dest_dir, rids)
+                if existing_rids:
+                    redo = messagebox.askyesno(
+                        'Αρχεία υπάρχουν ήδη',
+                        f'Βρέθηκαν ήδη {len(existing_rids)}/{len(rids)} αρχεία σήμερα '
+                        '(πιθανόν από άλλον έλεγχο).\n\nΝα γίνει λήψη εκ νέου;',
+                        parent=self)
+                    if redo:
+                        force = existing_rids
+                    elif len(existing_rids) == len(rids):
+                        # Όλα τα απαραίτητα αρχεία υπάρχουν ήδη και δεν θέλουμε
+                        # νέα λήψη — δεν υπάρχει λόγος να γίνει login στο MySchool.
+                        messagebox.showinfo('Λήψη',
+                            f'Όλα τα {len(rids)} αρχεία υπάρχουν ήδη σήμερα — '
+                            'δεν χρειάζεται νέα λήψη.', parent=self)
+                        return
+            except Exception:
+                pass
+
         self._dl_btn.configure(state='disabled', bg=C['btn_dis'], text='Εκτελείται...')
         try:
             self._dl_log.configure(state='normal')
@@ -368,7 +426,12 @@ class CheckRunDialog(tk.Toplevel):
 
         def task():
             try:
-                custom_dl(self._cfg, log=on_log)
+                try:
+                    custom_dl(self._cfg, log=on_log, force=force)
+                except TypeError:
+                    # Έλεγχοι με CUSTOM_DOWNLOAD που δεν δέχονται force=
+                    # (παλιότερη υπογραφή) — τρέχει κανονικά χωρίς αυτό.
+                    custom_dl(self._cfg, log=on_log)
                 self.after(0, lambda: [
                     self._dl_btn.configure(state='normal', bg=C['btn_bg'], text='⬇  Λήψη'),
                     messagebox.showinfo('Λήψη', 'Η λήψη ολοκληρώθηκε.', parent=self)
@@ -448,7 +511,21 @@ class CheckRunDialog(tk.Toplevel):
                 def _done():
                     self._ex_btn.configure(state='normal', bg=C['btn_bg'],
                                             text='▶  Εκτέλεση Ελέγχου')
-                    if self._is_custom_run:
+                    if self._exec_result and self._exec_result.get('status') == 'ok' \
+                            and not self._is_custom_run:
+                        # Παράθυρο αποτελεσμάτων μετά την Εκτέλεση — ίδιο στυλ
+                        # με τον έλεγχο Τμημάτων (tmimata_genikis), για όλους
+                        # τους «απλούς» ελέγχους (ανεξάρτητα από το αν έχουν
+                        # tab «Αποστολή» — π.χ. εσωτερικούς ελέγχους με
+                        # NO_SEND_TAB).
+                        try:
+                            self._show_generic_results_popup(self._exec_result)
+                        except Exception:
+                            import traceback
+                            traceback.print_exc()
+                    if not self._has_send_tab:
+                        pass
+                    elif self._is_custom_run:
                         custom_send = getattr(self._mod, 'CUSTOM_SEND_TAB', None)
                         if callable(custom_send):
                             # Ο έλεγχος εκθέτει δικό του σημείο αποστολής (π.χ.
@@ -485,6 +562,10 @@ class CheckRunDialog(tk.Toplevel):
                                     bg=C['btn_bg'] if can_send else C['btn_dis'])
                             except Exception:
                                 pass
+                            try:
+                                self._detect_split_file()
+                            except Exception:
+                                pass
                             self._split_hint.configure(
                                 text=('Πάτησε «✂ Διαχωρισμός ανά Σχολείο» για να δεις τι '
                                       'αρχείο θα σταλεί σε κάθε σχολείο.' if can_send else
@@ -494,6 +575,69 @@ class CheckRunDialog(tk.Toplevel):
                 self.after(0, _done)
 
         threading.Thread(target=task, daemon=True).start()
+
+    def _show_generic_results_popup(self, result):
+        """
+        Παράθυρο αποτελεσμάτων μετά από επιτυχή Εκτέλεση («status: ok») —
+        ίδιο στυλ με το παράθυρο αποτελεσμάτων του ελέγχου Τμημάτων
+        (checks/tmimata_genikis.py::_show_results_dialog): σύνοψη + κουμπί
+        «Άνοιγμα Excel». Καλείται από _start_execute._done() στο main thread
+        (μέσω self.after), οπότε μπορεί να φτιάξει widgets απευθείας.
+        """
+        title    = result.get('title', '?')
+        summary  = result.get('summary', '')
+        path_all = result.get('path_all')
+
+        win = tk.Toplevel(self)
+        win.title(f'Αποτελέσματα — {title}')
+        win.configure(bg='#FFF8E1')
+        win.resizable(True, True)
+        win.attributes('-topmost', True)
+        # Το CheckRunDialog κάνει ήδη grab_set() στον εαυτό του — χωρίς δικό
+        # της grab, η νέα Toplevel δεν λαμβάνει clicks μέχρι να κλείσει το
+        # CheckRunDialog (ίδιο fix με tmimata_genikis._show_results_dialog).
+        win.transient(self)
+        win.grab_set()
+        win.update_idletasks()
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        win.geometry(f'520x380+{sw//2-260}+{sh//2-190}')
+
+        hdr = tk.Frame(win, bg='#E65100', pady=8)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text=f'⚠  {title}',
+                 bg='#E65100', fg='white',
+                 font=('Arial', 11, 'bold')).pack()
+
+        txt = scrolledtext.ScrolledText(win, font=('Arial', 9), wrap='word',
+                                         relief='flat', bg='#FFF8E1', height=10)
+        txt.pack(fill='both', expand=True, padx=14, pady=8)
+        txt.insert('1.0', summary)
+        txt.config(state='disabled')
+
+        btn_f = tk.Frame(win, bg='#FFF8E1')
+        btn_f.pack(pady=(0, 12))
+
+        def _open_excel():
+            if not path_all:
+                messagebox.showinfo('Άνοιγμα Excel', 'Δεν υπάρχει αρχείο.', parent=win)
+                return
+            try:
+                os.startfile(os.path.normpath(path_all))
+            except Exception as e:
+                messagebox.showerror('Σφάλμα',
+                                      f'Δεν ήταν δυνατό το άνοιγμα του αρχείου:\n{e}',
+                                      parent=win)
+
+        tk.Button(btn_f, text='📄 Άνοιγμα Excel',
+                  bg='#E65100', fg='white',
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=14, pady=5, cursor='hand2',
+                  command=_open_excel).pack(side='left', padx=4)
+        tk.Button(btn_f, text='Κλείσιμο',
+                  bg='#E8EDF3', fg='#333333',
+                  font=('Arial', 9), relief='flat',
+                  padx=14, pady=5, cursor='hand2',
+                  command=win.destroy).pack(side='left', padx=4)
 
     # ── Tab «✂ Διαχωρισμός» (γενικό, για ελέγχους χωρίς CUSTOM_RUN) ──────────
 
@@ -546,12 +690,48 @@ class CheckRunDialog(tk.Toplevel):
             justify='left', wraplength=560)
         self._split_hint.pack(anchor='w', pady=(0, 8))
 
+        # Ανίχνευση/εμφάνιση του αρχείου προς διαχωρισμό — ίδια λογική με
+        # το tab Διαχωρισμός του ελέγχου Τμημάτων Γενικής (βλ.
+        # checks/tmimata_genikis.py::build_split_tab / _find_latest_output).
+        # Εδώ η «ανίχνευση» κοιτάζει το αποτέλεσμα της τελευταίας
+        # Εκτέλεσης μέσα σε αυτή τη σύνοδο (self._exec_result['path_all']).
+        self._split_info_lbl = tk.Label(
+            body, text='', bg=C['bg'], fg=C['desc'],
+            font=('Arial', 8, 'italic'), anchor='w',
+            justify='left', wraplength=560)
+        self._split_info_lbl.pack(fill='x', pady=(0, 4))
+
         self._split_log = self._make_log(body)
         br = tk.Frame(body, bg=C['bg'])
         br.pack(fill='x')
         self._split_btn = self._run_btn(br, '✂  Διαχωρισμός ανά Σχολείο',
                                          self._start_generic_split)
         self._split_btn.configure(state='disabled', bg=C['btn_dis'])
+        tk.Button(br, text='Ανίχνευση αρχείου', bg=C['bg2'], fg=C['desc'],
+                  font=('Arial', 9), relief='flat', padx=10, pady=5,
+                  cursor='hand2',
+                  command=self._detect_split_file).pack(side='left', padx=(8, 0))
+
+        self._detect_split_file()
+
+    def _detect_split_file(self):
+        """
+        Ενημερώνει το `self._split_info_lbl` με το αρχείο που θα χωριστεί —
+        το συγκεντρωτικό αρχείο αποτελεσμάτων (`path_all`) της τελευταίας
+        επιτυχούς Εκτέλεσης σε αυτή τη σύνοδο. Καλείται στο χτίσιμο του tab,
+        μετά από κάθε Εκτέλεση, και όταν πατηθεί το κουμπί «Ανίχνευση
+        αρχείου».
+        """
+        path_all = None
+        if self._exec_result and self._exec_result.get('status') == 'ok':
+            path_all = self._exec_result.get('path_all')
+        if path_all and os.path.isfile(path_all):
+            self._split_info_lbl.configure(
+                text=f'✓ {os.path.basename(path_all)}', fg='#2E7D32')
+        else:
+            self._split_info_lbl.configure(
+                text='Δεν βρέθηκε αρχείο αποτελεσμάτων — τρέξε πρώτα την «▶ Εκτέλεση».',
+                fg='#B00020')
 
     def _start_generic_split(self):
         C = self._C

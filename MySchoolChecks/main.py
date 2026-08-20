@@ -819,6 +819,9 @@ class LauncherApp:
             self.root.after(0, _show)
         root.after(3000, lambda: _check_for_update(_on_update))
 
+        # Αθόρυβο «ping» με τη Διεύθυνση Εκπαίδευσης (βλ. _send_install_ping)
+        root.after(3000, _send_install_ping)
+
         # Αν δεν έχει οριστεί κωδικός, άνοιξε αυτόματα τις ρυθμίσεις
         if not password_is_set():
             root.after(400, self._open_settings)
@@ -893,13 +896,16 @@ class LauncherApp:
         tab_checks  = tk.Frame(nb, bg=C['bg'])
         tab_reports = tk.Frame(nb, bg=C['bg'])
         tab_actions = tk.Frame(nb, bg=C['bg'])
+        tab_users   = tk.Frame(nb, bg=C['bg'])
         nb.add(tab_checks,  text='  🗂  Έλεγχοι  ')
         nb.add(tab_reports, text='  📊  Αναφορές / Στατιστικά  ')
         nb.add(tab_actions, text='  🏛  Ενέργειες MySchool  ')
+        nb.add(tab_users,   text='  👥  Χρήστες  ')
 
         self._build_checks_tab(tab_checks)
         self._build_reports_tab(tab_reports)
         self._build_actions_tab(tab_actions)
+        self._build_users_tab(tab_users)
 
         # Κουμπί ρυθμίσεων ⚙ στο header
         tk.Button(hdr, text='⚙', font=('Arial', 11),
@@ -1021,32 +1027,48 @@ class LauncherApp:
             f.pack(fill='x', pady=3)
             self.check_frames.append(f)
 
-            top = tk.Frame(f, bg=C['norm_bg'])
-            top.pack(fill='x')
+            # Δεξιά: το κουμπί «Άνοιγμα» σε δικό του πλαίσιο που καλύπτει
+            # όλο το ύψος της κάρτας (fill='y') — έτσι το ίδιο το κουμπί
+            # (pack expand=True, χωρίς fill) στοιχίζεται κάθετα στο κέντρο,
+            # ό,τι ύψος κι αν έχει η περιγραφή δίπλα του.
+            btn_holder = tk.Frame(f, bg=C['norm_bg'])
+            btn_holder.pack(side='right', fill='y')
 
             _is_smeae = (mod == SMEAE_MARKER)
             _open_cmd = self._open_smeae if _is_smeae else (lambda m=mod: self._open_check(m))
-            tk.Button(top, text='▶  Άνοιγμα',
+            tk.Button(btn_holder, text='▶  Άνοιγμα',
                       bg=C['btn_bg'], fg=C['btn_fg'],
                       font=('Arial', 9, 'bold'), relief='flat',
                       padx=10, pady=3, cursor='hand2',
                       activebackground=C['btn_act'],
                       command=_open_cmd
-                      ).pack(side='right', padx=(4, 0))
+                      ).pack(expand=True, padx=(4, 0))
 
             # Σημείωση: το κουμπί ✏ επεξεργασίας προτύπου email μετακόμισε
             # μέσα στο 3ο tab «✉ Αποστολή» κάθε ελέγχου (core/check_dialog.py
             # ::CheckRunDialog._open_email_editor) — δεν εμφανίζεται πια εδώ.
 
-            tk.Label(top, text=title,
+            # Αριστερά: τίτλος + περιγραφή σε δική τους στήλη, ώστε η
+            # περιγραφή να αναδιπλώνεται πάντα ΜΕΣΑ στο διαθέσιμο πλάτος
+            # (δίπλα από το κουμπί, όχι από κάτω/πίσω του).
+            left = tk.Frame(f, bg=C['norm_bg'])
+            left.pack(side='left', fill='both', expand=True, padx=(0, 10))
+
+            tk.Label(left, text=title,
                      bg=C['norm_bg'], fg=C['hdr_bg'],
                      font=('Arial', 10, 'bold'), anchor='w'
-                     ).pack(side='left', fill='x', expand=True)
+                     ).pack(fill='x')
 
             if desc:
-                tk.Label(f, text=desc, bg=C['norm_bg'], fg=C['desc'],
-                         font=('Arial', 8), anchor='w',
-                         wraplength=430, justify='left').pack(fill='x', padx=4)
+                desc_lbl = tk.Label(left, text=desc, bg=C['norm_bg'], fg=C['desc'],
+                                     font=('Arial', 8), anchor='w', justify='left')
+                desc_lbl.pack(fill='x', padx=4)
+
+                def _on_left_resize(event, _lbl=desc_lbl):
+                    new_wrap = max(event.width - 8, 50)
+                    if _lbl.cget('wraplength') != new_wrap:
+                        _lbl.configure(wraplength=new_wrap)
+                left.bind('<Configure>', _on_left_resize)
 
         self._finalize_scrollable(inner)
 
@@ -1054,8 +1076,20 @@ class LauncherApp:
     #    MySchool»: απλή λίστα γραμμών (τίτλος + περιγραφή + «▶ Άνοιγμα»).
     #    items: list of dict {title, desc, cmd} ή {title, desc, menu:[(label,cmd), ...]}
     #    για γραμμές που ανοίγουν popup menu (π.χ. Επιβεβαίωση Δ/νσης). ────────
-    def _build_simple_list(self, parent, items):
-        inner = self._make_scrollable(parent, len(items))
+    def _build_simple_list(self, parent, items, scrollable=True):
+        """
+        `scrollable=False` χτίζει τις κάρτες απευθείας μέσα σε ένα απλό
+        πλαίσιο (χωρίς Canvas/Scrollbar) — χρησιμοποιείται στα tabs
+        «Αναφορές/Στατιστικά» και «Ενέργειες MySchool», όπου τα στοιχεία
+        είναι λίγα και χωράνε πάντα χωρίς να χρειάζεται πλευρική μπάρα
+        κύλισης. Το tab «Έλεγχοι» (_build_checks_tab) συνεχίζει να
+        χρησιμοποιεί το scrollable Canvas, καθώς έχει περισσότερα στοιχεία.
+        """
+        if scrollable:
+            inner = self._make_scrollable(parent, len(items))
+        else:
+            inner = tk.Frame(parent, bg=C['bg'])
+            inner.pack(fill='both', expand=True, padx=18, pady=(0, 10))
 
         for item in items:
             f = tk.Frame(inner, bg=C['norm_bg'],
@@ -1064,16 +1098,18 @@ class LauncherApp:
                          pady=6, padx=10)
             f.pack(fill='x', pady=3)
 
-            top = tk.Frame(f, bg=C['norm_bg'])
-            top.pack(fill='x')
+            # Δεξιά: το κουμπί σε δικό του πλαίσιο ύψους όσο η κάρτα, ώστε
+            # να στοιχίζεται κάθετα στο κέντρο (pack expand=True).
+            btn_holder = tk.Frame(f, bg=C['norm_bg'])
+            btn_holder.pack(side='right', fill='y')
 
             menu_items = item.get('menu')
-            btn = tk.Button(top, text='▶  Άνοιγμα',
+            btn = tk.Button(btn_holder, text='▶  Άνοιγμα',
                       bg=C['btn_bg'], fg=C['btn_fg'],
                       font=('Arial', 9, 'bold'), relief='flat',
                       padx=10, pady=3, cursor='hand2',
                       activebackground=C['btn_act'])
-            btn.pack(side='right', padx=(4, 0))
+            btn.pack(expand=True, padx=(4, 0))
 
             if menu_items:
                 popup = tk.Menu(self.root, tearoff=0,
@@ -1091,17 +1127,30 @@ class LauncherApp:
             else:
                 btn.configure(command=item['cmd'])
 
-            tk.Label(top, text=item['title'],
+            # Αριστερά: τίτλος + περιγραφή σε δική τους στήλη, ώστε η
+            # περιγραφή να αναδιπλώνεται πάντα ΜΕΣΑ στο διαθέσιμο πλάτος
+            # (δίπλα από το κουμπί, όχι από κάτω/πίσω του).
+            left = tk.Frame(f, bg=C['norm_bg'])
+            left.pack(side='left', fill='both', expand=True, padx=(0, 10))
+
+            tk.Label(left, text=item['title'],
                      bg=C['norm_bg'], fg=C['hdr_bg'],
                      font=('Arial', 10, 'bold'), anchor='w'
-                     ).pack(side='left', fill='x', expand=True)
+                     ).pack(fill='x')
 
             if item.get('desc'):
-                tk.Label(f, text=item['desc'], bg=C['norm_bg'], fg=C['desc'],
-                         font=('Arial', 8), anchor='w',
-                         wraplength=430, justify='left').pack(fill='x', padx=4)
+                desc_lbl = tk.Label(left, text=item['desc'], bg=C['norm_bg'], fg=C['desc'],
+                                     font=('Arial', 8), anchor='w', justify='left')
+                desc_lbl.pack(fill='x', padx=4)
 
-        self._finalize_scrollable(inner)
+                def _on_left_resize(event, _lbl=desc_lbl):
+                    new_wrap = max(event.width - 8, 50)
+                    if _lbl.cget('wraplength') != new_wrap:
+                        _lbl.configure(wraplength=new_wrap)
+                left.bind('<Configure>', _on_left_resize)
+
+        if scrollable:
+            self._finalize_scrollable(inner)
 
     # ── Tab 2: Αναφορές / Στατιστικά ─────────────────────────────────────────
     def _build_reports_tab(self, parent):
@@ -1110,18 +1159,18 @@ class LauncherApp:
             {'title': 'Ενημερωτικό',
              'desc': 'Αποστολή ενημερωτικού email (με προαιρετικό συνημμένο αρχείο) σε σχολεία.',
              'cmd': self._open_inform_email},
+            {'title': 'Σχολικές Μονάδες',
+             'desc': 'Εξαγωγή στοιχείων σχολικών μονάδων ανά Δήμο.',
+             'cmd': self._open_monada_tool},
             {'title': 'Εκπ/κοί ανά Ειδικότητα',
              'desc': 'Εξαγωγή εκπαιδευτικών ανά ειδικότητα — για αποστολή στοιχείων ενδεικτικά σε '
                      'Συμβούλους Εκπ/σης.',
              'cmd': self._open_eidikotita_tool},
-            {'title': 'Σχολικές Μονάδες',
-             'desc': 'Εξαγωγή στοιχείων σχολικών μονάδων ανά Δήμο.',
-             'cmd': self._open_monada_tool},
             {'title': 'Εκπαιδευτικοί ανά Ειδικότητα & Θέση Συμβούλου',
              'desc': 'Εξαγωγή εκπαιδευτικών φιλτραρισμένων ανά ειδικότητα και θέση Συμβούλου Εκπ/σης.',
              'cmd': lambda: SymbouloiDialog(self.root)},
         ]
-        self._build_simple_list(parent, items)
+        self._build_simple_list(parent, items, scrollable=False)
 
     # ── Tab 3: Ενέργειες MySchool (καταχωρήσεις) ────────────────────────────
     def _build_actions_tab(self, parent):
@@ -1153,14 +1202,83 @@ class LauncherApp:
                      'εκπαιδευτικών.',
              'cmd': lambda: AbsencesDialog(self.root)},
         ]
-        self._build_simple_list(parent, items)
+        self._build_simple_list(parent, items, scrollable=False)
+
+    # ── Tab 4: Χρήστες — ποιες Διευθύνσεις χρησιμοποιούν το πρόγραμμα και σε
+    #    πόσους υπολογιστές η καθεμιά (βλ. _send_install_ping / AppsScript). ──
+    def _build_users_tab(self, parent):
+        self._tab_label(parent, 'Διευθύνσεις που χρησιμοποιούν το πρόγραμμα:')
+
+        top = tk.Frame(parent, bg=C['bg'])
+        top.pack(fill='x', padx=18, pady=(0, 4))
+        self._users_status_lbl = tk.Label(top, text='', bg=C['bg'], fg=C['desc'],
+                                           font=('Arial', 8, 'italic'), anchor='w')
+        self._users_status_lbl.pack(side='left')
+        tk.Button(top, text='🔄  Ανανέωση', bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 8, 'bold'), relief='flat', padx=8, pady=2,
+                  cursor='hand2', command=self._refresh_users_list
+                  ).pack(side='right')
+
+        self._users_list_frame = tk.Frame(parent, bg=C['bg'])
+        self._users_list_frame.pack(fill='both', expand=True, padx=18, pady=(4, 10))
+
+        self._refresh_users_list()
+
+    def _refresh_users_list(self):
+        self._users_status_lbl.configure(text='Φόρτωση...', fg=C['desc'])
+        for w in self._users_list_frame.winfo_children():
+            w.destroy()
+
+        def _on_done(data, err):
+            self.root.after(0, lambda: self._render_users(data, err))
+        _fetch_users_summary(_on_done)
+
+    def _render_users(self, data, err):
+        for w in self._users_list_frame.winfo_children():
+            w.destroy()
+
+        if err:
+            self._users_status_lbl.configure(text=f'⚠ {err}', fg=C['status_err'])
+            return
+        if not data:
+            self._users_status_lbl.configure(
+                text='Δεν υπάρχουν ακόμα καταχωρημένες Διευθύνσεις.', fg=C['desc'])
+            return
+
+        total_comp = sum(int(row.get('count', 0)) for row in data)
+        self._users_status_lbl.configure(
+            text=f'✓ {len(data)} Διευθύνσεις  •  {total_comp} υπολογιστές συνολικά',
+            fg=C['status_ok'])
+
+        header = tk.Frame(self._users_list_frame, bg=C['bg'])
+        header.pack(fill='x', pady=(0, 2))
+        tk.Label(header, text='Διεύθυνση', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(side='left', fill='x', expand=True)
+        tk.Label(header, text='Υπολογιστές', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='e', width=14).pack(side='right')
+
+        for row in sorted(data, key=lambda r: (r.get('type', ''), r.get('dir', ''))):
+            label = f"{row.get('type', '')}  {row.get('dir', '')}".strip()
+            count = int(row.get('count', 0))
+            f = tk.Frame(self._users_list_frame, bg=C['norm_bg'],
+                         highlightbackground=C['norm_bd'], highlightthickness=1,
+                         pady=4, padx=10)
+            f.pack(fill='x', pady=2)
+            tk.Label(f, text=label, bg=C['norm_bg'], fg=C['hdr_bg'],
+                     font=('Arial', 9), anchor='w').pack(side='left', fill='x', expand=True)
+            tk.Label(f, text=str(count), bg=C['norm_bg'], fg=C['desc'],
+                     font=('Arial', 9, 'bold'), anchor='e', width=14).pack(side='right')
 
     def _run_orario_pe60(self):
-        """Υποχρεωτικό Ωράριο ΠΕ60 (πρώην μέσα στο «Νέο Σχ. Έτος»)."""
-        import threading, importlib
+        """Υποχρεωτικό Ωράριο ΠΕ60 (πρώην μέσα στο «Νέο Σχ. Έτος»).
+        Ανοίγει το ίδιο 2-tab CheckRunDialog (⬇ Λήψη / ▶ Εκτέλεση) με τους
+        υπόλοιπους ελέγχους, ώστε να υπάρχει και εδώ λήψη στατιστικών
+        (2.1, 4.1, 4.2) πριν την εκτέλεση."""
+        import importlib
         try:
             mod = importlib.import_module('checks.orario_pe60')
-            threading.Thread(target=mod.run, args=(config,), daemon=True).start()
+            from core.check_dialog import CheckRunDialog
+            CheckRunDialog(self.root, config, _docs_base(), C, mod)
         except Exception as e:
             messagebox.showerror('Σφάλμα', str(e), parent=self.root)
 
@@ -1380,6 +1498,101 @@ def _check_for_update(on_update_available):
     threading.Thread(target=_task, daemon=True).start()
 
 
+def _get_directorate():
+    """Διαβάζει την επιλεγμένη Διεύθυνση Εκπαίδευσης (γράφτηκε από τον installer
+    στο data\\directorate.txt, μορφή "ΠΕ|Α' Αθήνας" ή "ΔΕ|Χαλκιδικής").
+    Επιστρέφει (dir_type, dir_name) ή (None, None) αν δεν βρεθεί."""
+    try:
+        if getattr(sys, 'frozen', False):
+            base = os.path.dirname(sys.executable)
+        else:
+            base = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(base, 'data', 'directorate.txt')
+        with open(path, 'r', encoding='utf-8') as f:
+            raw = f.read().strip()
+        dtype, _, dname = raw.partition('|')
+        dtype, dname = dtype.strip(), dname.strip()
+        if dname:
+            return dtype, dname
+    except Exception:
+        pass
+    return None, None
+
+
+def _get_install_id():
+    """Επιστρέφει ένα μοναδικό, μόνιμο αναγνωριστικό για ΑΥΤΟΝ τον υπολογιστή/
+    εγκατάσταση (δημιουργείται μία φορά, αποθηκεύεται σε εγγράψιμο φάκελο).
+    Χρησιμοποιείται ώστε το Apps Script να ξεχωρίζει διαφορετικούς υπολογιστές
+    της ΙΔΙΑΣ Διεύθυνσης (και να προσθέτει αύξοντα αριθμό #2, #3, ...)."""
+    try:
+        import uuid
+        path = os.path.join(_app_base(), 'install_id.txt')
+        if os.path.isfile(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                iid = f.read().strip()
+            if iid:
+                return iid
+        iid = uuid.uuid4().hex
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(iid)
+        return iid
+    except Exception:
+        return ''
+
+
+def _send_install_ping():
+    """Στέλνει ένα αθόρυβο «ping» με τη Διεύθυνση Εκπαίδευσης στο Apps Script
+    (βλ. PING_URL στο config.py) ώστε να ξέρουμε ποιες Διευθύνσεις χρησιμοποιούν
+    το πρόγραμμα (και πόσους υπολογιστές η καθεμιά). Τρέχει σε background
+    thread — καμία επίπτωση αν αποτύχει (π.χ. χωρίς ίντερνετ) ή αν δεν έχει
+    οριστεί PING_URL."""
+    ping_url = getattr(config, 'PING_URL', '').strip()
+    if not ping_url:
+        return
+    dtype, dname = _get_directorate()
+    if not dname:
+        return
+
+    def _task():
+        try:
+            import urllib.request, urllib.parse
+            version = getattr(config, 'APP_VERSION', '')
+            iid = _get_install_id()
+            qs = urllib.parse.urlencode({
+                'action': 'ping', 'dir': dname, 'type': dtype,
+                'version': version, 'iid': iid,
+            })
+            req = urllib.request.Request(f'{ping_url}?{qs}',
+                                          headers={'User-Agent': 'MySchoolChecks'})
+            urllib.request.urlopen(req, timeout=8).read()
+        except Exception:
+            pass  # Αθόρυβη αποτυχία — δεν επηρεάζει τη λειτουργία
+    threading.Thread(target=_task, daemon=True).start()
+
+
+def _fetch_users_summary(on_done):
+    """Φέρνει από το Apps Script τη συγκεντρωτική λίστα Διευθύνσεων/αριθμού
+    υπολογιστών (action=list). Τρέχει σε background thread· καλεί
+    on_done(list_or_None, error_msg_or_None) στο κύριο thread μέσω `after`."""
+    ping_url = getattr(config, 'PING_URL', '').strip()
+
+    def _task():
+        if not ping_url:
+            on_done(None, 'Δεν έχει ρυθμιστεί PING_URL στο config.py.')
+            return
+        try:
+            import urllib.request, urllib.parse, json as _json
+            qs  = urllib.parse.urlencode({'action': 'list'})
+            req = urllib.request.Request(f'{ping_url}?{qs}',
+                                          headers={'User-Agent': 'MySchoolChecks'})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = _json.loads(resp.read().decode('utf-8'))
+            on_done(data, None)
+        except Exception as e:
+            on_done(None, str(e))
+    threading.Thread(target=_task, daemon=True).start()
+
+
 def _do_update(parent, new_ver, dl_url):
     """Κατεβάζει το νέο setup.exe και το εκτελεί. Εμφανίζει progress dialog."""
     import urllib.request, tempfile, subprocess as _sub
@@ -1474,6 +1687,199 @@ def _do_update(parent, new_ver, dl_url):
     threading.Thread(target=_download, daemon=True).start()
 
 
+# ── Γενικό tab «⬇ Λήψη» για τα standalone εργαλεία (Σχολικές Μονάδες,
+#    Εκπ/κοί ανά Ειδικότητα, Εκπ/κοί ανά Ειδικότητα & Θέση Συμβούλου) —
+#    ίδια λογική/εμφάνιση με το tab «⬇ Λήψη» των ελέγχων
+#    (core/check_dialog.py::_build_download), προσαρμοσμένη σε αυτά τα
+#    εργαλεία που δεν είναι check modules (δεν έχουν REQUIRED_REPORTS). ─────
+def _build_report_download_tab(dialog, parent, rids, required, on_done=None):
+    """
+    Χτίζει το tab «⬇ Λήψη» μέσα στο `parent` (frame ενός tab σε Notebook).
+    `rids`     : λίστα από report-ids για το core.downloader.MySchoolDownloader
+                 (π.χ. ['3.1', '2.2'] ή ['topoth', '2.1', '4.1', '4.2', '4.16']).
+    `required` : λίστα με περιγραφικές γραμμές για εμφάνιση στον χρήστη.
+    `on_done`  : callback (χωρίς ορίσματα) που καλείται ΜΕΤΑ από επιτυχή
+                 λήψη — ώστε ο caller να ξανα-ανιχνεύσει τα αρχεία και να
+                 ξαναχτίσει το tab «Εκτέλεση» με τα φρέσκα αρχεία.
+    """
+    from core.downloader import FILE_PREFIX_MAP
+    from tkinter import scrolledtext as _st
+    import glob as _glob, threading as _th
+    from datetime import datetime as _dt
+
+    tk.Label(parent, text='Απαιτούμενα στατιστικά:', bg=C['bg'], fg=C['hdr_bg'],
+             font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(14, 3))
+    txt = ('\n'.join(f'  •  {r}' for r in required) if required
+           else '  (δεν έχουν οριστεί)')
+    tk.Label(parent, text=txt, bg=C['bg'], fg=C['desc'], font=('Arial', 9),
+             justify='left', anchor='w', wraplength=560).pack(fill='x', padx=18, pady=(0, 8))
+
+    today_dir = os.path.join(_docs_base(), 'downloads', _dt.now().strftime('%Y%m%d'))
+    status_lbl = tk.Label(parent, bg=C['bg'], font=('Arial', 8, 'italic'), anchor='w')
+    status_lbl.pack(fill='x', padx=18, pady=(0, 6))
+
+    def _refresh_status():
+        have = set()
+        if rids and os.path.isdir(today_dir):
+            for rid in rids:
+                prefix  = FILE_PREFIX_MAP.get(rid, rid)
+                matches = [f for f in _glob.glob(os.path.join(today_dir, f'{prefix}*'))
+                           if not f.endswith(('.tmp', '.crdownload'))]
+                if matches:
+                    have.add(rid)
+        if rids:
+            complete = (have == set(rids))
+            txt2 = (f'✓ Σήμερα υπάρχουν ήδη {len(have)}/{len(rids)} αρχεία.' if have
+                    else 'Δεν έχουν κατέβει ακόμα σήμερα.')
+            status_lbl.configure(text=txt2, fg=(C['status_ok'] if complete else C['desc']))
+    _refresh_status()
+
+    log_w = _st.ScrolledText(parent, height=10, font=('Consolas', 8),
+                              relief='solid', bd=1, state='disabled',
+                              bg='#F5F5F5', wrap=tk.WORD)
+    log_w.pack(fill='both', expand=True, padx=18, pady=(0, 8))
+
+    def on_log(msg):
+        def _append():
+            try:
+                log_w.configure(state='normal')
+                log_w.insert(tk.END, msg + '\n')
+                log_w.see(tk.END)
+                log_w.configure(state='disabled')
+            except Exception:
+                pass
+        try:
+            dialog.after(0, _append)
+        except Exception:
+            pass
+
+    n = len(rids)
+    label = f'⬇  Λήψη {n} Αρχεί{"ου" if n == 1 else "ων"}' if n else '⬇  Λήψη'
+    br = tk.Frame(parent, bg=C['bg'])
+    br.pack(fill='x', padx=18, pady=(0, 14))
+    dl_btn = tk.Button(br, text=label, bg=C['btn_bg'], fg=C['btn_fg'],
+                        font=('Arial', 10, 'bold'), relief='flat',
+                        padx=16, pady=6, cursor='hand2')
+    dl_btn.pack(side='right')
+    if not rids:
+        dl_btn.configure(state='disabled', bg=C['btn_dis'])
+
+    def _start():
+        usr = getattr(config, 'MYSCHOOL_USER', '').strip()
+        pw  = getattr(config, 'MYSCHOOL_PASS', '').strip()
+        if not usr or not pw:
+            messagebox.showwarning(
+                'Προσοχή',
+                'Συμπλήρωσε username και κωδικό MySchool στις Ρυθμίσεις (⚙).',
+                parent=dialog)
+            return
+
+        # Έλεγχος αν υπάρχουν ήδη αρχεία (πιθανόν από άλλον έλεγχο/εργαλείο
+        # που χρησιμοποιεί το ίδιο στατιστικό, π.χ. 3.1) ΠΡΙΝ ξεκινήσει η
+        # λήψη — ρωτάμε αν θέλει επαναλήψη αντί να γίνεται σιωπηλή
+        # επαναχρησιμοποίηση.
+        from core.downloader import get_downloads_dir, find_existing_reports
+        dest = get_downloads_dir(_docs_base())
+        existing_rids = find_existing_reports(dest, rids)
+        force = []
+        if existing_rids:
+            redo = messagebox.askyesno(
+                'Αρχεία υπάρχουν ήδη',
+                f'Βρέθηκαν ήδη {len(existing_rids)}/{n} αρχεία σήμερα '
+                '(πιθανόν από άλλον έλεγχο).\n\nΝα γίνει λήψη εκ νέου;',
+                parent=dialog)
+            if redo:
+                force = existing_rids
+            elif len(existing_rids) == n:
+                # Όλα τα απαραίτητα αρχεία υπάρχουν ήδη και δεν θέλουμε νέα
+                # λήψη — δεν υπάρχει λόγος να γίνει login στο MySchool.
+                messagebox.showinfo('Λήψη',
+                    f'Όλα τα {n} αρχεία υπάρχουν ήδη σήμερα — δεν χρειάζεται νέα λήψη.',
+                    parent=dialog)
+                return
+
+        dl_btn.configure(state='disabled', bg=C['btn_dis'], text='Εκτελείται...')
+
+        def task():
+            try:
+                from core.downloader import MySchoolDownloader, cleanup_old_downloads
+                dl = MySchoolDownloader(
+                    usr, pw, dest, callback=on_log, reports=rids, force=force,
+                    browser=getattr(config, 'BROWSER', 'chrome'))
+                results = dl.run()
+                ok = sum(1 for v in results.values() if v)
+                cleanup_old_downloads(_docs_base(), keep=1)
+
+                def _finish():
+                    dl_btn.configure(state='normal', bg=C['btn_bg'], text=label)
+                    _refresh_status()
+                    messagebox.showinfo('Λήψη',
+                        f'Ολοκληρώθηκε: {ok}/{n} αρχεία κατεβήκαν.', parent=dialog)
+                    if callable(on_done):
+                        try:
+                            on_done()
+                        except Exception:
+                            import traceback
+                            traceback.print_exc()
+                dialog.after(0, _finish)
+            except Exception as e:
+                err = str(e)
+                def _err():
+                    dl_btn.configure(state='normal', bg=C['btn_bg'], text=label)
+                    messagebox.showerror('Σφάλμα Λήψης', err, parent=dialog)
+                dialog.after(0, _err)
+
+        _th.Thread(target=task, daemon=True).start()
+
+    dl_btn.configure(command=_start)
+
+
+def _build_recipients_box(parent, label_text, saved_value, height=3):
+    """
+    Πεδίο παραληπτών όπως στο «Ενημερωτικό» (InformEmailDialog) — ένα email
+    ανά γραμμή, ή περισσότερα στην ίδια γραμμή με διαχωριστικό «;». Γυρνάει
+    το ScrolledText widget (διάβασέ το με `_parse_recipients`).
+    """
+    from tkinter import scrolledtext as _st
+    pad = dict(padx=18, pady=2)
+    tk.Label(parent, text=label_text, bg=C['bg'], fg=C['hdr_bg'],
+             font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **pad)
+    tk.Label(parent, text='(ένα ανά γραμμή, ή περισσότερα στην ίδια γραμμή με «;»)',
+             bg=C['bg'], fg=C['footer'], font=('Arial', 8),
+             anchor='w').pack(fill='x', padx=18)
+    txt = _st.ScrolledText(parent, height=height, font=('Consolas', 8),
+                            relief='solid', bd=1, wrap=tk.NONE)
+    txt.pack(fill='x', padx=18, pady=(0, 6))
+    if saved_value:
+        txt.insert('1.0', saved_value)
+    return txt
+
+
+def _parse_recipients(text_widget):
+    """Εξάγει λίστα emails από ένα recipients ScrolledText (βλ.
+    `_build_recipients_box`) — ένα ανά γραμμή, ή περισσότερα στην ίδια
+    γραμμή χωρισμένα με «;»."""
+    recips = []
+    for line in text_widget.get('1.0', tk.END).splitlines():
+        for part in line.split(';'):
+            part = part.strip()
+            if part and '@' in part:
+                recips.append(part)
+    return recips
+
+
+# Απαιτούμενα στατιστικά — κοινά για «Εκπ/κοί ανά Ειδικότητα» και
+# «Εκπ/κοί ανά Ειδικότητα & Θέση Συμβούλου» (EidikotitaDialog/SymbouloiDialog).
+_EIDIK_RIDS = ['topoth', '2.1', '4.1', '4.2', '4.16']
+_EIDIK_REQUIRED = [
+    'Τοποθετήσεις — Τοποθετήσεις εκπαιδευτικών',
+    '2.1 — Κατάλογος σχολείων',
+    '4.1 — Οργανικές τοποθετήσεις',
+    '4.2 — Αποσπασμένοι εκπαιδευτικοί',
+    '4.16 — Αιτιολόγηση απουσίας',
+]
+
+
 class EidikotitaDialog(tk.Toplevel):
     """Εργαλείο εξαγωγής εκπαιδευτικών ανά ειδικότητα."""
 
@@ -1527,6 +1933,20 @@ class EidikotitaDialog(tk.Toplevel):
         self._stat41_path = self._auto_find('stat4_1')
         self._stat42_path = self._auto_find('stat4_2')
 
+        # 2-tab δομή όπως οι έλεγχοι: «⬇ Λήψη» + «▶ Εκτέλεση» (το ίδιο
+        # εργαλείο που υπήρχε πριν, χωρίς αλλαγή στη λειτουργία του).
+        from tkinter import ttk as _ttk
+        nb = _ttk.Notebook(self)
+        nb.pack(fill='both', expand=True)
+        tab_dl   = tk.Frame(nb, bg=C['bg'])
+        tab_exec = tk.Frame(nb, bg=C['bg'])
+        nb.add(tab_dl,   text='  ⬇ Λήψη  ')
+        nb.add(tab_exec, text='  ▶ Εκτέλεση  ')
+        self._exec_body = tab_exec
+
+        _build_report_download_tab(self, tab_dl, _EIDIK_RIDS, _EIDIK_REQUIRED,
+                                    on_done=self._on_download_done)
+
         self._build_form()
         self.update_idletasks()
         w = 620
@@ -1570,7 +1990,7 @@ class EidikotitaDialog(tk.Toplevel):
     def _build_form(self):
         self._clear()
 
-        hdr = tk.Frame(self, bg='#0F6E56', pady=10)
+        hdr = tk.Frame(self._exec_body, bg='#0F6E56', pady=10)
         hdr.pack(fill='x')
         tk.Label(hdr, text='📋  Εκπαιδευτικοί ανά Ειδικότητα',
                  bg='#0F6E56', fg='white',
@@ -1584,7 +2004,7 @@ class EidikotitaDialog(tk.Toplevel):
         if not self._topoth_path: missing.append('Τοποθετήσεις')
         if not self._grid_path:   missing.append('Κατάλογος σχολείων (2.1)')
         if missing:
-            warn = tk.Label(self,
+            warn = tk.Label(self._exec_body,
                 text=f'⚠  Δεν βρέθηκαν: {", ".join(missing)}. Κατέβασε τα πρώτα από «Λήψη Δεδομένων».',
                 bg='#FFF3E0', fg='#E65100', font=('Arial', 8), anchor='w', padx=10, pady=5,
                 wraplength=560, justify='left')
@@ -1593,17 +2013,17 @@ class EidikotitaDialog(tk.Toplevel):
         if not self._stat41_path: missing_opt.append('4.1')
         if not self._stat42_path: missing_opt.append('4.2')
         if missing_opt:
-            warn2 = tk.Label(self,
+            warn2 = tk.Label(self._exec_body,
                 text=f'ℹ  Δεν βρέθηκαν: {", ".join(missing_opt)} — οι στήλες Email ΠΣΔ / Email / Κινητό θα είναι κενές.',
                 bg='#E3F2FD', fg='#1565C0', font=('Arial', 8), anchor='w', padx=10, pady=5,
                 wraplength=560, justify='left')
             warn2.pack(fill='x', padx=18, pady=(0, 6))
 
         # ── Διεύθυνση ────────────────────────────────────────────────────────
-        tk.Label(self, text='Διεύθυνση:', bg=C['bg'], fg=C['hdr_bg'],
+        tk.Label(self._exec_body, text='Διεύθυνση:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
 
-        dir_row = tk.Frame(self, bg=C['bg'])
+        dir_row = tk.Frame(self._exec_body, bg=C['bg'])
         dir_row.pack(fill='x', padx=18, pady=(2, 6))
 
         self._dir_var = tk.StringVar(value=self._saved_dir)
@@ -1629,10 +2049,10 @@ class EidikotitaDialog(tk.Toplevel):
         self._dir_lbl.pack(side='left', padx=(10, 0))
 
         # ── Ειδικότητα ───────────────────────────────────────────────────────
-        tk.Label(self, text='Ειδικότητα:', bg=C['bg'], fg=C['hdr_bg'],
+        tk.Label(self._exec_body, text='Ειδικότητα:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
 
-        spec_row = tk.Frame(self, bg=C['bg'])
+        spec_row = tk.Frame(self._exec_body, bg=C['bg'])
         spec_row.pack(fill='x', padx=18, pady=(2, 6))
 
         self._spec_var = tk.StringVar()
@@ -1648,10 +2068,10 @@ class EidikotitaDialog(tk.Toplevel):
         self._spec_var.trace_add('write', self._on_spec_change)
 
         # ── Στήλες εξόδου ────────────────────────────────────────────────────
-        tk.Label(self, text='Προαιρετικές στήλες εξόδου (επιλέξτε όσες επιθυμείτε):', bg=C['bg'], fg=C['hdr_bg'],
+        tk.Label(self._exec_body, text='Προαιρετικές στήλες εξόδου (επιλέξτε όσες επιθυμείτε):', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(6, 2))
 
-        col_frame = tk.Frame(self, bg=C['bg'])
+        col_frame = tk.Frame(self._exec_body, bg=C['bg'])
         col_frame.pack(fill='x', padx=18, pady=(0, 6))
 
         self._col_vars = {}
@@ -1665,24 +2085,20 @@ class EidikotitaDialog(tk.Toplevel):
         # ── Email ─────────────────────────────────────────────────────────────
         pad = dict(padx=18, pady=2)
 
-        tk.Label(self, text='Προς (email συμβούλου):',
-                 bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9, 'bold'),
-                 anchor='w').pack(fill='x', **pad)
-        self._to_var = tk.StringVar(value=self._saved_email)
-        tk.Entry(self, textvariable=self._to_var,
-                 font=('Arial', 9)).pack(fill='x', padx=18, pady=(0, 6))
+        self._to_txt = _build_recipients_box(
+            self._exec_body, 'Προς (email συμβούλου):', self._saved_email)
 
-        tk.Label(self, text='Θέμα:',
+        tk.Label(self._exec_body, text='Θέμα:',
                  bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9, 'bold'),
                  anchor='w').pack(fill='x', **pad)
         self._subj_var = tk.StringVar(value=self._saved_subject)
-        tk.Entry(self, textvariable=self._subj_var,
+        tk.Entry(self._exec_body, textvariable=self._subj_var,
                  font=('Arial', 9)).pack(fill='x', padx=18, pady=(0, 6))
 
-        tk.Label(self, text='Κείμενο email:',
+        tk.Label(self._exec_body, text='Κείμενο email:',
                  bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9, 'bold'),
                  anchor='w').pack(fill='x', **pad)
-        self._body_txt = tk.Text(self, font=('Arial', 9), height=6,
+        self._body_txt = tk.Text(self._exec_body, font=('Arial', 9), height=6,
                                   wrap='word', relief='solid', bd=1)
         self._body_txt.pack(fill='x', padx=18, pady=(0, 6))
         from datetime import datetime as _dt
@@ -1690,7 +2106,7 @@ class EidikotitaDialog(tk.Toplevel):
             self._saved_body.replace('{date}', _dt.today().strftime('%d/%m/%Y'))
                              .replace('{specialty}', self._spec_var.get()))
 
-        btn_row = tk.Frame(self, bg=C['bg'])
+        btn_row = tk.Frame(self._exec_body, bg=C['bg'])
         btn_row.pack(side='bottom', pady=10)
         tk.Button(btn_row, text='Μόνο Excel (χωρίς email)',
                   bg=C['bg2'], fg=C['hdr_bg'], relief='flat',
@@ -1843,12 +2259,12 @@ class EidikotitaDialog(tk.Toplevel):
         from openpyxl.utils import get_column_letter
 
         specialty = self._spec_var.get()
-        to_email  = self._to_var.get().strip()
+        to_emails = _parse_recipients(self._to_txt)
         subject   = self._subj_var.get().strip()
         body_text = self._body_txt.get('1.0', 'end-1c')
         full_body = body_text + '\n\n' + config.email_signature()
 
-        if send and not to_email:
+        if send and not to_emails:
             messagebox.showwarning('Email', 'Εισάγετε email παραλήπτη.', parent=self)
             return
 
@@ -2195,7 +2611,7 @@ class EidikotitaDialog(tk.Toplevel):
         s[self._SETTINGS_KEY] = {
             'subject':       subject_to_save,
             'body':          body_to_save,
-            'advisor_email': to_email,
+            'advisor_email': '\n'.join(to_emails),
             'direction':     self._dir_var.get().strip(),
         }
         path_s = _get_local_settings_path()
@@ -2218,10 +2634,10 @@ class EidikotitaDialog(tk.Toplevel):
         # Αποστολή email
         try:
             from core.framework import send_email
-            send_email(config, to_email, subject, full_body, out_path)
+            send_email(config, to_emails, subject, full_body, out_path)
             from core.framework import _show_results_popup
             _show_results_popup('Εκπ/κοί ανά Ειδικότητα',
-                f'Email στάλθηκε: {to_email}\n\n'
+                f'Email στάλθηκε: {", ".join(to_emails)}\n\n'
                 f'Σύνολο: {total_count} εκπ/κοί  |  Απόντες: {absent_count}',
                 result_type='ok', excel_path=out_path)
             self.destroy()
@@ -2231,9 +2647,18 @@ class EidikotitaDialog(tk.Toplevel):
     # ── Βοηθητικά ───────────────────────────────────────────────────────────
 
     def _clear(self):
-        for w in self.winfo_children():
+        for w in self._exec_body.winfo_children():
             w.destroy()
 
+    def _on_download_done(self):
+        """Καλείται μετά από επιτυχή λήψη στο tab «⬇ Λήψη» — ξανα-ανιχνεύει
+        τα αρχεία και ξαναχτίζει το tab «▶ Εκτέλεση» με τα φρέσκα αρχεία."""
+        self._topoth_path = self._auto_find('Topothetiseis')
+        self._grid_path   = self._auto_find('gridResults')
+        self._stat_path   = self._auto_find('stat4_16')
+        self._stat41_path = self._auto_find('stat4_1')
+        self._stat42_path = self._auto_find('stat4_2')
+        self._build_form()
 
 
 class SymbouloiDialog(tk.Toplevel):
@@ -2290,6 +2715,20 @@ class SymbouloiDialog(tk.Toplevel):
         self._symv = {}
         self._load_symvouloi_data()
 
+        # 2-tab δομή όπως οι έλεγχοι: «⬇ Λήψη» + «▶ Εκτέλεση» (το ίδιο
+        # εργαλείο που υπήρχε πριν, χωρίς αλλαγή στη λειτουργία του).
+        from tkinter import ttk as _ttk
+        nb = _ttk.Notebook(self)
+        nb.pack(fill='both', expand=True)
+        tab_dl   = tk.Frame(nb, bg=C['bg'])
+        tab_exec = tk.Frame(nb, bg=C['bg'])
+        nb.add(tab_dl,   text='  ⬇ Λήψη  ')
+        nb.add(tab_exec, text='  ▶ Εκτέλεση  ')
+        self._exec_body = tab_exec
+
+        _build_report_download_tab(self, tab_dl, _EIDIK_RIDS, _EIDIK_REQUIRED,
+                                    on_done=self._on_download_done)
+
         self._build_form()
         self.update_idletasks()
         w = 640
@@ -2340,7 +2779,7 @@ class SymbouloiDialog(tk.Toplevel):
     def _build_form(self):
         self._clear()
         HDR = '#1F4E79'
-        hdr = tk.Frame(self, bg=HDR, pady=10)
+        hdr = tk.Frame(self._exec_body, bg=HDR, pady=10)
         hdr.pack(fill='x')
         tk.Label(hdr, text='📋  Εκπ/κοί ανά Ειδικότητα & Θέση Συμβούλου',
                  bg=HDR, fg='white', font=('Arial', 12, 'bold')).pack()
@@ -2352,7 +2791,7 @@ class SymbouloiDialog(tk.Toplevel):
 
         symv_path = self._get_symvouloi_path()
         if not self._symv:
-            wf = tk.Frame(self, bg='#FFF3E0')
+            wf = tk.Frame(self._exec_body, bg='#FFF3E0')
             wf.pack(fill='x', padx=18, pady=(6, 0))
             tk.Label(wf,
                      text=f'⚠  Δεν βρέθηκε το αρχείο Συμβούλων Εκπ/σης. Αναμένεται: {symv_path}',
@@ -2366,7 +2805,7 @@ class SymbouloiDialog(tk.Toplevel):
         if not self._topoth_path: missing.append('Τοποθετήσεις')
         if not self._grid_path:   missing.append('Κατάλογος σχολείων (2.1)')
         if missing:
-            tk.Label(self,
+            tk.Label(self._exec_body,
                 text=f'⚠  Δεν βρέθηκαν: {", ".join(missing)}. Κατέβασε τα από «Λήψη Δεδομένων».',
                 bg='#FFF3E0', fg='#E65100', font=('Arial', 8),
                 anchor='w', padx=28, pady=5, wraplength=580, justify='left').pack(fill='x')
@@ -2374,16 +2813,16 @@ class SymbouloiDialog(tk.Toplevel):
         if not self._stat41_path: missing_opt.append('4.1')
         if not self._stat42_path: missing_opt.append('4.2')
         if missing_opt:
-            tk.Label(self,
+            tk.Label(self._exec_body,
                 text=f'ℹ  Δεν βρέθηκαν: {", ".join(missing_opt)} — Email ΠΣΔ / Email / Κινητό θα είναι κενές.',
                 bg='#E3F2FD', fg='#1565C0', font=('Arial', 8),
                 anchor='w', padx=28, pady=5, wraplength=580, justify='left').pack(fill='x')
 
         from tkinter import ttk as _ttk
 
-        tk.Label(self, text='Διεύθυνση:', bg=C['bg'], fg=C['hdr_bg'],
+        tk.Label(self._exec_body, text='Διεύθυνση:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(6, 0))
-        dir_row = tk.Frame(self, bg=C['bg'])
+        dir_row = tk.Frame(self._exec_body, bg=C['bg'])
         dir_row.pack(fill='x', padx=18, pady=(2, 4))
         self._dir_var = tk.StringVar(value=self._saved_dir)
         if self._saved_dir:
@@ -2400,9 +2839,9 @@ class SymbouloiDialog(tk.Toplevel):
         self._dir_lbl = tk.Label(dir_row, text='', bg=C['bg'], fg=C['desc'], font=('Arial', 8))
         self._dir_lbl.pack(side='left', padx=(10, 0))
 
-        tk.Label(self, text='Ειδικότητα:', bg=C['bg'], fg=C['hdr_bg'],
+        tk.Label(self._exec_body, text='Ειδικότητα:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
-        spec_row = tk.Frame(self, bg=C['bg'])
+        spec_row = tk.Frame(self._exec_body, bg=C['bg'])
         spec_row.pack(fill='x', padx=18, pady=(2, 4))
         self._spec_var = tk.StringVar()
         self._spec_combo = _ttk.Combobox(spec_row, textvariable=self._spec_var,
@@ -2413,9 +2852,9 @@ class SymbouloiDialog(tk.Toplevel):
         self._spec_lbl.pack(side='left', padx=(10, 0))
         self._spec_var.trace_add('write', self._on_spec_change)
 
-        tk.Label(self, text='Θέση Συμβούλου:', bg=C['bg'], fg=C['hdr_bg'],
+        tk.Label(self._exec_body, text='Θέση Συμβούλου:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
-        thesi_row = tk.Frame(self, bg=C['bg'])
+        thesi_row = tk.Frame(self._exec_body, bg=C['bg'])
         thesi_row.pack(fill='x', padx=18, pady=(2, 6))
         self._thesi_var = tk.StringVar()
         self._thesi_combo = _ttk.Combobox(thesi_row, textvariable=self._thesi_var,
@@ -2425,7 +2864,7 @@ class SymbouloiDialog(tk.Toplevel):
                                     fg=C['desc'], font=('Arial', 8))
         self._thesi_lbl.pack(side='left', padx=(10, 0))
 
-        priv_frame = tk.Frame(self, bg=C['bg'])
+        priv_frame = tk.Frame(self._exec_body, bg=C['bg'])
         priv_frame.pack(fill='x', padx=18, pady=(4, 2))
         self._include_private_var = tk.BooleanVar(value=self._saved_include_private)
         tk.Checkbutton(priv_frame, text='Συμπερίληψη ιδιωτικών;',
@@ -2434,9 +2873,9 @@ class SymbouloiDialog(tk.Toplevel):
                        fg=C['hdr_bg'], activebackground=C['bg'],
                        selectcolor=C['bg']).pack(side='left')
 
-        tk.Label(self, text='Προαιρετικές στήλες εξόδου:', bg=C['bg'], fg=C['hdr_bg'],
+        tk.Label(self._exec_body, text='Προαιρετικές στήλες εξόδου:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 2))
-        col_frame = tk.Frame(self, bg=C['bg'])
+        col_frame = tk.Frame(self._exec_body, bg=C['bg'])
         col_frame.pack(fill='x', padx=18, pady=(0, 4))
         self._col_vars = {}
         for col_name in ('Email στο ΠΣΔ', 'Email', 'Κινητό'):
@@ -2447,27 +2886,24 @@ class SymbouloiDialog(tk.Toplevel):
                            activebackground=C['bg']).pack(side='left', padx=(0, 12))
 
         pad = dict(padx=18, pady=2)
-        tk.Label(self, text='Προς (email Συμβούλου):',
-                 bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9, 'bold'),
-                 anchor='w').pack(fill='x', **pad)
-        self._to_var = tk.StringVar(value=self._saved_email)
-        tk.Entry(self, textvariable=self._to_var, font=('Arial', 9)).pack(fill='x', padx=18, pady=(0, 4))
+        self._to_txt = _build_recipients_box(
+            self._exec_body, 'Προς (email Συμβούλου):', self._saved_email)
 
-        tk.Label(self, text='Θέμα:', bg=C['bg'], fg=C['hdr_bg'],
+        tk.Label(self._exec_body, text='Θέμα:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **pad)
         self._subj_var = tk.StringVar(value=self._saved_subject)
-        tk.Entry(self, textvariable=self._subj_var, font=('Arial', 9)).pack(fill='x', padx=18, pady=(0, 4))
+        tk.Entry(self._exec_body, textvariable=self._subj_var, font=('Arial', 9)).pack(fill='x', padx=18, pady=(0, 4))
 
-        tk.Label(self, text='Κείμενο email:', bg=C['bg'], fg=C['hdr_bg'],
+        tk.Label(self._exec_body, text='Κείμενο email:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **pad)
-        self._body_txt = tk.Text(self, font=('Arial', 9), height=6, wrap='word', relief='solid', bd=1)
+        self._body_txt = tk.Text(self._exec_body, font=('Arial', 9), height=6, wrap='word', relief='solid', bd=1)
         self._body_txt.pack(fill='x', padx=18, pady=(0, 4))
         from datetime import datetime as _dt
         self._body_txt.insert('1.0',
             self._saved_body.replace('{date}', _dt.today().strftime('%d/%m/%Y'))
                              .replace('{specialty}', '').replace('{thesi}', ''))
 
-        btn_row = tk.Frame(self, bg=C['bg'])
+        btn_row = tk.Frame(self._exec_body, bg=C['bg'])
         btn_row.pack(side='bottom', pady=10)
         tk.Button(btn_row, text='Μόνο Excel (χωρίς email)',
                   bg=C['bg2'], fg=C['hdr_bg'], relief='flat',
@@ -2579,12 +3015,12 @@ class SymbouloiDialog(tk.Toplevel):
 
         specialty  = self._spec_var.get().strip()
         thesi_lbl  = self._thesi_var.get().strip()
-        to_email   = self._to_var.get().strip()
+        to_emails  = _parse_recipients(self._to_txt)
         subject    = self._subj_var.get().strip()
         body_text  = self._body_txt.get('1.0', 'end-1c')
         full_body  = body_text + '\n\n' + config.email_signature()
 
-        if send and not to_email:
+        if send and not to_emails:
             messagebox.showwarning('Email', 'Εισάγετε email παραλήπτη.', parent=self); return
         if not specialty:
             messagebox.showwarning('Ειδικότητα', 'Επίλεξε ειδικότητα.', parent=self); return
@@ -2804,7 +3240,7 @@ class SymbouloiDialog(tk.Toplevel):
         td = _dts.today().strftime('%d/%m/%Y')
         bts = body_text.replace(specialty,'{specialty}').replace(td,'{date}').replace(thesi_lbl,'{thesi}')
         sts = subject.replace(specialty,'{specialty}').replace(td,'{date}').replace(thesi_lbl,'{thesi}')
-        s[self._SETTINGS_KEY] = {'subject':sts,'body':bts,'advisor_email':to_email,'direction':self._dir_var.get().strip(),'include_private':self._include_private_var.get()}
+        s[self._SETTINGS_KEY] = {'subject':sts,'body':bts,'advisor_email':'\n'.join(to_emails),'direction':self._dir_var.get().strip(),'include_private':self._include_private_var.get()}
         os.makedirs(os.path.dirname(_get_local_settings_path()), exist_ok=True)
         with open(_get_local_settings_path(),'w',encoding='utf-8') as f:
             json.dump(s, f, ensure_ascii=False, indent=2)
@@ -2822,10 +3258,10 @@ class SymbouloiDialog(tk.Toplevel):
 
         try:
             from core.framework import send_email
-            send_email(config, to_email, subject, full_body, out_path)
+            send_email(config, to_emails, subject, full_body, out_path)
             from core.framework import _show_results_popup
             _show_results_popup('Εκπ/κοί ανά Ειδικότητα & Θέση',
-                f'Email στάλθηκε: {to_email}\n\nΕιδικότητα: {specialty}  |  Θέση: {thesi_lbl}\n'
+                f'Email στάλθηκε: {", ".join(to_emails)}\n\nΕιδικότητα: {specialty}  |  Θέση: {thesi_lbl}\n'
                 f'Σύνολο: {total_count} εκπ/κοί  |  Απόντες: {absent_count}',
                 result_type='ok', excel_path=out_path)
             self.destroy()
@@ -2833,8 +3269,26 @@ class SymbouloiDialog(tk.Toplevel):
             messagebox.showerror('Σφάλμα αποστολής', str(e), parent=self)
 
     def _clear(self):
-        for w in self.winfo_children():
+        for w in self._exec_body.winfo_children():
             w.destroy()
+
+    def _on_download_done(self):
+        """Καλείται μετά από επιτυχή λήψη στο tab «⬇ Λήψη» — ξανα-ανιχνεύει
+        τα αρχεία και ξαναχτίζει το tab «▶ Εκτέλεση» με τα φρέσκα αρχεία."""
+        self._topoth_path = EidikotitaDialog._auto_find('Topothetiseis')
+        self._grid_path   = EidikotitaDialog._auto_find('gridResults')
+        self._stat_path   = EidikotitaDialog._auto_find('stat4_16')
+        self._stat41_path = EidikotitaDialog._auto_find('stat4_1')
+        self._stat42_path = EidikotitaDialog._auto_find('stat4_2')
+        self._build_form()
+
+
+# Απαιτούμενα στατιστικά για το εργαλείο «Στοιχεία Σχολικών Μονάδων».
+_MONADA_RIDS = ['3.1', '2.2']
+_MONADA_REQUIRED = [
+    '3.1 — Κατανομή μαθητών ανά τάξη',
+    '2.2 — Εκτεταμένα Στοιχεία Σχολικών Μονάδων',
+]
 
 
 class MonadaDialog(tk.Toplevel):
@@ -2872,9 +3326,23 @@ class MonadaDialog(tk.Toplevel):
         self._csv_path    = self._auto_find_zip('CSV_', 'stat2_2', 'gridResults')
         self._stat31_path = self._auto_find_zip('stat3_1')
 
+        # 2-tab δομή όπως οι έλεγχοι: «⬇ Λήψη» + «▶ Εκτέλεση» (το ίδιο
+        # εργαλείο που υπήρχε πριν, χωρίς αλλαγή στη λειτουργία του).
+        from tkinter import ttk as _ttk
+        nb = _ttk.Notebook(self)
+        nb.pack(fill='both', expand=True)
+        tab_dl   = tk.Frame(nb, bg=C['bg'])
+        tab_exec = tk.Frame(nb, bg=C['bg'])
+        nb.add(tab_dl,   text='  ⬇ Λήψη  ')
+        nb.add(tab_exec, text='  ▶ Εκτέλεση  ')
+        self._exec_body = tab_exec
+
+        _build_report_download_tab(self, tab_dl, _MONADA_RIDS, _MONADA_REQUIRED,
+                                    on_done=self._on_download_done)
+
         self._build_form()
         self.update_idletasks()
-        w, h = 630, 590
+        w, h = 630, 620
         x = parent.winfo_x() + (parent.winfo_width()  - w) // 2
         y = parent.winfo_y() + (parent.winfo_height() - h) // 2
         self.geometry(f'{w}x{h}+{x}+{y}')
@@ -2951,7 +3419,7 @@ class MonadaDialog(tk.Toplevel):
     def _build_form(self):
         self._clear()
 
-        hdr = tk.Frame(self, bg='#0F6E56', pady=10)
+        hdr = tk.Frame(self._exec_body, bg='#0F6E56', pady=10)
         hdr.pack(fill='x')
         tk.Label(hdr, text='🏫  Στοιχεία Σχολικών Μονάδων',
                  bg='#0F6E56', fg='white',
@@ -2965,17 +3433,17 @@ class MonadaDialog(tk.Toplevel):
         if not self._csv_path:    missing.append('Κατάλογος Μονάδων (CSV_...zip)')
         if not self._stat31_path: missing.append('Στατιστικό 3.1 (stat3_1...)')
         if missing:
-            tk.Label(self,
+            tk.Label(self._exec_body,
                 text=f'⚠  Δεν βρέθηκαν: {", ".join(missing)}. Κατέβασέ τα από MySchool.',
                 bg='#FFF3E0', fg='#E65100', font=('Arial', 8),
                 anchor='w', padx=10, pady=5, wraplength=570, justify='left',
             ).pack(fill='x', padx=18, pady=(0, 6))
 
         # ── Δήμος ─────────────────────────────────────────────────────────────
-        tk.Label(self, text='Δήμος:', bg=C['bg'], fg=C['hdr_bg'],
+        tk.Label(self._exec_body, text='Δήμος:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
 
-        dimos_row = tk.Frame(self, bg=C['bg'])
+        dimos_row = tk.Frame(self._exec_body, bg=C['bg'])
         dimos_row.pack(fill='x', padx=18, pady=(2, 6))
         self._dimos_var = tk.StringVar()
         from tkinter import ttk as _ttk
@@ -2988,9 +3456,9 @@ class MonadaDialog(tk.Toplevel):
         self._dimos_var.trace_add('write', self._on_dimos_change)
 
         # ── Εμφάνιση ──────────────────────────────────────────────────────────
-        tk.Label(self, text='Εμφάνιση:', bg=C['bg'], fg=C['hdr_bg'],
+        tk.Label(self._exec_body, text='Εμφάνιση:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
-        mode_row = tk.Frame(self, bg=C['bg'])
+        mode_row = tk.Frame(self._exec_body, bg=C['bg'])
         mode_row.pack(fill='x', padx=18, pady=(2, 6))
         self._mode_var = tk.StringVar(value='monada')
         tk.Radiobutton(mode_row, text='Ανά Σχολική Μονάδα', variable=self._mode_var,
@@ -3001,9 +3469,9 @@ class MonadaDialog(tk.Toplevel):
                        activebackground=C['bg']).pack(side='left')
 
         # ── Προαιρετικές στήλες ───────────────────────────────────────────────
-        tk.Label(self, text='Προαιρετικές στήλες:', bg=C['bg'], fg=C['hdr_bg'],
+        tk.Label(self._exec_body, text='Προαιρετικές στήλες:', bg=C['bg'], fg=C['hdr_bg'],
                  font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
-        col_frame = tk.Frame(self, bg=C['bg'])
+        col_frame = tk.Frame(self._exec_body, bg=C['bg'])
         col_frame.pack(fill='x', padx=18, pady=(2, 6))
         self._col_vars = {}
         for col_name in ('ΑΦΜ Διευθυντή',):
@@ -3015,24 +3483,20 @@ class MonadaDialog(tk.Toplevel):
 
         # ── Email ─────────────────────────────────────────────────────────────
         pad = dict(padx=18, pady=2)
-        tk.Label(self, text='Προς (email δήμου):',
-                 bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9, 'bold'),
-                 anchor='w').pack(fill='x', **pad)
-        self._to_var = tk.StringVar(value=self._saved_email)
-        tk.Entry(self, textvariable=self._to_var,
-                 font=('Arial', 9)).pack(fill='x', padx=18, pady=(0, 6))
+        self._to_txt = _build_recipients_box(
+            self._exec_body, 'Προς (email δήμου):', self._saved_email)
 
-        tk.Label(self, text='Θέμα:',
+        tk.Label(self._exec_body, text='Θέμα:',
                  bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9, 'bold'),
                  anchor='w').pack(fill='x', **pad)
         self._subj_var = tk.StringVar(value=self._saved_subject)
-        tk.Entry(self, textvariable=self._subj_var,
+        tk.Entry(self._exec_body, textvariable=self._subj_var,
                  font=('Arial', 9)).pack(fill='x', padx=18, pady=(0, 6))
 
-        tk.Label(self, text='Κείμενο email:',
+        tk.Label(self._exec_body, text='Κείμενο email:',
                  bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9, 'bold'),
                  anchor='w').pack(fill='x', **pad)
-        self._body_txt = tk.Text(self, font=('Arial', 9), height=5,
+        self._body_txt = tk.Text(self._exec_body, font=('Arial', 9), height=5,
                                   wrap='word', relief='solid', bd=1)
         self._body_txt.pack(fill='x', padx=18, pady=(0, 6))
         from datetime import datetime as _dt
@@ -3042,7 +3506,7 @@ class MonadaDialog(tk.Toplevel):
                              .replace('{day}',  _DAYS_GR[_dt.today().weekday()])
                              .replace('{dimos}', self._dimos_var.get()))
 
-        btn_row = tk.Frame(self, bg=C['bg'])
+        btn_row = tk.Frame(self._exec_body, bg=C['bg'])
         btn_row.pack(side='bottom', pady=10)
         tk.Button(btn_row, text='Μόνο Excel (χωρίς email)',
                   bg=C['bg2'], fg=C['hdr_bg'], relief='flat',
@@ -3101,12 +3565,12 @@ class MonadaDialog(tk.Toplevel):
 
         dimos     = self._dimos_var.get().strip()
         mode      = self._mode_var.get()
-        to_email  = self._to_var.get().strip()
+        to_emails = _parse_recipients(self._to_txt)
         subject   = self._subj_var.get().strip()
         body_text = self._body_txt.get('1.0', 'end-1c')
         full_body = body_text + '\n\n' + config.email_signature()
 
-        if send and not to_email:
+        if send and not to_emails:
             messagebox.showwarning('Email', 'Εισάγετε email παραλήπτη.', parent=self)
             return
         if not dimos:
@@ -3461,7 +3925,7 @@ class MonadaDialog(tk.Toplevel):
         s[self._SETTINGS_KEY] = {
             'subject':     self._saved_subject,
             'body':        self._saved_body,
-            'dimos_email': to_email,
+            'dimos_email': '\n'.join(to_emails),
         }
         path_s = _get_local_settings_path()
         os.makedirs(os.path.dirname(path_s), exist_ok=True)
@@ -3477,19 +3941,25 @@ class MonadaDialog(tk.Toplevel):
 
         try:
             from core.framework import send_email
-            send_email(config, to_email, subject, full_body, out_path)
+            send_email(config, to_emails, subject, full_body, out_path)
             from core.framework import _show_results_popup
             _show_results_popup('Σχολικές Μονάδες',
-                f'Email στάλθηκε: {to_email}\n\nΣχολεία: {school_count}',
+                f'Email στάλθηκε: {", ".join(to_emails)}\n\nΣχολεία: {school_count}',
                 result_type='ok', excel_path=out_path)
             self.destroy()
         except Exception as e:
             messagebox.showerror('Σφάλμα αποστολής', str(e), parent=self)
 
     def _clear(self):
-        for w in self.winfo_children():
+        for w in self._exec_body.winfo_children():
             w.destroy()
 
+    def _on_download_done(self):
+        """Καλείται μετά από επιτυχή λήψη στο tab «⬇ Λήψη» — ξανα-ανιχνεύει
+        τα αρχεία και ξαναχτίζει το tab «▶ Εκτέλεση» με τα φρέσκα αρχεία."""
+        self._csv_path    = self._auto_find_zip('CSV_', 'stat2_2', 'gridResults')
+        self._stat31_path = self._auto_find_zip('stat3_1')
+        self._build_form()
 
 
 class NeoSchoolYearDialog(tk.Toplevel):
@@ -5220,8 +5690,11 @@ class InformEmailDialog(tk.Toplevel):
                        row=4, column=0, columnspan=2, sticky='w', pady=(0, 10))
 
         # ── Παραλήπτες ───────────────────────────────────────────────────────
-        tk.Label(body, text='Συμπληρώστε παραλήπτες:', bg=C['bg'], fg=C['hdr_bg'],
-                 font=('Arial', 9, 'bold')).grid(row=5, column=0, sticky='w', pady=(0, 3))
+        tk.Label(body, text='Συμπληρώστε παραλήπτες '
+                             '(ένα ανά γραμμή, ή περισσότερα στην ίδια γραμμή με «;»):',
+                 bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold')).grid(row=5, column=0, columnspan=2,
+                                                  sticky='w', pady=(0, 3))
 
         _saved = getattr(config, 'INFORM_RECIPIENTS', '')
         self._recip_txt = st3.ScrolledText(body, width=42, height=4,
@@ -5332,8 +5805,14 @@ class InformEmailDialog(tk.Toplevel):
         from core.framework import send_email as _send_email
         subject = self._subj_var.get().strip()
         body    = self._body_txt.get('1.0', tk.END).strip()
-        recips  = [r.strip() for r in self._recip_txt.get('1.0', tk.END).splitlines()
-                   if r.strip() and '@' in r]
+        # Παραλήπτες: ένας ανά γραμμή, ή περισσότεροι στην ίδια γραμμή με
+        # διαχωριστικό «;» (π.χ. «a@sch.gr; b@sch.gr»).
+        recips = []
+        for line in self._recip_txt.get('1.0', tk.END).splitlines():
+            for part in line.split(';'):
+                part = part.strip()
+                if part and '@' in part:
+                    recips.append(part)
         if not subject:
             messagebox.showwarning('Προσοχή', 'Συμπλήρωσε το Θέμα.', parent=self)
             return

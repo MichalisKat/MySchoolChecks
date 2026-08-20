@@ -29,7 +29,7 @@ from email import encoders
 from email.header import Header
 from email.utils import formataddr
 
-from core.framework import ask_file, get_downloaded_file, ask_date_yyyymmdd, yes_no, read_csv_fixed, _show_results_popup, ENCODING, SEP
+from core.framework import ask_file, get_downloaded_file, ask_date_yyyymmdd, yes_no, read_csv_fixed, ENCODING, SEP
 
 # ── Μεταδεδομένα ────────────────────────────────────────────────────────────
 CHECK_TITLE       = 'Έλεγχος καταχωρήσεων διοικητικού έργου'
@@ -39,6 +39,8 @@ HAS_EMAIL         = True
 REQUIRED_REPORTS  = ['4.12 — Συμπλήρωση ωραρίου', '4.26/4.27 — Αδυνατούντες ανά ειδικότητα']
 CUSTOM_RUN        = True
 TEST_ONLY         = True   # Μόνο test mode — δεν αφορά σχολεία
+NO_SEND_TAB       = True   # Εσωτερικός έλεγχος — καθόλου tab «Αποστολή»,
+                            # ούτε αποστολή email μέσα στην Εκτέλεση (βλ. run())
 
 # ── Στήλες 4.12 που χρησιμοποιούμε ─────────────────────────────────────────
 COL_GRAM   = 'Γραμματειακή Υποστήριξη'
@@ -529,6 +531,69 @@ def _send(cfg, to_list, subject, body, attachment_path):
 # CUSTOM RUN
 # ═══════════════════════════════════════════════════════════════════
 
+def _show_results_dialog(title, summary_text, out_path):
+    """
+    Παράθυρο αποτελεσμάτων μετά από επιτυχή Εκτέλεση — ίδιο στυλ με τους
+    υπόλοιπους ελέγχους (π.χ. Τμήματα Γενικής Παιδείας / γενικό popup στο
+    core/check_dialog.py::_show_generic_results_popup): σύνοψη + κουμπί
+    «Άνοιγμα Excel». Καλείται μέσω root.after() από background thread.
+    """
+    import tkinter as tk
+    from tkinter import scrolledtext, messagebox
+
+    root = tk._default_root
+    win = tk.Toplevel(root)
+    win.title(f'Αποτελέσματα — {title}')
+    win.configure(bg='#FFF8E1')
+    win.resizable(True, True)
+    win.attributes('-topmost', True)
+    # Fix: χωρίς transient/grab_set, αν υπάρχει ήδη ανοιχτό modal (π.χ. το
+    # CheckRunDialog με grab_set()), η νέα Toplevel δεν λαμβάνει clicks.
+    if root is not None:
+        win.transient(root)
+    win.grab_set()
+    win.update_idletasks()
+    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    win.geometry(f'520x380+{sw//2-260}+{sh//2-190}')
+
+    hdr = tk.Frame(win, bg='#E65100', pady=8)
+    hdr.pack(fill='x')
+    tk.Label(hdr, text=f'⚠  {title}',
+             bg='#E65100', fg='white',
+             font=('Arial', 11, 'bold')).pack()
+
+    txt = scrolledtext.ScrolledText(win, font=('Arial', 9), wrap='word',
+                                     relief='flat', bg='#FFF8E1', height=10)
+    txt.pack(fill='both', expand=True, padx=14, pady=8)
+    txt.insert('1.0', summary_text)
+    txt.config(state='disabled')
+
+    btn_f = tk.Frame(win, bg='#FFF8E1')
+    btn_f.pack(pady=(0, 12))
+
+    def _open_excel():
+        if not out_path:
+            messagebox.showinfo('Άνοιγμα Excel', 'Δεν υπάρχει αρχείο.', parent=win)
+            return
+        try:
+            os.startfile(os.path.normpath(out_path))
+        except Exception as e:
+            messagebox.showerror('Σφάλμα',
+                                  f'Δεν ήταν δυνατό το άνοιγμα του αρχείου:\n{e}',
+                                  parent=win)
+
+    tk.Button(btn_f, text='📄 Άνοιγμα Excel',
+              bg='#E65100', fg='white',
+              font=('Arial', 9, 'bold'), relief='flat',
+              padx=14, pady=5, cursor='hand2',
+              command=_open_excel).pack(side='left', padx=4)
+    tk.Button(btn_f, text='Κλείσιμο',
+              bg='#E8EDF3', fg='#333333',
+              font=('Arial', 9), relief='flat',
+              padx=14, pady=5, cursor='hand2',
+              command=win.destroy).pack(side='left', padx=4)
+
+
 def run(config):
     import core.framework as _fw
     _fw._current_check_title = CHECK_TITLE
@@ -546,13 +611,9 @@ def run(config):
         _missing_file_dialog(CHECK_TITLE, REQUIRED_REPORTS)
         return
 
-    today    = ask_date_yyyymmdd()
-    from core.framework import _ask_send_options_gui
-    test_mode, do_send = _ask_send_options_gui(test_only=True)
-    # Για αυτόν τον έλεγχο μόνο test mode έχει νόημα
+    today = ask_date_yyyymmdd()
 
     print(f'\n  Ημερομηνία : {today.strftime("%d/%m/%Y")}')
-    print(f'  Λειτουργία : {"TEST MODE" if test_mode else "Χωρίς αποστολή"}')
     print('-' * 65)
 
     # Φόρτωση
@@ -588,7 +649,10 @@ def run(config):
         )
         return
 
-    # Σύνοψη αποτελεσμάτων (χτίζεται πάντα για popup ή email)
+    # Σύνοψη αποτελεσμάτων — εσωτερικός έλεγχος: καμία αποστολή email πλέον
+    # μέσα στην Εκτέλεση (βλ. NO_SEND_TAB παραπάνω) — μόνο εμφάνιση
+    # αποτελεσμάτων, ίδιο στυλ με τους υπόλοιπους ελέγχους (π.χ. Τμήματα
+    # Γενικής Παιδείας — βλ. _show_results_dialog παρακάτω).
     body = (
         f'Σύνοψη ελέγχου καταχωρήσεων διοικητικού έργου — {today.strftime("%d/%m/%Y")}\n'
         f'{"─"*50}\n\n'
@@ -597,22 +661,13 @@ def run(config):
         f'Λεπτομερειες στο επισυναπτομενο αρχειο.'
     )
 
-    # Email
-    if do_send:
-        cc_extra  = getattr(config, 'TEST_EMAIL_CC', None)
-        to_list   = [config.TEST_EMAIL] + ([cc_extra] if cc_extra else [])
-        subject   = f'[TEST] {EMAIL_SUBJECT} — {today.strftime("%d/%m/%Y")}'
-
-        print(f'\n  Προεπισκόπηση body:\n{"─"*40}')
-        print(body)
-        print('─' * 40)
-        try:
-            _send(config, to_list, subject, body, out_path)
-            print(f'  ✓ Εστάλη στο {", ".join(to_list)}')
-        except Exception as e:
-            print(f'  ✗ Σφάλμα: {e}')
-
     popup_body = body + (
         f'\n\n{"─"*40}\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
     )
-    _show_results_popup('Διοικητικό Έργο', popup_body, excel_path=out_path)
+
+    # Το run() τρέχει σε background thread — το dialog πρέπει να ανοίξει στο
+    # main thread μέσω root.after(), αλλιώς το Tkinter δεν το επιτρέπει.
+    import tkinter as tk
+    _root = tk._default_root
+    if _root is not None:
+        _root.after(0, lambda: _show_results_dialog(CHECK_TITLE, popup_body, out_path))

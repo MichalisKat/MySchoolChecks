@@ -17,6 +17,7 @@ RESULTS_FOLDER    = 'adies_aneu_apodoxon'
 HAS_EMAIL         = True
 REQUIRED_REPORTS  = ['4.20 — Άδειες άνευ αποδοχών', '4.9 — Παρόντες εκπαιδευτικοί']
 TEST_ONLY         = True   # Μόνο test mode — δεν αφορά σχολεία
+NO_SEND_TAB       = True   # Εσωτερικός έλεγχος — καθόλου tab «Αποστολή»
 
 COLUMNS = [
     ('Κωδικός Σχολείου',  14),
