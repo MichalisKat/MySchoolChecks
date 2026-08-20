@@ -26,6 +26,8 @@ SetCompressorDictSize 64
 !include "x64.nsh"
 !include "nsDialogs.nsh"
 !include "WordFunc.nsh"
+!include "WinMessages.nsh"
+!insertmacro WordFind
 
 ; --- Installer Info ---
 Name             "${APP_NAME} ${APP_VERSION}"
@@ -89,6 +91,9 @@ Section "MySchool Checks" SecMain
 
     ; PDF guide (if exists)
     File /nonfatal "MySchoolChecks_Odigos.pdf"
+
+    ; README guide (opened by the "?" help button)
+    File /nonfatal "README.md"
 
     ; Icon
     File /nonfatal "${APP_ICON}"
@@ -252,7 +257,7 @@ Function DirectoratePageLeave
 FunctionEnd
 
 Function PopulatePE
-    ${NSD_CB_ResetContent} $ComboBox
+    SendMessage $ComboBox ${CB_RESETCONTENT} 0 0
     ${NSD_CB_AddString} $ComboBox "Α' Αθήνας"
     ${NSD_CB_AddString} $ComboBox "Β' Αθήνας"
     ${NSD_CB_AddString} $ComboBox "Γ' Αθήνας"
@@ -315,7 +320,7 @@ Function PopulatePE
 FunctionEnd
 
 Function PopulateDE
-    ${NSD_CB_ResetContent} $ComboBox
+    SendMessage $ComboBox ${CB_RESETCONTENT} 0 0
     ${NSD_CB_AddString} $ComboBox "Α' Αθήνας"
     ${NSD_CB_AddString} $ComboBox "Β' Αθήνας"
     ${NSD_CB_AddString} $ComboBox "Γ' Αθήνας"
@@ -386,6 +391,7 @@ Section "Uninstall"
     Delete "$INSTDIR\startup.mp3"
     Delete "$INSTDIR\app.ico"
     Delete "$INSTDIR\MySchoolChecks_Odigos.pdf"
+    Delete "$INSTDIR\README.md"
     Delete "$INSTDIR\Uninstall.exe"
 
     RMDir /r "$INSTDIR\drivers"

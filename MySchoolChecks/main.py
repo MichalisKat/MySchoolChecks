@@ -1502,20 +1502,34 @@ def _get_directorate():
     """Διαβάζει την επιλεγμένη Διεύθυνση Εκπαίδευσης (γράφτηκε από τον installer
     στο data\\directorate.txt, μορφή "ΠΕ|Α' Αθήνας" ή "ΔΕ|Χαλκιδικής").
     Επιστρέφει (dir_type, dir_name) ή (None, None) αν δεν βρεθεί."""
+    path = None
     try:
         if getattr(sys, 'frozen', False):
             base = os.path.dirname(sys.executable)
         else:
             base = os.path.dirname(os.path.abspath(__file__))
         path = os.path.join(base, 'data', 'directorate.txt')
-        with open(path, 'r', encoding='utf-8') as f:
-            raw = f.read().strip()
+        with open(path, 'rb') as f:
+            raw_bytes = f.read()
+        # Ο NSIS installer γράφει το FileWrite σε ANSI (π.χ. Windows-1253 σε
+        # ελληνικά Windows), όχι πάντα UTF-8 — δοκιμάζουμε αρκετές πιθανές
+        # κωδικοποιήσεις με τη σειρά.
+        raw = None
+        for enc in ('utf-8-sig', 'utf-8', 'cp1253', 'mbcs', 'latin-1'):
+            try:
+                raw = raw_bytes.decode(enc).strip()
+                break
+            except Exception:
+                continue
+        if raw is None:
+            raise ValueError(f'αδύνατη αποκωδικοποίηση ({len(raw_bytes)} bytes)')
         dtype, _, dname = raw.partition('|')
         dtype, dname = dtype.strip(), dname.strip()
         if dname:
             return dtype, dname
-    except Exception:
-        pass
+        _log_ping_debug(f'_get_directorate: κενό directorate.txt ({path!r}) — raw={raw!r}')
+    except Exception as e:
+        _log_ping_debug(f'_get_directorate: {type(e).__name__}: {e} (path={path!r})')
     return None, None
 
 
@@ -1548,9 +1562,11 @@ def _send_install_ping():
     οριστεί PING_URL."""
     ping_url = getattr(config, 'PING_URL', '').strip()
     if not ping_url:
+        _log_ping_debug('Δεν στάλθηκε — κενό PING_URL στο config.py.')
         return
     dtype, dname = _get_directorate()
     if not dname:
+        _log_ping_debug('Δεν στάλθηκε — δεν βρέθηκε Διεύθυνση (βλ. προηγούμενη γραμμή αν υπάρχει).')
         return
 
     def _task():
@@ -1564,10 +1580,27 @@ def _send_install_ping():
             })
             req = urllib.request.Request(f'{ping_url}?{qs}',
                                           headers={'User-Agent': 'MySchoolChecks'})
-            urllib.request.urlopen(req, timeout=8).read()
-        except Exception:
-            pass  # Αθόρυβη αποτυχία — δεν επηρεάζει τη λειτουργία
+            resp_body = urllib.request.urlopen(req, timeout=8).read()
+            _log_ping_debug(f'OK — απάντηση: {resp_body[:200]!r}')
+        except Exception as e:
+            # Δεν επηρεάζει τη λειτουργία του προγράμματος — απλά καταγράφουμε
+            # την αιτία σε ένα μικρό log αρχείο για διάγνωση (π.χ. proxy/SSL
+            # certificate σχολικού δικτύου), χωρίς να ενοχλούμε τον χρήστη.
+            _log_ping_debug(f'ΣΦΑΛΜΑ: {type(e).__name__}: {e}')
     threading.Thread(target=_task, daemon=True).start()
+
+
+def _log_ping_debug(msg):
+    """Καταγράφει μια γραμμή στο ping_debug.log (φάκελος _app_base()) — μόνο
+    για διάγνωση προβλημάτων σύνδεσης με το Apps Script, δεν εμφανίζεται
+    πουθενά στο UI."""
+    try:
+        import datetime as _dt
+        path = os.path.join(_app_base(), 'ping_debug.log')
+        with open(path, 'a', encoding='utf-8') as f:
+            f.write(f'[{_dt.datetime.now():%Y-%m-%d %H:%M:%S}] {msg}\n')
+    except Exception:
+        pass
 
 
 def _fetch_users_summary(on_done):
@@ -5869,23 +5902,37 @@ class InformEmailDialog(tk.Toplevel):
 
 
 def _show_help(parent):
-    """Ανοίγει τον οδηγό PDF με τον προεπιλεγμένο viewer των Windows."""
-    PDF_NAME = 'MySchoolChecksPlus_Odigos.pdf'
+    """Ανοίγει τον οδηγό (README.md) με τον προεπιλεγμένο viewer των Windows."""
+    README_NAME = 'README.md'
     if getattr(sys, 'frozen', False):
         base_dir = os.path.dirname(sys.executable)
-        pdf_path = os.path.join(base_dir, PDF_NAME)
-        if not os.path.exists(pdf_path):
-            pdf_path = os.path.join(sys._MEIPASS, PDF_NAME)
+        readme_path = os.path.join(base_dir, README_NAME)
+        if not os.path.exists(readme_path):
+            readme_path = os.path.join(sys._MEIPASS, README_NAME)
     else:
         base = os.path.dirname(os.path.abspath(__file__))
-        pdf_path = os.path.normpath(os.path.join(base, '..', PDF_NAME))
+        readme_path = os.path.normpath(os.path.join(base, '..', README_NAME))
 
-    if pdf_path and os.path.exists(pdf_path):
-        os.startfile(os.path.normpath(pdf_path))
+    if readme_path and os.path.exists(readme_path):
+        readme_path = os.path.normpath(readme_path)
+        try:
+            os.startfile(readme_path)
+        except OSError:
+            # Δεν υπάρχει συσχετισμένη εφαρμογή για αρχεία .md στα Windows
+            # του χρήστη — άνοιγμα με Σημειωματάριο ως εναλλακτική λύση.
+            try:
+                import subprocess
+                subprocess.Popen(['notepad.exe', readme_path])
+            except Exception:
+                from tkinter import messagebox
+                messagebox.showinfo('Βοήθεια',
+                                    f'Ο οδηγός βρίσκεται στο:\n{readme_path}\n\n'
+                                    'αλλά δεν κατέστη δυνατό να ανοίξει αυτόματα.',
+                                    parent=parent)
     else:
         from tkinter import messagebox
         messagebox.showinfo('Βοήθεια',
-                            'Δεν βρέθηκε αρχείο οδηγού (PDF) στον φάκελο της εφαρμογής.',
+                            'Δεν βρέθηκε το αρχείο οδηγού (README.md) στον φάκελο της εφαρμογής.',
                             parent=parent)
 
 
