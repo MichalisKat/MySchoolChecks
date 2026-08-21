@@ -11,7 +11,7 @@
 
 ---
 
-### 💙 Αν το βρήκες χρήσιμο, δώσε ένα ⭐ Star στο repository!
+### 💙 Αν το βρήκες χρήσιμο, δώσε ένα ⭐ Star στο [repository](https://github.com/MichalisKat/myschool-checks)!
 
 ---
 

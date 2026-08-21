@@ -1019,7 +1019,8 @@ class LauncherApp:
         self._tab_label(parent, 'Διαθέσιμοι έλεγχοι — άνοιξε έναν για Λήψη / Εκτέλεση / Αποστολή:')
         inner = self._make_scrollable(parent, len(self.checks))
 
-        for title, desc, mod in self.checks:
+        for idx, (title, desc, mod) in enumerate(self.checks, start=1):
+            title = f'Α{idx}. {title}'
             f = tk.Frame(inner, bg=C['norm_bg'],
                          highlightbackground=C['norm_bd'],
                          highlightthickness=1,
@@ -1104,11 +1105,16 @@ class LauncherApp:
             btn_holder.pack(side='right', fill='y')
 
             menu_items = item.get('menu')
+            locked = item.get('locked', False)
+            # Κλειδωμένα στοιχεία: εμφανίζονται γκριζαρισμένα σαν ανενεργά,
+            # αλλά παραμένουν πατήσιμα — ζητούν κωδικό πρόσβασης πριν ανοίξουν
+            # (βλ. _password_gate).
             btn = tk.Button(btn_holder, text='▶  Άνοιγμα',
-                      bg=C['btn_bg'], fg=C['btn_fg'],
+                      bg=(C['btn_dis'] if locked else C['btn_bg']),
+                      fg=C['btn_fg'],
                       font=('Arial', 9, 'bold'), relief='flat',
                       padx=10, pady=3, cursor='hand2',
-                      activebackground=C['btn_act'])
+                      activebackground=(C['btn_dis'] if locked else C['btn_act']))
             btn.pack(expand=True, padx=(4, 0))
 
             if menu_items:
@@ -1117,13 +1123,16 @@ class LauncherApp:
                                  activebackground=C['hdr_bg'], activeforeground='white',
                                  font=('Arial', 10), relief='flat', bd=1)
                 for label, cmd in menu_items:
-                    popup.add_command(label=label, command=cmd)
+                    _cmd = (lambda c=cmd: _password_gate(self.root, c)) if locked else cmd
+                    popup.add_command(label=label, command=_cmd)
 
                 def _show_popup(event=None, _b=btn, _m=popup):
                     x = _b.winfo_rootx()
                     y = _b.winfo_rooty() + _b.winfo_height()
                     _m.tk_popup(x, y)
                 btn.configure(command=_show_popup)
+            elif locked:
+                btn.configure(command=lambda c=item['cmd']: _password_gate(self.root, c))
             else:
                 btn.configure(command=item['cmd'])
 
@@ -1168,8 +1177,11 @@ class LauncherApp:
              'cmd': self._open_eidikotita_tool},
             {'title': 'Εκπαιδευτικοί ανά Ειδικότητα & Θέση Συμβούλου',
              'desc': 'Εξαγωγή εκπαιδευτικών φιλτραρισμένων ανά ειδικότητα και θέση Συμβούλου Εκπ/σης.',
-             'cmd': lambda: SymbouloiDialog(self.root)},
+             'cmd': lambda: SymbouloiDialog(self.root),
+             'locked': True},
         ]
+        for idx, item in enumerate(items, start=1):
+            item['title'] = f"Β{idx}. {item['title']}"
         self._build_simple_list(parent, items, scrollable=False)
 
     # ── Tab 3: Ενέργειες MySchool (καταχωρήσεις) ────────────────────────────
@@ -1178,7 +1190,8 @@ class LauncherApp:
         items = [
             {'title': 'Επεξεργασία αρχείου τοποθετήσεων',
              'desc': 'Μετατροπή αρχικού αρχείου — συμπλήρωση πεδίων και άνοιγμα στο Excel.',
-             'cmd': lambda: DipePlacementsDialog(self.root)},
+             'cmd': lambda: DipePlacementsDialog(self.root),
+             'locked': True},
             {'title': 'Τοποθετήσεις',
              'desc': 'Αυτόματη καταχώρηση τοποθετήσεων εκπαιδευτικών στο MySchool.',
              'cmd': self._open_placements},
@@ -1202,6 +1215,8 @@ class LauncherApp:
                      'εκπαιδευτικών.',
              'cmd': lambda: AbsencesDialog(self.root)},
         ]
+        for idx, item in enumerate(items, start=1):
+            item['title'] = f"Ε{idx}. {item['title']}"
         self._build_simple_list(parent, items, scrollable=False)
 
     # ── Tab 4: Χρήστες — ποιες Διευθύνσεις χρησιμοποιούν το πρόγραμμα και σε
@@ -5901,38 +5916,36 @@ class InformEmailDialog(tk.Toplevel):
         _th.Thread(target=_do, daemon=True).start()
 
 
-def _show_help(parent):
-    """Ανοίγει τον οδηγό (README.md) με τον προεπιλεγμένο viewer των Windows."""
-    README_NAME = 'README.md'
-    if getattr(sys, 'frozen', False):
-        base_dir = os.path.dirname(sys.executable)
-        readme_path = os.path.join(base_dir, README_NAME)
-        if not os.path.exists(readme_path):
-            readme_path = os.path.join(sys._MEIPASS, README_NAME)
+def _password_gate(parent, action):
+    """Ζητάει κωδικό πρόσβασης πριν εκτελέσει το `action` — χρησιμοποιείται
+    για στοιχεία που παραμένουν ενεργά αλλά προορίζονται αποκλειστικά για
+    χρήση από τη ΔΙΠΕ Αν. Θεσ/κης."""
+    from tkinter import simpledialog, messagebox
+    pwd = simpledialog.askstring(
+        'Απαιτείται κωδικός',
+        'Αποκλειστικά για χρήση από ΔΙΠΕ Αν. Θεσ/κης.\n\nΔώσε κωδικό πρόσβασης:',
+        show='*', parent=parent)
+    if pwd is None:
+        return
+    if pwd == '1511':
+        action()
     else:
-        base = os.path.dirname(os.path.abspath(__file__))
-        readme_path = os.path.normpath(os.path.join(base, '..', README_NAME))
+        messagebox.showerror('Λάθος κωδικός', 'Ο κωδικός δεν είναι σωστός.', parent=parent)
 
-    if readme_path and os.path.exists(readme_path):
-        readme_path = os.path.normpath(readme_path)
-        try:
-            os.startfile(readme_path)
-        except OSError:
-            # Δεν υπάρχει συσχετισμένη εφαρμογή για αρχεία .md στα Windows
-            # του χρήστη — άνοιγμα με Σημειωματάριο ως εναλλακτική λύση.
-            try:
-                import subprocess
-                subprocess.Popen(['notepad.exe', readme_path])
-            except Exception:
-                from tkinter import messagebox
-                messagebox.showinfo('Βοήθεια',
-                                    f'Ο οδηγός βρίσκεται στο:\n{readme_path}\n\n'
-                                    'αλλά δεν κατέστη δυνατό να ανοίξει αυτόματα.',
-                                    parent=parent)
-    else:
+
+def _show_help(parent):
+    """Ανοίγει τον οδηγό (README) στη σελίδα του GitHub repository — εκεί
+    εμφανίζεται σωστά μορφοποιημένος, σε αντίθεση με το ωμό .md αρχείο."""
+    HELP_URL = 'https://github.com/MichalisKat/myschool-checks#readme'
+    try:
+        import webbrowser
+        if not webbrowser.open(HELP_URL):
+            raise RuntimeError('webbrowser.open() επέστρεψε False')
+    except Exception:
         from tkinter import messagebox
         messagebox.showinfo('Βοήθεια',
-                            'Δεν βρέθηκε το αρχείο οδηγού (README.md) στον φάκελο της εφαρμογής.',
+                            f'Ο οδηγός βρίσκεται στο:\n{HELP_URL}\n\n'
+                            'αλλά δεν κατέστη δυνατό να ανοίξει αυτόματα.',
                             parent=parent)
 
 

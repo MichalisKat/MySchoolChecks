@@ -92,9 +92,6 @@ Section "MySchool Checks" SecMain
     ; PDF guide (if exists)
     File /nonfatal "MySchoolChecks_Odigos.pdf"
 
-    ; README guide (opened by the "?" help button)
-    File /nonfatal "README.md"
-
     ; Icon
     File /nonfatal "${APP_ICON}"
 
@@ -391,7 +388,6 @@ Section "Uninstall"
     Delete "$INSTDIR\startup.mp3"
     Delete "$INSTDIR\app.ico"
     Delete "$INSTDIR\MySchoolChecks_Odigos.pdf"
-    Delete "$INSTDIR\README.md"
     Delete "$INSTDIR\Uninstall.exe"
 
     RMDir /r "$INSTDIR\drivers"
