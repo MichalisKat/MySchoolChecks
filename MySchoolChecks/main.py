@@ -49,7 +49,7 @@ def _docs_base():
     os.makedirs(path, exist_ok=True)
     return path
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -1214,6 +1214,11 @@ class LauncherApp:
              'desc': 'Αυτόματη καταχώρηση απουσίας Ολικής Διάθεσης στην οργανική τοποθέτηση '
                      'εκπαιδευτικών.',
              'cmd': lambda: AbsencesDialog(self.root)},
+            {'title': 'Διοικητικό Έργο',
+             'desc': 'Αυτόματη καταχώρηση Διοικητικού Έργου (Γραμματειακή Υποστήριξη, '
+                     '01/09/2026–21/06/2027) στο MySchool βάσει Α.Μ., με έλεγχο ΟΡΓΑΝΙΚΗΣ '
+                     'ΘΕΣΗΣ/ΤΟΠΟΘΕΤΗΣΗΣ και το 2.2.',
+             'cmd': self._open_admin_work},
         ]
         for idx, item in enumerate(items, start=1):
             item['title'] = f"Ε{idx}. {item['title']}"
@@ -1341,6 +1346,9 @@ class LauncherApp:
 
     def _open_panic_end(self):
         PanicEndDialog(self.root)
+
+    def _open_admin_work(self):
+        AdminWorkDialog(self.root)
 
     def _open_inform_email(self):
         InformEmailDialog(self.root)
@@ -4911,6 +4919,343 @@ class EditorDialog(tk.Toplevel):
             self._driver = drv
             self.after(0, lambda: self._status_var.set('Εκτέλεση...'))
             editor.run({'file_path': path, 'date': self._date_var.get().strip()}, drv, callback=self._log_msg)
+            def _after():
+                self._conn_btn.configure(state='normal', text='▶  Σύνδεση & Εκτέλεση')
+                self._status_var.set('Ολοκλήρωση.')
+            self.after(0, _after)
+        _th.Thread(target=_do, daemon=True).start()
+
+    def _on_close(self):
+        if self._driver:
+            try: self._driver.quit()
+            except Exception: pass
+        self.destroy()
+
+
+class AdminWorkDialog(tk.Toplevel):
+    """Ε8. Διοικητικό Έργο — αυτόματη καταχώρηση στο MySchool βάσει Α.Μ.
+
+    2 tabs:
+      «⬇ Λήψη & Ανέβασμα» — εντοπισμός/λήψη 2.2 (μόνο για το ακριβές
+        λεκτικό σχολείων στο MySchool — reuse αν έχει ήδη κατέβει από
+        άλλο εργαλείο) + επιλογή excel (Α.Μ., ΟΡΓΑΝΙΚΗ ΘΕΣΗ, ΤΟΠΟΘΕΤΗΣΗ ΓΙΑ
+        ΑΣΚΗΣΗ ΔΙΟΙΚΗΤΙΚΟΥ ΕΡΓΟΥ) + «Επεξεργασία» (σύγκριση στηλών +
+        αντιστοίχιση λεκτικού MySchool).
+      «▶ Εκτέλεση» — Παρατηρήσεις (όσα αγνοήθηκαν) + Σύνδεση & Εκτέλεση + log.
+    Οι ημερομηνίες (01/09/2026–21/06/2027) και οι Παρατηρήσεις («ΠΔΕ-») στο
+    MySchool είναι σταθερές μέσα στο dioikitiko_ergo_entry.py.
+    """
+
+    _HDR_BG  = '#1A5276'
+    _LBL_CLR = '#1A5276'
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title('Ε8 — Διοικητικό Έργο')
+        self.configure(bg=C['bg'])
+        self.resizable(False, False)
+        self.transient(parent)
+        self._driver     = None
+        self._file_var   = tk.StringVar()
+        self._stat2_path = None
+        self._prepared   = None   # dict από dioikitiko_ergo_entry.prepare_records()
+
+        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
+        if os.path.exists(ico):
+            try: self.iconbitmap(ico)
+            except Exception: pass
+
+        self._build()
+        self.update_idletasks()
+        self.geometry('640x640')
+        pw = parent.winfo_x() + (parent.winfo_width()  - self.winfo_width())  // 2
+        ph = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f'+{pw}+{ph}')
+
+        self._refresh_stat2_status()
+
+    # ── Build ─────────────────────────────────────────────────────────────
+
+    def _build(self):
+        hdr = tk.Frame(self, bg=self._HDR_BG, pady=10)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='🏛  Ε8 — Διοικητικό Έργο',
+                 bg=self._HDR_BG, fg='white',
+                 font=('Arial', 12, 'bold')).pack()
+
+        style = ttk.Style()
+        style.configure('TNotebook', background=C['bg'])
+        style.configure('TNotebook.Tab', background=C['bg2'], foreground=C['desc'],
+                        font=('Arial', 9, 'bold'), padding=(10, 5))
+        style.map('TNotebook.Tab',
+                  background=[('selected', C.get('hdr_sub', C['bg2'])), ('active', C.get('sel_bg', C['bg2']))],
+                  foreground=[('selected', C['hdr_bg']),  ('active', C['hdr_bg'])])
+
+        nb = ttk.Notebook(self)
+        nb.pack(fill='both', expand=True, padx=12, pady=10)
+        self._nb = nb
+
+        t1 = tk.Frame(nb, bg=C['bg'], padx=16, pady=12)
+        t2 = tk.Frame(nb, bg=C['bg'], padx=16, pady=12)
+        nb.add(t1, text='  ⬇ Λήψη & Ανέβασμα  ')
+        nb.add(t2, text='  ▶ Εκτέλεση  ')
+        self._build_download_tab(t1)
+        self._build_execute_tab(t2)
+
+        self.protocol('WM_DELETE_WINDOW', self._on_close)
+
+    # ── Tab 1: Λήψη 2.2 & Ανέβασμα excel ────────────────────────────────────
+
+    def _build_download_tab(self, body):
+        from tkinter import scrolledtext as st2
+
+        tk.Label(body, text='Στατιστικό 2.2 (Εκτεταμένα Στοιχεία Σχολ. Μον.):',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).pack(anchor='w', pady=(0, 3))
+        tk.Label(body,
+                 text='Χρησιμοποιείται μόνο για να βρεθεί το ακριβές λεκτικό κάθε σχολείου '
+                      'όπως εμφανίζεται στο MySchool (δεν καταχωρείται πουθενά κωδικός).',
+                 bg=C['bg'], fg='#666666', font=('Arial', 8), anchor='w',
+                 wraplength=560, justify='left').pack(anchor='w', pady=(0, 6))
+
+        self._stat2_status_var = tk.StringVar(value='Έλεγχος...')
+        tk.Label(body, textvariable=self._stat2_status_var,
+                 bg=C['bg'], fg=C['desc'], font=('Arial', 8, 'italic'),
+                 anchor='w').pack(anchor='w', pady=(0, 6))
+
+        dl_row = tk.Frame(body, bg=C['bg'])
+        dl_row.pack(fill='x', pady=(0, 12))
+        self._dl_btn = tk.Button(dl_row, text='⬇  Λήψη 2.2',
+                  bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=10, pady=4, cursor='hand2',
+                  command=self._download_stat2)
+        self._dl_btn.pack(side='left')
+
+        tk.Frame(body, bg=C.get('norm_bd', '#CCCCCC'), height=1).pack(fill='x', pady=(0, 12))
+
+        # Αρχείο excel
+        tk.Label(body, text='Αρχείο εκπαιδευτικών (Excel ή CSV):',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).pack(anchor='w', pady=(0, 3))
+        ff = tk.Frame(body, bg=C['bg'])
+        ff.pack(fill='x', pady=(0, 6))
+        tk.Entry(ff, textvariable=self._file_var, font=('Arial', 9),
+                 relief='solid', bd=1).pack(side='left', fill='x', expand=True)
+        tk.Button(ff, text='📂', bg=C['bg'], relief='flat', font=('Arial', 11),
+                  cursor='hand2', command=self._browse).pack(side='left', padx=(4, 0))
+
+        tk.Label(body,
+                 text='Απαιτούμενες στήλες: Α.Μ., ΟΡΓΑΝΙΚΗ ΘΕΣΗ, ΤΟΠΟΘΕΤΗΣΗ ΓΙΑ ΑΣΚΗΣΗ '
+                      'ΔΙΟΙΚΗΤΙΚΟΥ ΕΡΓΟΥ.',
+                 bg=C['bg'], fg='#666666', font=('Arial', 8), anchor='w',
+                 wraplength=560, justify='left').pack(anchor='w', pady=(0, 10))
+
+        self._proc_btn = tk.Button(body, text='⚙  Επεξεργασία',
+                  bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=10, pady=4, cursor='hand2',
+                  command=self._process_file)
+        self._proc_btn.pack(anchor='w', pady=(0, 8))
+
+        self._proc_status_var = tk.StringVar(value='')
+        tk.Label(body, textvariable=self._proc_status_var,
+                 bg=C['bg'], fg=C['status_run'], font=('Arial', 8),
+                 anchor='w', wraplength=560, justify='left').pack(anchor='w', pady=(0, 6))
+
+        tk.Label(body, text='Αρχείο καταγραφής επεξεργασίας:',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).pack(anchor='w', pady=(4, 2))
+        self._prep_log = st2.ScrolledText(body, height=8, font=('Consolas', 8),
+                                      relief='solid', bd=1, state='disabled',
+                                      bg='#F5F5F5', wrap=tk.WORD)
+        self._prep_log.pack(fill='both', expand=True)
+
+    def _refresh_stat2_status(self):
+        import dioikitiko_ergo_entry as admin_work
+        try:
+            path, label = admin_work.find_stat2()
+        except Exception:
+            path, label = None, None
+        if path:
+            self._stat2_path = path
+            self._stat2_status_var.set(f'✓ Βρέθηκε ήδη (λήψη {label}): {os.path.basename(path)}')
+        else:
+            self._stat2_path = None
+            self._stat2_status_var.set('Δεν έχει κατέβει ακόμα — πάτα «Λήψη 2.2».')
+
+    def _download_stat2(self):
+        import threading as _th
+        ms_user = getattr(config, 'MYSCHOOL_USER', '').strip()
+        ms_pass = getattr(config, 'MYSCHOOL_PASS', '').strip()
+        if not ms_user or not ms_pass:
+            messagebox.showwarning('Προσοχή',
+                'Συμπλήρωσε username και κωδικό MySchool στις Ρυθμίσεις (⚙).', parent=self)
+            return
+        self._dl_btn.configure(state='disabled', text='Λήψη...')
+        self._stat2_status_var.set('Λήψη 2.2...')
+
+        def _do():
+            import dioikitiko_ergo_entry as admin_work
+            from core.downloader import get_downloads_dir
+            dest_dir = get_downloads_dir(_docs_base())
+
+            def _prog(msg):
+                self.after(0, lambda m=msg: self._stat2_status_var.set(m))
+
+            path = admin_work.download_stat2(
+                ms_user, ms_pass, dest_dir,
+                browser=getattr(config, 'BROWSER', 'chrome'),
+                callback=_prog, force=True)
+
+            def _after():
+                self._dl_btn.configure(state='normal', text='⬇  Λήψη 2.2')
+                if path:
+                    self._stat2_path = path
+                    self._stat2_status_var.set(f'✓ Λήφθηκε: {os.path.basename(path)}')
+                else:
+                    self._stat2_status_var.set('✗ Αποτυχία λήψης 2.2 — δες τα credentials/σύνδεση.')
+            self.after(0, _after)
+        _th.Thread(target=_do, daemon=True).start()
+
+    def _browse(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            parent=self,
+            title='Επιλογή αρχείου εκπαιδευτικών',
+            filetypes=[('Excel/CSV', '*.xlsx *.xls *.csv'), ('Όλα', '*.*')])
+        if path:
+            self._file_var.set(path)
+
+    def _prep_log_msg(self, msg):
+        def _do():
+            self._prep_log.configure(state='normal')
+            self._prep_log.insert(tk.END, msg + '\n')
+            self._prep_log.see(tk.END)
+            self._prep_log.configure(state='disabled')
+        self.after(0, _do)
+
+    def _process_file(self):
+        import threading as _th
+        path = self._file_var.get().strip()
+        if not path:
+            messagebox.showwarning('Προσοχή', 'Επίλεξε αρχείο πρώτα.', parent=self)
+            return
+        self._proc_btn.configure(state='disabled', text='Επεξεργασία...')
+        self._proc_status_var.set('Επεξεργασία...')
+        self._prep_log.configure(state='normal'); self._prep_log.delete('1.0', tk.END)
+        self._prep_log.configure(state='disabled')
+
+        def _do():
+            import dioikitiko_ergo_entry as admin_work
+            result = admin_work.prepare_records(path, self._stat2_path, log=self._prep_log_msg)
+
+            def _after():
+                self._proc_btn.configure(state='normal', text='⚙  Επεξεργασία')
+                if not result:
+                    self._proc_status_var.set('✗ Απέτυχε η ανάγνωση του αρχείου.')
+                    return
+                self._prepared = result
+                n_ready = len(result['ready'])
+                n_mis   = len(result['mismatch'])
+                n_nf    = len(result['notfound'])
+                self._proc_status_var.set(
+                    f'✓ Έτοιμες: {n_ready}   |   ⚠ Διαφορά στηλών: {n_mis}   |   '
+                    f'✗ Άγνωστο σχολείο (2.2): {n_nf}')
+                self._refresh_observations()
+                self._nb.select(1)
+            self.after(0, _after)
+        _th.Thread(target=_do, daemon=True).start()
+
+    # ── Tab 2: Εκτέλεση με Παρατηρήσεις ─────────────────────────────────────
+
+    def _build_execute_tab(self, body):
+        from tkinter import scrolledtext as st2
+
+        self._ready_var = tk.StringVar(value='Δεν έχει γίνει ακόμα επεξεργασία αρχείου (tab «Λήψη & Ανέβασμα»).')
+        tk.Label(body, textvariable=self._ready_var,
+                 bg=C['bg'], fg=self._LBL_CLR, font=('Arial', 9, 'bold'),
+                 anchor='w', wraplength=580, justify='left').pack(anchor='w', pady=(0, 8))
+
+        tk.Label(body, text='Παρατηρήσεις (εγγραφές που αγνοήθηκαν):',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).pack(anchor='w', pady=(0, 3))
+        self._obs = st2.ScrolledText(body, height=8, font=('Consolas', 8),
+                                      relief='solid', bd=1, state='disabled',
+                                      bg='#FFF8E1', wrap=tk.WORD)
+        self._obs.pack(fill='x', pady=(0, 10))
+
+        btn_row = tk.Frame(body, bg=C['bg'])
+        btn_row.pack(fill='x', pady=(0, 8))
+        self._conn_btn = tk.Button(btn_row,
+                  text='▶  Σύνδεση & Εκτέλεση',
+                  bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=12, pady=5, cursor='hand2',
+                  state='disabled',
+                  command=self._connect_and_run)
+        self._conn_btn.pack(side='left')
+
+        self._status_var = tk.StringVar(value='Επεξεργάσου πρώτα το αρχείο στο tab «Λήψη & Ανέβασμα».')
+        tk.Label(body, textvariable=self._status_var,
+                 bg=C['bg'], fg=C['status_run'],
+                 font=('Arial', 8), anchor='w').pack(anchor='w', pady=(0, 4))
+
+        tk.Label(body, text='Αρχείο καταγραφής εκτέλεσης:',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).pack(anchor='w', pady=(4, 2))
+        self._log = st2.ScrolledText(body, height=12, font=('Consolas', 8),
+                                      relief='solid', bd=1, state='disabled',
+                                      bg='#F5F5F5', wrap=tk.WORD)
+        self._log.pack(fill='both', expand=True)
+
+    def _refresh_observations(self):
+        r = self._prepared
+        self._obs.configure(state='normal')
+        self._obs.delete('1.0', tk.END)
+        if r:
+            n_ready = len(r['ready'])
+            self._ready_var.set(f'Έτοιμες προς καταχώρηση: {n_ready}')
+            if r['mismatch']:
+                self._obs.insert(tk.END,
+                    f'Διαφορά ΟΡΓΑΝΙΚΗΣ ΘΕΣΗΣ / ΤΟΠΟΘΕΤΗΣΗΣ ({len(r["mismatch"])}):\n')
+                self._obs.insert(tk.END, '  ' + ' | '.join(x['am'] for x in r['mismatch']) + '\n\n')
+            if r['notfound']:
+                self._obs.insert(tk.END,
+                    f'Άγνωστο/διφορούμενο σχολείο στο 2.2 ({len(r["notfound"])}):\n')
+                self._obs.insert(tk.END, '  ' + ' | '.join(x['am'] for x in r['notfound']) + '\n\n')
+            if not r['mismatch'] and not r['notfound']:
+                self._obs.insert(tk.END, '(καμία παρατήρηση — όλες οι εγγραφές είναι έτοιμες)')
+            self._conn_btn.configure(state=('normal' if n_ready else 'disabled'))
+        self._obs.configure(state='disabled')
+
+    def _log_msg(self, msg):
+        def _do():
+            self._log.configure(state='normal')
+            self._log.insert(tk.END, msg + '\n')
+            self._log.see(tk.END)
+            self._log.configure(state='disabled')
+        self.after(0, _do)
+
+    def _connect_and_run(self):
+        import threading as _th
+        if not self._prepared or not self._prepared['ready']:
+            messagebox.showwarning('Προσοχή', 'Δεν υπάρχουν έτοιμες εγγραφές.', parent=self)
+            return
+        self._conn_btn.configure(state='disabled', text='Εκτελείται...')
+        self._status_var.set('Σύνδεση στο MySchool...')
+        def _do():
+            import dioikitiko_ergo_entry as admin_work
+            drv = admin_work.connect(log=self._log_msg)
+            if not drv:
+                def _fail():
+                    self._conn_btn.configure(state='normal', text='▶  Σύνδεση & Εκτέλεση')
+                    self._status_var.set('Αποτυχία σύνδεσης — έλεγξε credentials στις Ρυθμίσεις.')
+                self.after(0, _fail)
+                return
+            self._driver = drv
+            self.after(0, lambda: self._status_var.set('Εκτέλεση...'))
+            admin_work.run(self._prepared, drv, callback=self._log_msg)
             def _after():
                 self._conn_btn.configure(state='normal', text='▶  Σύνδεση & Εκτέλεση')
                 self._status_var.set('Ολοκλήρωση.')
