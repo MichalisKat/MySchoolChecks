@@ -470,8 +470,13 @@ def _send_smeae_summary(email_from, username, password, smtp_host,
 
     msg = MIMEMultipart()
     msg['Subject'] = subject
+    try:
+        import config as _cfg
+        _from_name = getattr(_cfg, 'FROM_NAME', '') or 'Πρόγραμμα Ελέγχου ΕΕΑ'
+    except Exception:
+        _from_name = 'Πρόγραμμα Ελέγχου ΕΕΑ'
     msg['From']    = formataddr((
-        str(Header('Πρόγραμμα Ελέγχου ΕΕΑ', 'utf-8')), email_from))
+        str(Header(_from_name, 'utf-8')), email_from))
     msg['To']      = email_from
     msg['Date']    = formatdate(localtime=True)
     msg.attach(MIMEText(html_body, 'html'))
@@ -519,10 +524,14 @@ def send_email_with_attachment(receiver_email, attachment_path, dry_run,
 
     msg = MIMEMultipart()
     msg['Subject'] = _subject
+    try:
+        import config as _cfg
+        _from_name2 = (getattr(_cfg, 'FROM_NAME', '')
+                       or 'Πρόγραμμα Ελέγχου Στατιστικών Στοιχείων ΕΕΑ — ΔΙΠΕ Ανατολικής Θεσ/νίκης')
+    except Exception:
+        _from_name2 = 'Πρόγραμμα Ελέγχου Στατιστικών Στοιχείων ΕΕΑ — ΔΙΠΕ Ανατολικής Θεσ/νίκης'
     msg['From']  = formataddr((
-        str(Header(
-            'Πρόγραμμα Ελέγχου Στατιστικών Στοιχείων ΕΕΑ — ΔΙΠΕ Ανατολικής Θεσ/νίκης',
-            'utf-8')),
+        str(Header(_from_name2, 'utf-8')),
         sender_email
     ))
     msg['To']   = formataddr((str(Header(school_name, 'utf-8')), receiver_email))

@@ -597,7 +597,7 @@ def _send_summary_tmimata(config, sent, failed, today, log):
     )
     msg = MIMEMultipart()
     msg['Subject'] = subject
-    msg['From']    = formataddr((str(Header('MySchool Checks', 'utf-8')), ef))
+    msg['From']    = formataddr((str(Header(getattr(config, 'FROM_NAME', ef) or 'MySchool Checks', 'utf-8')), ef))
     msg['To']      = ef
     msg['Date']    = formatdate(localtime=True)
     msg.attach(MIMEText(body, 'plain', 'utf-8'))
@@ -666,7 +666,7 @@ def _do_send_emails(dry_run, subj_tpl, body_tpl, config, today, log,
 
         msg = MIMEMultipart()
         msg['Subject'] = subj
-        msg['From']    = formataddr((str(Header('ΔΙ.Π.Ε. Αν. Θεσ/νίκης', 'utf-8')), ef))
+        msg['From']    = formataddr((str(Header(getattr(config, 'FROM_NAME', ef) or 'ΔΙ.Π.Ε. Αν. Θεσ/νίκης', 'utf-8')), ef))
         msg['To']      = ef
         msg['Date']    = formatdate(localtime=True)
         msg.attach(MIMEText(body_txt, 'plain', 'utf-8'))
@@ -709,7 +709,7 @@ def _do_send_emails(dry_run, subj_tpl, body_tpl, config, today, log,
 
         msg = MIMEMultipart()
         msg['Subject'] = subj
-        msg['From']    = formataddr((str(Header('ΔΙ.Π.Ε. Αν. Θεσ/νίκης', 'utf-8')), ef))
+        msg['From']    = formataddr((str(Header(getattr(config, 'FROM_NAME', ef) or 'ΔΙ.Π.Ε. Αν. Θεσ/νίκης', 'utf-8')), ef))
         msg['To']      = formataddr((str(Header(name, 'utf-8')), email_to))
         msg['Date']    = formatdate(localtime=True)
         msg.attach(MIMEText(body_txt, 'plain', 'utf-8'))

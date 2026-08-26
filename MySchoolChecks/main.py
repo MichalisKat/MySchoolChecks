@@ -1218,7 +1218,8 @@ class LauncherApp:
              'desc': 'Αυτόματη καταχώρηση Διοικητικού Έργου (Γραμματειακή Υποστήριξη, '
                      '01/09/2026–21/06/2027) στο MySchool βάσει Α.Μ., με έλεγχο ΟΡΓΑΝΙΚΗΣ '
                      'ΘΕΣΗΣ/ΤΟΠΟΘΕΤΗΣΗΣ και το 2.2.',
-             'cmd': self._open_admin_work},
+             'cmd': self._open_admin_work,
+             'locked': True},
         ]
         for idx, item in enumerate(items, start=1):
             item['title'] = f"Ε{idx}. {item['title']}"
