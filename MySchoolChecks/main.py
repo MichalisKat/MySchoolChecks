@@ -4467,6 +4467,213 @@ class DipePlacementsDialog(tk.Toplevel):
         _th.Thread(target=_do, daemon=True).start()
 
 
+# Απαιτούμενα στατιστικά για το εργαλείο «Ειδικότητες» (μόνο 4.1 και 4.2 —
+# εκεί βρίσκεται το «Υποχ. Ωράριο» ανά εκπαιδευτικό).
+_SPEC_RIDS = ['4.1', '4.2']
+_SPEC_REQUIRED = [
+    '4.1 — Οργανικές τοποθετήσεις',
+    '4.2 — Αποσπασμένοι εκπαιδευτικοί',
+]
+
+
+class SpecialtiesDialog(tk.Toplevel):
+    """Οργάνωση τοποθετήσεων/συμπληρώσεων ανά ειδικότητα ΠΕ (06, 05, 07, 08,
+    11, 79, 86, 91) — κατεβάζει 4.1/4.2, ζητάει τα αρχεία «Ομαδοποίηση
+    ΕΙΔΙΚΟΤΗΤΩΝ» και φτιάχνει ένα βιβλίο εργασίας, ένα φύλλο ανά ειδικότητα.
+    Αποκλειστικά για χρήση από ΔΙΠΕ Αν. Θεσ/κης (βλ. _password_gate)."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title('Ειδικότητες — Οργάνωση Τοποθετήσεων')
+        self.configure(bg=C['bg'])
+        self.resizable(False, False)
+        self.grab_set()
+        self.transient(parent)
+        self._parent = parent
+
+        self._xls1_var = tk.StringVar()
+        self._xls2_var = tk.StringVar()
+        self._stat41_path = self._auto_find('stat4_1')
+        self._stat42_path = self._auto_find('stat4_2')
+
+        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
+        if os.path.exists(ico):
+            try: self.iconbitmap(ico)
+            except Exception: pass
+
+        from tkinter import ttk as _ttk
+        nb = _ttk.Notebook(self)
+        nb.pack(fill='both', expand=True)
+        tab_dl   = tk.Frame(nb, bg=C['bg'])
+        tab_exec = tk.Frame(nb, bg=C['bg'])
+        nb.add(tab_dl,   text='  ⬇ Λήψη  ')
+        nb.add(tab_exec, text='  ▶ Εκτέλεση  ')
+        self._exec_body = tab_exec
+
+        _build_report_download_tab(self, tab_dl, _SPEC_RIDS, _SPEC_REQUIRED,
+                                    on_done=self._on_download_done)
+
+        self._build_form()
+        self.update_idletasks()
+        w = 620
+        h = self.winfo_reqheight()
+        x = parent.winfo_x() + (parent.winfo_width()  - w) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - h) // 2
+        self.geometry(f'{w}x{h}+{x}+{y}')
+
+    @staticmethod
+    def _auto_find(prefix):
+        # Ίδια λογική εύρεσης με EidikotitaDialog._auto_find.
+        return EidikotitaDialog._auto_find(prefix)
+
+    def _on_download_done(self):
+        self._stat41_path = self._auto_find('stat4_1')
+        self._stat42_path = self._auto_find('stat4_2')
+        self._build_form()
+
+    def _clear(self):
+        for w in self._exec_body.winfo_children():
+            w.destroy()
+
+    def _build_form(self):
+        self._clear()
+
+        hdr = tk.Frame(self._exec_body, bg='#0F6E56', pady=10)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='📋  Ειδικότητες — Οργάνωση Τοποθετήσεων',
+                 bg='#0F6E56', fg='white',
+                 font=('Arial', 12, 'bold')).pack()
+        tk.Label(hdr,
+                 text='ΠΕ06, ΠΕ05, ΠΕ07, ΠΕ08, ΠΕ11, ΠΕ79, ΠΕ86, ΠΕ91 — ένα φύλλο ανά ειδικότητα',
+                 bg='#0F6E56', fg='#A8D8C8',
+                 font=('Arial', 8, 'italic'), wraplength=580, justify='center').pack()
+
+        missing_opt = []
+        if not self._stat41_path: missing_opt.append('4.1')
+        if not self._stat42_path: missing_opt.append('4.2')
+        if missing_opt:
+            warn = tk.Label(self._exec_body,
+                text=f'⚠  Δεν βρέθηκαν: {", ".join(missing_opt)}. Κατέβασέ τα πρώτα από «⬇ Λήψη».',
+                bg='#FFF3E0', fg='#E65100', font=('Arial', 8), anchor='w', padx=10, pady=5,
+                wraplength=560, justify='left')
+            warn.pack(fill='x', padx=18, pady=(8, 6))
+        else:
+            ok = tk.Label(self._exec_body,
+                text='✓  Βρέθηκαν τα 4.1 και 4.2 του σήμερα.',
+                bg='#E8F5E9', fg='#2E7D32', font=('Arial', 8), anchor='w', padx=10, pady=5,
+                wraplength=560, justify='left')
+            ok.pack(fill='x', padx=18, pady=(8, 6))
+
+        # ── Αρχείο 1 (κύριο, υποχρεωτικό) ───────────────────────────────────
+        tk.Label(self._exec_body, text='Αρχείο «Ομαδοποίηση ΕΙΔΙΚΟΤΗΤΩΝ» (κύριο, υποχρεωτικό):',
+                 bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
+        f1 = tk.Frame(self._exec_body, bg=C['bg'])
+        f1.pack(fill='x', padx=18, pady=(2, 8))
+        f1.columnconfigure(0, weight=1)
+        tk.Entry(f1, textvariable=self._xls1_var, font=('Arial', 9),
+                 relief='solid', bd=1).grid(row=0, column=0, sticky='ew')
+        tk.Button(f1, text='📂', bg=C['bg'], relief='flat',
+                  font=('Arial', 11), cursor='hand2',
+                  command=lambda: self._browse(self._xls1_var)).grid(row=0, column=1, padx=(4, 0))
+
+        # ── Αρχείο 2 (προαιρετικό, μόνο για διασταύρωση) ────────────────────
+        tk.Label(self._exec_body, text='Αρχείο «Συμπληρώσεις ΕΙΔΙΚΟΤΗΤΩΝ» (προαιρετικό, μόνο για διασταύρωση):',
+                 bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
+        f2 = tk.Frame(self._exec_body, bg=C['bg'])
+        f2.pack(fill='x', padx=18, pady=(2, 4))
+        f2.columnconfigure(0, weight=1)
+        tk.Entry(f2, textvariable=self._xls2_var, font=('Arial', 9),
+                 relief='solid', bd=1).grid(row=0, column=0, sticky='ew')
+        tk.Button(f2, text='📂', bg=C['bg'], relief='flat',
+                  font=('Arial', 11), cursor='hand2',
+                  command=lambda: self._browse(self._xls2_var)).grid(row=0, column=1, padx=(4, 0))
+
+        self._status_var = tk.StringVar(value='Επίλεξε το κύριο αρχείο και πάτα Εκτέλεση.')
+        tk.Label(self._exec_body, textvariable=self._status_var,
+                 bg=C['bg'], fg=C['desc'], font=('Arial', 8, 'italic'),
+                 wraplength=580, justify='left').pack(fill='x', padx=18, pady=(6, 4))
+
+        self._run_btn = tk.Button(self._exec_body,
+                  text='▶  Δημιουργία αρχείου Ειδικοτήτων',
+                  bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=12, pady=5, cursor='hand2',
+                  command=self._run)
+        self._run_btn.pack(padx=18, pady=(0, 12), anchor='w')
+
+    def _browse(self, var):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            parent=self, title='Επιλογή αρχείου Excel',
+            filetypes=[('Excel', '*.xls *.xlsx'), ('Όλα τα αρχεία', '*.*')])
+        if path:
+            var.set(path)
+
+    def _run(self):
+        xls1 = self._xls1_var.get().strip()
+        xls2 = self._xls2_var.get().strip()
+        if not xls1 or not os.path.exists(xls1):
+            messagebox.showwarning('Προσοχή', 'Επίλεξε πρώτα το κύριο αρχείο «Ομαδοποίηση ΕΙΔΙΚΟΤΗΤΩΝ».',
+                                    parent=self)
+            return
+        if not self._stat41_path or not self._stat42_path:
+            messagebox.showwarning('Προσοχή',
+                'Χρειάζονται τα στατιστικά 4.1 και 4.2 — κατέβασέ τα πρώτα από το tab «⬇ Λήψη».',
+                parent=self)
+            return
+
+        from tkinter import filedialog
+        out_path = filedialog.asksaveasfilename(
+            parent=self, title='Αποθήκευση αρχείου Ειδικοτήτων',
+            defaultextension='.xlsx',
+            initialfile='Ειδικότητες_οργάνωση.xlsx',
+            filetypes=[('Excel', '*.xlsx')])
+        if not out_path:
+            return
+
+        self._run_btn.configure(state='disabled', bg=C['btn_dis'], text='Εκτελείται...')
+
+        import threading as _th
+
+        def _prog(msg):
+            self.after(0, lambda: self._status_var.set(msg))
+
+        def task():
+            try:
+                import specialties as _sp
+                summary = _sp.build_workbook(
+                    xls1, self._stat41_path, self._stat42_path, out_path,
+                    xls2_path=(xls2 if xls2 and os.path.exists(xls2) else None),
+                    progress_cb=_prog)
+
+                def _finish():
+                    self._run_btn.configure(state='normal', bg=C['btn_bg'],
+                                             text='▶  Δημιουργία αρχείου Ειδικοτήτων')
+                    ok_n = sum(1 for _, ok, _ in summary if ok)
+                    fail = [(t, m) for t, ok, m in summary if not ok]
+                    msg = f'Ολοκληρώθηκε: {ok_n}/{len(summary)} ειδικότητες.'
+                    if fail:
+                        msg += '\n\n' + '\n'.join(f'⚠ {t}: {m}' for t, m in fail)
+                    self._status_var.set('✓ ' + msg.splitlines()[0])
+                    messagebox.showinfo('Ειδικότητες', msg, parent=self)
+                    try:
+                        os.startfile(out_path)
+                    except Exception:
+                        pass
+                self.after(0, _finish)
+            except Exception as exc:
+                err = str(exc)
+                def _err():
+                    self._run_btn.configure(state='normal', bg=C['btn_bg'],
+                                             text='▶  Δημιουργία αρχείου Ειδικοτήτων')
+                    self._status_var.set(f'❌ {err}')
+                    messagebox.showerror('Σφάλμα', f'Σφάλμα κατά τη δημιουργία:\n{err}', parent=self)
+                self.after(0, _err)
+        _th.Thread(target=task, daemon=True).start()
+
+
 class PlacementsDialog(tk.Toplevel):
     """Παράθυρο αυτόματης καταχώρησης τοποθετήσεων."""
 
@@ -4638,6 +4845,20 @@ class PlacementsDialog(tk.Toplevel):
                   activebackground=C['btn_dis'],
                   command=lambda: _password_gate(self, lambda: DipePlacementsDialog(self)))
         edit_btn.pack(side='left', padx=(8, 0))
+
+        # «Ειδικότητες» — γκριζαρισμένο (σαν ανενεργό) αλλά πατήσιμο, ίδιο password
+        # gate· ανοίγει το εργαλείο SpecialtiesDialog, που κατεβάζει 4.1/4.2,
+        # ζητάει τα αρχεία «Ομαδοποίηση ΕΙΔΙΚΟΤΗΤΩΝ» και φτιάχνει δυναμικά το
+        # οργανωμένο αρχείο τοποθετήσεων/συμπληρώσεων ανά εκπαιδευτικό ΠΕ
+        # (06, 05, 07, 08, 11, 79, 86, 91), σε ξεχωριστά φύλλα.
+        specialties_btn = tk.Button(btn_row,
+                  text='📋  Ειδικότητες',
+                  bg=C['btn_dis'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=12, pady=5, cursor='hand2',
+                  activebackground=C['btn_dis'],
+                  command=lambda: _password_gate(self, lambda: SpecialtiesDialog(self)))
+        specialties_btn.pack(side='left', padx=(8, 0))
 
         # Status
         self._status_var = tk.StringVar(value='Επίλεξε αρχείο Excel και πάτα Εκτέλεση.')

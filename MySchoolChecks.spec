@@ -15,6 +15,7 @@ datas = [
     ('MySchoolChecks\\confirmation_template.xlsx', '.'),
     ('MySchoolChecks\\absences_template.xlsx', '.'),
     ('MySchoolChecks\\dioikitiko_ergo_template.xlsx', '.'),
+    ('MySchoolChecks\\specialties.py', '.'),
     ('MySchoolChecks\\startup.mp3', '.'),
     ('MySchoolChecks\\app.ico', '.'),
     ('MySchoolChecks_Odigos.pdf', '.'),
