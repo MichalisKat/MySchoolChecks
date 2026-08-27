@@ -1188,10 +1188,6 @@ class LauncherApp:
     def _build_actions_tab(self, parent):
         self._tab_label(parent, 'Ενέργειες καταχώρησης στο MySchool — άνοιξε ένα εργαλείο:')
         items = [
-            {'title': 'Επεξεργασία αρχείου τοποθετήσεων',
-             'desc': 'Μετατροπή αρχικού αρχείου — συμπλήρωση πεδίων και άνοιγμα στο Excel.',
-             'cmd': lambda: DipePlacementsDialog(self.root),
-             'locked': True},
             {'title': 'Τοποθετήσεις',
              'desc': 'Αυτόματη καταχώρηση τοποθετήσεων εκπαιδευτικών στο MySchool.',
              'cmd': self._open_placements},
@@ -4630,6 +4626,19 @@ class PlacementsDialog(tk.Toplevel):
                   command=self._run)
         self._run_btn.pack(side='left')
 
+        # «Επεξεργασία αρχείου» — γκριζαρισμένο (σαν ανενεργό) αλλά πατήσιμο·
+        # μεταφέρθηκε εδώ από ξεχωριστό στοιχείο του μενού Ενέργειες MySchool
+        # (πρώην Ε1) — αφορά αποκλειστικά τη ΔΙΠΕ Αν. Θεσ/κης, γι' αυτό
+        # παραμένει πίσω από τον ίδιο password gate.
+        edit_btn = tk.Button(btn_row,
+                  text='✏  Επεξεργασία αρχείου',
+                  bg=C['btn_dis'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=12, pady=5, cursor='hand2',
+                  activebackground=C['btn_dis'],
+                  command=lambda: _password_gate(self, lambda: DipePlacementsDialog(self)))
+        edit_btn.pack(side='left', padx=(8, 0))
+
         # Status
         self._status_var = tk.StringVar(value='Επίλεξε αρχείο Excel και πάτα Εκτέλεση.')
         tk.Label(body, textvariable=self._status_var,
@@ -4840,6 +4849,7 @@ class EditorDialog(tk.Toplevel):
         lbl_tpl.grid(row=3, column=0, sticky='w', pady=(0, 10))
         lbl_tpl.bind('<Button-1>',
                       lambda e: _open_template_file(self, 'confirmation_template.xlsx'))
+        self._tpl_tool_label = 'Επιβεβαίωση Δ/νσης'
 
         # Ημερομηνία
         tk.Label(body, text='Ημερομηνία καταχώρησης (ΗΗ/ΜΜ/ΕΕΕΕ):',
@@ -4862,6 +4872,15 @@ class EditorDialog(tk.Toplevel):
                   padx=12, pady=5, cursor='hand2',
                   command=self._connect_and_run)
         self._conn_btn.pack(side='left')
+
+        edit_btn = tk.Button(btn_row, text='✏  Επεξεργασία αρχείου',
+                  bg=C['btn_dis'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=12, pady=5, cursor='hand2',
+                  activebackground=C['btn_dis'],
+                  command=lambda: _password_gate(
+                      self, lambda: _edit_file_stub(self, self._tpl_tool_label)))
+        edit_btn.pack(side='left', padx=(8, 0))
 
         # Status
         self._status_var = tk.StringVar(value='Επίλεξε αρχείο και πάτα Σύνδεση & Εκτέλεση.')
@@ -5083,6 +5102,7 @@ class TerminationDialog(tk.Toplevel):
         lbl_tpl.grid(row=3, column=0, sticky='w', pady=(0, 10))
         lbl_tpl.bind('<Button-1>',
                       lambda e: _open_template_file(self, 'termination_template.xlsx'))
+        self._tpl_tool_label = 'Τερματισμός Τοποθετήσεων'
 
         # Ημερομηνία λήξης
         tk.Label(body, text='Ημερομηνία λήξης (ΗΗ/Μ/ΕΕΕΕ):',
@@ -5105,6 +5125,15 @@ class TerminationDialog(tk.Toplevel):
                   padx=12, pady=5, cursor='hand2',
                   command=self._connect_and_run)
         self._conn_btn.pack(side='left')
+
+        edit_btn = tk.Button(btn_row, text='✏  Επεξεργασία αρχείου',
+                  bg=C['btn_dis'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=12, pady=5, cursor='hand2',
+                  activebackground=C['btn_dis'],
+                  command=lambda: _password_gate(
+                      self, lambda: _edit_file_stub(self, self._tpl_tool_label)))
+        edit_btn.pack(side='left', padx=(8, 0))
 
         # Status
         self._status_var = tk.StringVar(value='Επίλεξε αρχείο και πάτα Σύνδεση & Εκτέλεση.')
@@ -5276,6 +5305,7 @@ class AbsencesDialog(tk.Toplevel):
         lbl_tpl.grid(row=3, column=0, sticky='w', pady=(0, 10))
         lbl_tpl.bind('<Button-1>',
                       lambda e: _open_template_file(self, 'absences_template.xlsx'))
+        self._tpl_tool_label = 'Καταχώρηση Απουσίας σε Οργανική'
 
         # Κουμπί εκτέλεσης
         btn_row = tk.Frame(body, bg=C['bg'])
@@ -5287,6 +5317,15 @@ class AbsencesDialog(tk.Toplevel):
                   padx=12, pady=5, cursor='hand2',
                   command=self._connect_and_run)
         self._conn_btn.pack(side='left')
+
+        edit_btn = tk.Button(btn_row, text='✏  Επεξεργασία αρχείου',
+                  bg=C['btn_dis'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=12, pady=5, cursor='hand2',
+                  activebackground=C['btn_dis'],
+                  command=lambda: _password_gate(
+                      self, lambda: _edit_file_stub(self, self._tpl_tool_label)))
+        edit_btn.pack(side='left', padx=(8, 0))
 
         # Status
         self._status_var = tk.StringVar(value='Επίλεξε αρχείο και πάτα Σύνδεση & Εκτέλεση.')
@@ -5453,6 +5492,7 @@ class FunctionalityDialog(tk.Toplevel):
         lbl_tpl.grid(row=3, column=0, sticky='w', pady=(0, 10))
         lbl_tpl.bind('<Button-1>',
                       lambda e: _open_template_file(self, 'functionality_template.xlsx'))
+        self._tpl_tool_label = 'Αλλαγή Λειτουργικότητας'
 
         # Κουμπί εκτέλεσης
         btn_row = tk.Frame(body, bg=C['bg'])
@@ -5464,6 +5504,15 @@ class FunctionalityDialog(tk.Toplevel):
                   padx=12, pady=5, cursor='hand2',
                   command=self._connect_and_run)
         self._conn_btn.pack(side='left')
+
+        edit_btn = tk.Button(btn_row, text='✏  Επεξεργασία αρχείου',
+                  bg=C['btn_dis'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=12, pady=5, cursor='hand2',
+                  activebackground=C['btn_dis'],
+                  command=lambda: _password_gate(
+                      self, lambda: _edit_file_stub(self, self._tpl_tool_label)))
+        edit_btn.pack(side='left', padx=(8, 0))
 
         # Status
         self._status_var = tk.StringVar(value='Επίλεξε αρχείο και πάτα Σύνδεση & Εκτέλεση.')
@@ -5957,6 +6006,19 @@ def _open_template_file(parent, filename):
         os.startfile(tpl)
     except Exception:
         messagebox.showwarning('Προσοχή', f'Δεν ήταν δυνατό το άνοιγμα του προτύπου:\n{tpl}', parent=parent)
+
+
+def _edit_file_stub(parent, tool_label):
+    """Προσωρινό placeholder για το μελλοντικό «Επεξεργασία αρχείου» κάθε
+    εργαλείου — η λογική μετατροπής του αρχικού αρχείου στη μορφή του
+    προτύπου θα προστεθεί σταδιακά (βλ. DipePlacementsDialog ως πρότυπο
+    υλοποίησης για τις Τοποθετήσεις)."""
+    from tkinter import messagebox
+    messagebox.showinfo('Υπό ανάπτυξη',
+                        f'Η αυτόματη επεξεργασία αρχείου για «{tool_label}» '
+                        'θα προστεθεί σύντομα.\n\nΠρος το παρόν χρησιμοποίησε '
+                        'το 📥 Πρότυπο Excel και συμπλήρωσε το αρχείο μη αυτόματα.',
+                        parent=parent)
 
 
 def _password_gate(parent, action):
