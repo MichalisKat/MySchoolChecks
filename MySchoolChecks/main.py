@@ -140,6 +140,7 @@ CHECK_ORDER = [
     'dioikitiko_ergo',
     'ypoloipa',
     'tmimata_genikis',
+    'tmimata_oloimerou',
 ]
 
 # Sentinel για τη γραμμή «Έλεγχος Ε.Ε.Α.» στην κεντρική λίστα — δεν είναι
@@ -165,7 +166,7 @@ def load_checks():
         all_known = list(CHECK_ORDER) + [
             'forma_82', 'orario_diafora', 'arnhtika_ypoloipa',
             'adies_aneu', 'adies', 'apontes_xwris_adeia', 'analipsi', 'dioikitiko_ergo', 'ypoloipa',
-            'tmimata_genikis',
+            'tmimata_genikis', 'tmimata_oloimerou',
         ]
         seen = set()
         ordered = []
