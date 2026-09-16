@@ -28,6 +28,8 @@ MySchoolChecks/.shortcut_ok
 
 # ── Αποτελέσματα ελέγχων ──────────────────────────────────────────────────
 MySchoolChecksPlus/results_*/
+MySchoolChecks/results_*/
+MySchoolChecks/ping_debug.log
 
 # ── Build artifacts ────────────────────────────────────────────────────────
 dist/

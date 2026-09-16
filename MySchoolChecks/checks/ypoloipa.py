@@ -3,24 +3,24 @@ checks/ypoloipa.py
 ══════════════════
 Υπόλοιπα Ωραρίου Εκπαιδευτικών (4.8).
 
-Λόγω της σύνθετης φύσης του (pivot sheets, κατώφλι, 4.11/4.12, αδυνατούντες),
-αυτό το module έχει δικό του run() που παρακάμπτει το κοινό framework.
-Εμφανίζεται κανονικά στο GUI launcher.
+Ακολουθεί πλέον το κοινό μοτίβο ask_inputs()/process() των «απλών» ελέγχων
+(core/framework.py::execute_check) — η Εκτέλεση ΔΕΝ ρωτάει πια για αποστολή
+(παλιό popup Test/Κανονική μέσα στο run()): η αποστολή γίνεται αποκλειστικά
+από το tab «✉ Αποστολή» του core/check_dialog.py, με το γενικό tab
+«✂ Διαχωρισμός» πριν από αυτήν (ίδια λογική με π.χ. checks/tmimata_genikis.py).
+Η πολύπλοκη pivot αναφορά (5 φύλλα) εξακολουθεί να χτίζεται με δική της
+λογική (save_pivot_workbook) — αποθηκεύεται σαν επιπλέον αρχείο μέσω του
+hook SAVE_EXTRA(ctx, df_out, out_dir, today) που καλεί το framework μετά
+την αποθήκευση του συνολικού αρχείου.
 """
 
-import csv, os, smtplib, ssl
+import csv, os
 import pandas as pd
 import config
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email.mime.text import MIMEText
-from email import encoders
-from email.header import Header
-from email.utils import formataddr
 
 from core.framework import ask_file, get_downloaded_file, get_ady_xoris_egkrisi, ask_date_yyyymmdd, yes_no, _show_results_popup, ENCODING, SEP
 
@@ -30,7 +30,10 @@ CHECK_DESCRIPTION = 'Υπόλοιπα ωραρίου εκπαιδευτικών 
 RESULTS_FOLDER    = 'ypoloipa_wrariou'
 HAS_EMAIL         = True
 REQUIRED_REPORTS  = ['4.8 — Ωράριο εκπαιδευτικών', '4.12 — Άδειες/απουσίες', '4.11 — Εκπαιδευτικοί μονάδας']
-CUSTOM_RUN        = True   # Σημαία: το framework θα καλέσει run() αντί για run_check()
+EMAIL_COLUMN      = 'Email'   # πραγματικό όνομα στήλης email στο df_out (βλ. COLUMNS)
+FORCE_DOCUMENTS_DIR = True   # πάντα Documents/MySchoolChecks/results_YYYYMMDD/...
+                              # (και σε dev mode: python main.py) — όχι κάτω
+                              # από τον φάκελο του project.
 
 EIDI_SXOLEION  = None  # Φιλτράρισμα βάσει αποκλεισμού "Ιδιωτικό"
 ADYN_FILTER    = 'ΑΔΥΝΑΤΟΥΝΤΕΣ'
@@ -257,75 +260,6 @@ def _brdH():
     m = Side(style='medium', color='F4B942')
     return Border(left=m, right=m, top=t, bottom=t)
 
-def build_sheet(ws, df_sheet, today, col_defs,
-                center_cols=None, hdr_color=COLOR_MAIN,
-                alt_color=COLOR_ALT, sub_color=COLOR_SUB,
-                title_extra='', highlight_key=None):
-    if center_cols is None:
-        center_cols = CENTER_COLS
-    brd  = _brd()
-    brdh = _brdH()
-    ctr  = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    lft  = Alignment(horizontal='left',   vertical='center', wrap_text=True)
-    labels = [c[2] if c[2] else c[0] for c in col_defs]
-    keys   = [c[0] for c in col_defs]
-    widths = [c[1] for c in col_defs]
-    ncols  = len(col_defs)
-    hl_idx = keys.index(highlight_key) + 1 if highlight_key and highlight_key in keys else None
-
-    ws.merge_cells(f'A1:{get_column_letter(ncols)}1')
-    t = CHECK_TITLE + (f'  —  {title_extra}' if title_extra else '') + f'  —  {today.strftime("%d/%m/%Y")}'
-    ws['A1'] = t
-    ws['A1'].font      = Font(name='Arial', bold=True, size=12, color='FFFFFF')
-    ws['A1'].fill      = PatternFill('solid', start_color=hdr_color)
-    ws['A1'].alignment = ctr
-    ws.row_dimensions[1].height = 24
-
-    ws.merge_cells(f'A2:{get_column_letter(ncols)}2')
-    ws['A2'] = f'Σύνολο εγγραφών: {len(df_sheet)}'
-    ws['A2'].font      = Font(name='Arial', italic=True, size=9)
-    ws['A2'].fill      = PatternFill('solid', start_color=sub_color)
-    ws['A2'].alignment = ctr
-    ws.row_dimensions[2].height = 16
-
-    for ci, (label, width) in enumerate(zip(labels, widths), 1):
-        is_hl = (ci == hl_idx)
-        c = ws.cell(row=3, column=ci, value=label)
-        c.font      = Font(name='Arial', bold=True,
-                           color='1F4E79' if is_hl else 'FFFFFF', size=10 if is_hl else 10)
-        c.fill      = PatternFill('solid', start_color=COLOR_HL_HEADER if is_hl else hdr_color)
-        c.border    = brdh if is_hl else brd
-        c.alignment = ctr
-        ws.column_dimensions[get_column_letter(ci)].width = width
-    ws.row_dimensions[3].height = 30
-
-    fill_alt      = PatternFill('solid', start_color=alt_color)
-    fill_hl_even  = PatternFill('solid', start_color=COLOR_HL_EVEN)
-    fill_hl_odd   = PatternFill('solid', start_color=COLOR_HL_ODD)
-    for ri, (_, row) in enumerate(df_sheet.iterrows(), start=4):
-        is_even  = (ri % 2 == 0)
-        row_fill = fill_alt if is_even else PatternFill()
-        for ci, key in enumerate(keys, 1):
-            is_hl = (ci == hl_idx)
-            val   = row.get(key, '')
-            c     = ws.cell(row=ri, column=ci, value=val)
-            c.font      = Font(name='Arial', bold=is_hl, size=9,
-                               color='1F4E79' if is_hl else '000000')
-            c.fill      = (fill_hl_even if is_even else fill_hl_odd) if is_hl else row_fill
-            c.border    = brdh if is_hl else brd
-            c.alignment = ctr if key in center_cols else lft
-        ws.row_dimensions[ri].height = 16
-    ws.freeze_panes = 'A4'
-    ws.auto_filter.ref = f'A3:{get_column_letter(ncols)}3'
-
-def save_main_workbook(df_sheet, today, output_path, school_name=''):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = 'Αποτελέσματα'
-    build_sheet(ws, df_sheet, today, COLUMNS,
-                title_extra=school_name, highlight_key=HIGHLIGHT_COL)
-    wb.save(output_path)
-
 def save_pivot_workbook(df, today, output_path):
     df2    = df.copy()
     df2['_yp'] = df2[COL_YPOLOIPO].apply(_to_int)
@@ -518,71 +452,6 @@ def save_pivot_workbook(df, today, output_path):
     wb.save(output_path)
 
 
-# ═══════════════════════════════════════════════════════════════════
-# EMAIL (multi-attachment)
-# ═══════════════════════════════════════════════════════════════════
-
-def _send_email(cfg, to_addr, subject, body, attachment_paths):
-    if isinstance(attachment_paths, str):
-        attachment_paths = [attachment_paths]
-    if isinstance(to_addr, list):
-        recipients = to_addr
-        to_header  = recipients[0]
-    else:
-        recipients = [to_addr]
-        to_header  = to_addr
-    msg = MIMEMultipart()
-    from_name = getattr(cfg, 'FROM_NAME', cfg.FROM_EMAIL)
-    msg['From']    = formataddr((from_name, cfg.FROM_EMAIL))
-    msg['To']      = to_header
-    msg['Subject'] = Header(subject, 'utf-8')
-    msg.attach(MIMEText(body, 'plain', 'utf-8'))
-    for path in attachment_paths:
-        fname = os.path.basename(path)
-        with open(path, 'rb') as f:
-            part = MIMEBase('application', 'vnd.ms-excel')
-            part.set_payload(f.read())
-        encoders.encode_base64(part)
-        part.add_header('Content-Disposition', 'attachment', filename=fname)
-        part.add_header('Content-Type', 'application/vnd.ms-excel', name=fname)
-        msg.attach(part)
-    def _lenient_ctx():
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode    = ssl.CERT_NONE
-        return ctx
-
-    recipients = list(dict.fromkeys(recipients))  # dedup
-    msg_str = msg.as_string()
-    sent = False
-    try:
-        with smtplib.SMTP_SSL(cfg.SMTP_HOST, 465,
-                               context=ssl.create_default_context()) as s:
-            s.login(cfg.FROM_EMAIL, cfg.FROM_PASSWORD)
-            s.sendmail(cfg.FROM_EMAIL, recipients, msg_str)
-            sent = True
-    except Exception:
-        pass
-    if not sent:
-        try:
-            with smtplib.SMTP_SSL(cfg.SMTP_HOST, 465,
-                                   context=_lenient_ctx()) as s:
-                s.login(cfg.FROM_EMAIL, cfg.FROM_PASSWORD)
-                s.sendmail(cfg.FROM_EMAIL, recipients, msg_str)
-                sent = True
-        except Exception:
-            pass
-    if not sent:
-        with smtplib.SMTP(cfg.SMTP_HOST, 587) as s:
-            s.starttls(context=_lenient_ctx())
-            s.login(cfg.FROM_EMAIL, cfg.FROM_PASSWORD)
-            s.sendmail(cfg.FROM_EMAIL, recipients, msg_str)
-
-
-# ═══════════════════════════════════════════════════════════════════
-# CUSTOM RUN  (καλείται από main.py αντί για framework.run_check)
-# ═══════════════════════════════════════════════════════════════════
-
 def _ask_threshold():
     """Κατώφλι ωρών μέσω GUI popup."""
     import tkinter as tk
@@ -635,44 +504,39 @@ def _ask_threshold():
     win.wait_window()
     return result[0]
 
-def run(config):
-    """Custom run — παρακάμπτει το κοινό framework."""
-    import core.framework as _fw
-    _fw._current_check_title = CHECK_TITLE
+# ═══════════════════════════════════════════════════════════════════
+# ΕΙΣΟΔΟΣ / ΕΠΕΞΕΡΓΑΣΙΑ  (κοινό μοτίβο ask_inputs()/process() — βλ.
+# core/framework.py::execute_check, καλείται από το tab «▶ Εκτέλεση» του
+# core/check_dialog.py). ΔΕΝ ρωτάει πια για αποστολή εδώ — αυτό γίνεται
+# αποκλειστικά στο tab «✉ Αποστολή» (μετά το γενικό «✂ Διαχωρισμός»).
+# ═══════════════════════════════════════════════════════════════════
 
-    print('=' * 65)
-    print(f'  {CHECK_TITLE}')
-    print('=' * 65)
+_last_threshold = 8  # για το test_body() — δεν περνιέται απευθείας σε αυτό
 
+
+def ask_inputs():
     path_48  = get_downloaded_file('4.8',  'Αρχείο 4.8 [csv]:',  csv_only=True)
     path_412 = get_downloaded_file('4.12', 'Αρχείο 4.12 [csv]:', csv_only=True, silent=True)
     path_411 = get_downloaded_file('4.11', 'Αρχείο 4.11 [csv]:', csv_only=True, silent=True)
-
-    # Έλεγχος αρχείων πριν ζητηθούν παράμετροι
     if path_48 is None or path_412 is None or path_411 is None:
-        from core.framework import _missing_file_dialog
-        _missing_file_dialog(CHECK_TITLE, REQUIRED_REPORTS)
-        return
+        return {'path_48': path_48, 'path_412': path_412, 'path_411': path_411}
 
-    path_ady = get_ady_xoris_egkrisi('Αρχείο Αδυνατούντων (υπό έγκριση) [csv / xlsx]:')
-    today    = ask_date_yyyymmdd()
-    threshold= _ask_threshold()
+    # Σημείωση: το κλειδί ΔΕΝ ονομάζεται *_path/path_* ώστε να παραμείνει
+    # προαιρετικό για το execute_check() (δεν θεωρείται "απαιτούμενο αρχείο").
+    ady_file  = get_ady_xoris_egkrisi('Αρχείο Αδυνατούντων (υπό έγκριση) [csv / xlsx]:')
+    today     = ask_date_yyyymmdd()
+    threshold = _ask_threshold()
 
-    from core.framework import _ask_send_options_gui
-    test_mode, do_send = _ask_send_options_gui()
+    global _last_threshold
+    _last_threshold = threshold
 
-    print(f'\n  Ημερομηνία : {today.strftime("%d/%m/%Y")}')
     print(f'  Κατώφλι    : >= {threshold} ώρες')
-    print(f'  Λειτουργία : {"🧪 TEST MODE" if test_mode else "🚀 ΚΑΝΟΝΙΚΗ"}')
-    print(f'  Αποστολή   : {"ΝΑΙ" if do_send else "ΟΧΙ"}')
-    print('-' * 65)
-
     print('\nΦόρτωση αρχείων...')
     df48       = load_48(path_48)
     lookup_412 = load_412(path_412)
     lookup_411 = load_411(path_411)
-    if path_ady:
-        df_ady = load_adynatoyntes(path_ady)
+    if ady_file:
+        df_ady = load_adynatoyntes(ady_file)
         print(f'  ✓ Αδυνατούντες : {len(df_ady)} εγγραφές')
     else:
         df_ady = None
@@ -681,163 +545,51 @@ def run(config):
     print(f'  ✓ 4.12         : {len(lookup_412)} εκπαιδευτικοί')
     print(f'  ✓ 4.11         : {len(lookup_411)} εκπαιδευτικοί')
 
+    return {
+        'today': today, 'threshold': threshold,
+        'df48': df48, 'df_ady': df_ady,
+        'lookup_412': lookup_412, 'lookup_411': lookup_411,
+    }
+
+
+def process(ctx):
     print('\nΕπεξεργασία...')
-    df_out  = process_data(df48, df_ady, threshold, lookup_412, lookup_411)
-    # Για το pivot: όλοι (threshold=0) — ανεξάρτητα κατωφλίου
-    df_all  = process_data(df48, df_ady, 0, lookup_412, lookup_411)
-    schools = sorted(df_out[SCHOOL_COLUMN].unique())
-    print(f'  → {len(df_out)} εκπαιδευτικοί με υπόλοιπο >= {threshold} ώρες')
-    print(f'  → {len(df_all)} εκπαιδευτικοί συνολικά (pivot)')
-    print(f'  → {len(schools)} σχολεία')
+    df_out = process_data(ctx['df48'], ctx['df_ady'], ctx['threshold'],
+                           ctx['lookup_412'], ctx['lookup_411'])
+    print(f'  → {len(df_out)} εκπαιδευτικοί με υπόλοιπο >= {ctx["threshold"]} ώρες')
+    return df_out
 
-    if df_out.empty:
-        print(f'\n✓ Κανένας εκπαιδευτικός δεν έχει υπόλοιπο >= {threshold} ώρες.')
-        _show_results_popup(
-            CHECK_TITLE,
-            f'Ημερομηνία ελέγχου: {today.strftime("%d/%m/%Y")}\n'
-            f'Κατώφλι: >= {threshold} ώρες\n\n'
-            f'✓  Κανένας εκπαιδευτικός δεν έχει υπόλοιπο >= {threshold} ώρες.\n\n'
-            f'Ο έλεγχος ολοκληρώθηκε χωρίς θέματα.',
-            result_type='ok'
-        )
-        return
 
-    _docs = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks')
-    os.makedirs(_docs, exist_ok=True)
-    out_dir  = os.path.join(_docs, f'results_{today.strftime("%Y%m%d")}', 'ypoloipa')
-    os.makedirs(out_dir, exist_ok=True)
-    print(f'\nΑποθήκευση → {out_dir}')
-    print('-' * 65)
-
-    path_all   = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_ypoloipa_wrariou.xlsx')
-    path_pivot = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_ΑΝΑΦΟΡΑ_PIVOT.xlsx')
-    try:
-        save_main_workbook(df_out, today, path_all)
-        save_pivot_workbook(df_all, today, path_pivot)
-        print(f'  ✓ Συνολικό      : {os.path.basename(path_all)}')
-        print(f'  ✓ Pivot αναφορά : {os.path.basename(path_pivot)}')
-    except PermissionError as _pe:
-        import tkinter.messagebox as _mb
-        _fname = os.path.basename(str(_pe)).strip("'") if "xlsx" in str(_pe) else "κάποιο αρχείο Excel"
-        _mb.showwarning(
-            'Αρχείο ανοιχτό',
-            f'Ένα αρχείο Excel είναι ανοιχτό σε άλλο πρόγραμμα.\n'
-            f'Κλείστε το και τρέξτε ξανά τον έλεγχο.'
-        )
-        return
-
-    school_codes = sorted(df_out['Κωδικός Σχολείου'].unique())
-    school_files = {}
-    if not do_send or test_mode:
-        print(f'\n  Χωρίς αποστολή: τα {len(school_codes)} αρχεία ανά σχολείο παραλείπονται.')
-        for code in school_codes:
-            df_s    = df_out[df_out['Κωδικός Σχολείου'] == code].copy()
-            school  = df_s[SCHOOL_COLUMN].iloc[0]
-            email_s = str(df_s['Email'].iloc[0]).strip() if 'Email' in df_s.columns else ''
-            school_files[code] = ('', email_s, school)
-    else:
-        print(f'\n  Δημιουργία {len(school_codes)} αρχείων ανά σχολείο...')
-        for code in school_codes:
-            df_s      = df_out[df_out['Κωδικός Σχολείου'] == code].copy()
-            school    = df_s[SCHOOL_COLUMN].iloc[0]
-            email_s   = str(df_s['Email'].iloc[0]).strip() if 'Email' in df_s.columns else ''
-            safe_name = ''.join(c for c in school if c not in r'\/:*?"<>|').strip()[:55]
-            path_s    = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_{code}_{safe_name}.xlsx')
-            save_main_workbook(df_s, today, path_s, school_name=school)
-            school_files[code] = (path_s, email_s, school)
-            print(f'  ✓ [{code}] {safe_name[:50]}  ({len(df_s)} εγγ.)')
-
-    # Σύνοψη αποτελεσμάτων (χτίζεται πάντα)
+def test_body(df_out, today, schools):
     total_yp = sum(
-        int(str(v).replace('="','').replace('"','').strip() or 0)
+        int(str(v).replace('="', '').replace('"', '').strip() or 0)
         for v in df_out[COL_YPOLOIPO]
-        if str(v).replace('="','').replace('"','').strip().lstrip('-').isdigit()
+        if str(v).replace('="', '').replace('"', '').strip().lstrip('-').isdigit()
     )
     avg_yp = round(total_yp / len(df_out), 1) if len(df_out) else 0
-    summary_body = (
+    return (
         f'Σύνοψη ελέγχου υπολοίπων ωραρίου — {today.strftime("%d/%m/%Y")}\n'
         f'{"─"*50}\n'
-        f'Καταφλι: >= {threshold} ωρες\n'
-        f'Εκπαιδευτικοι με υπολοιπο >= {threshold}: {len(df_out)} σε {len(school_codes)} σχολεια\n'
-        f'Συνολο υπολοιπων: {total_yp} ωρες\n'
-        f'Μεσος ορος: {avg_yp} ωρες/εκπαιδευτικο\n'
+        f'Κατώφλι: >= {_last_threshold} ώρες\n'
+        f'Εκπαιδευτικοί με υπόλοιπο >= {_last_threshold}: {len(df_out)} σε {len(schools)} σχολεία\n'
+        f'Σύνολο υπολοίπων: {total_yp} ώρες\n'
+        f'Μέσος όρος: {avg_yp} ώρες/εκπαιδευτικό\n'
     )
 
-    if do_send:
-        print(f'\n{"─"*65}')
-        if test_mode:
-            test_body = summary_body
-            print(f'🧪 TEST MODE → {config.TEST_EMAIL}')
-            print(f'   Θέμα: [TEST] {EMAIL_SUBJECT}')
-            print(f'\n   Body:\n{"─"*40}\n{test_body}\n{"─"*40}')
-            cc_extra   = getattr(config, 'TEST_EMAIL_CC', None)
-            recipients = [config.TEST_EMAIL] + ([cc_extra] if cc_extra else [])
-            try:
-                _send_email(config, recipients, f'[TEST] {EMAIL_SUBJECT}',
-                            test_body, [path_all, path_pivot])
-                print(f'  ✓ Εστάλη στο {config.TEST_EMAIL}' +
-                      (f' + {cc_extra}' if cc_extra else ''))
-            except Exception as e:
-                print(f'  ✗ Σφάλμα: {e}')
 
-            # Ερώτηση για κανονική αποστολή μετά το test
-            import tkinter.messagebox as _mb
-            proceed = _mb.askyesno(
-                'Κανονική αποστολή;',
-                f'Το test ολοκληρώθηκε.\n\n'
-                f'Θέλεις να προχωρήσω και σε κανονική αποστολή στα {len(school_codes)} σχολεία;'
-            )
-            if not proceed:
-                popup_text = summary_body + (
-                    f'\n\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
-                )
-                _show_results_popup('Υπόλοιπα Ωραρίου', popup_text, excel_path=[path_all, path_pivot])
-                return
+def SAVE_EXTRA(ctx, df_out, out_dir, today):
+    """Καλείται από core/framework.py::execute_check αμέσως μετά την
+    αποθήκευση του ΣΥΝΟΛΟ — γράφει την πολύπλοκη pivot αναφορά (5 φύλλα:
+    ανά ειδικότητα, ανά σχολείο, διευθυντές/υποδιευθυντές/αναπληρωτές),
+    η οποία θέλει ΟΛΟΥΣ τους εκπαιδευτικούς (κατώφλι=0), όχι μόνο το
+    φιλτραρισμένο df_out.
 
-            # Δημιουργία αρχείων ανά σχολείο για κανονική αποστολή
-            print(f'\n  Δημιουργία {len(school_codes)} αρχείων ανά σχολείο...')
-            for code in school_codes:
-                df_s      = df_out[df_out['Κωδικός Σχολείου'] == code].copy()
-                school    = df_s[SCHOOL_COLUMN].iloc[0]
-                email_s   = str(df_s['Email'].iloc[0]).strip() if 'Email' in df_s.columns else ''
-                safe_name = ''.join(c for c in school if c not in r'\/:*?"<>|').strip()[:55]
-                path_s    = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_{code}_{safe_name}.xlsx')
-                save_main_workbook(df_s, today, path_s, school_name=school)
-                school_files[code] = (path_s, email_s, school)
-                print(f'  ✓ [{code}] {safe_name[:50]}  ({len(df_s)} εγγ.)')
-
-        else:
-            print(f'🚀 ΚΑΝΟΝΙΚΗ ΑΠΟΣΤΟΛΗ — {len(school_codes)} σχολεία')
-            no_email = []
-            for code, (path_s, email_s, school) in school_files.items():
-                if not email_s or email_s in ('', 'nan', 'None'):
-                    print(f'   ⚠  [{code}] {school[:48]} — ΔΕΝ ΥΠΑΡΧΕΙ EMAIL')
-                    no_email.append(code)
-                else:
-                    print(f'   →  [{code}] {school[:43]} → {email_s}')
-            if no_email:
-                print(f'\n   ⚠  {len(no_email)} σχολεία χωρίς email — θα παραλειφθούν.')
-            ok = fail = 0
-            for code, (path_s, email_s, school) in school_files.items():
-                if not email_s or email_s in ('', 'nan', 'None'):
-                    fail += 1; continue
-                try:
-                    _send_email(config, [email_s], EMAIL_SUBJECT, EMAIL_BODY(school), path_s)
-                    print(f'  ✓ [{code}] {school[:43]} → {email_s}')
-                    ok += 1
-                except Exception as e:
-                    print(f'  ✗ [{code}] {school[:43]} → {e}')
-                    fail += 1
-            print(f'\n  Αποστολές: {ok} επιτυχείς, {fail} αποτυχίες')
-            if ok > 0:
-                from core.framework import _send_notify
-                sent_schools = [school for code, (path_s, email_s, school)
-                                in school_files.items()
-                                if email_s and email_s not in ('', 'nan', 'None')
-                                and '@' in email_s]
-                _send_notify(config, CHECK_TITLE, today, ok, sent_schools)
-
-    popup_text = summary_body + (
-        f'\n\nΑποτελέσματα αποθηκεύτηκαν στο φάκελο:\n{out_dir}'
-    )
-    _show_results_popup('Υπόλοιπα Ωραρίου', popup_text, excel_path=[path_all, path_pivot])
+    Επιστρέφει [(label, path)] ώστε το popup αποτελεσμάτων της Εκτέλεσης
+    (core/check_dialog.py::_show_generic_results_popup) να δείξει κουμπί
+    «Άνοιγμα Pivot Αναφοράς» δίπλα στο «Άνοιγμα Excel»."""
+    df_all = process_data(ctx['df48'], ctx['df_ady'], 0,
+                           ctx['lookup_412'], ctx['lookup_411'])
+    path_pivot = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_ΑΝΑΦΟΡΑ_PIVOT.xlsx')
+    save_pivot_workbook(df_all, today, path_pivot)
+    print(f'  ✓ Pivot αναφορά : {os.path.basename(path_pivot)}')
+    return [('Pivot Αναφοράς', path_pivot)]

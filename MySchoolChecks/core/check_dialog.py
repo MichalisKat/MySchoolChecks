@@ -7,7 +7,8 @@ core/check_dialog.py
 Ίδιο μοτίβο με smeae/dialog.py::SmeaeDialog, αλλά παραμετρικό ως προς το
 check_module — γράφεται μία φορά και χρησιμοποιείται από όλους τους
 ελέγχους (adies, adies_aneu, analipsi, apontes_xwris_adeia,
-arnhtika_ypoloipa, dioikitiko_ergo, forma_82, orario_diafora, ypoloipa).
+arnhtika_ypoloipa, dioikitiko_ergo, forma_82, orario_diafora, ypoloipa,
+tmimata_genikis, tmimata_oloimerou).
 
   Tab 1 «⬇ Λήψη»      : κατεβάζει ΜΟΝΟ τα REQUIRED_REPORTS του ελέγχου
                         (μέσω core.downloader.report_ids_from_required +
@@ -19,11 +20,16 @@ arnhtika_ypoloipa, dioikitiko_ergo, forma_82, orario_diafora, ypoloipa).
                         αφού έχει τρέξει επιτυχώς η Εκτέλεση
                         (core.framework.send_from_exec_result).
 
-Για ελέγχους με CUSTOM_RUN = True (σήμερα: dioikitiko_ergo, ypoloipa) η
-Εκτέλεση καλεί απευθείας mod.run(config) όπως έκανε πάντα το main.py — αυτά
-τα modules διαχειρίζονται ήδη μόνα τους ολόκληρη τη ροή αποστολής
+Για ελέγχους με CUSTOM_RUN = True (σήμερα: dioikitiko_ergo) η Εκτέλεση
+καλεί απευθείας mod.run(config) όπως έκανε πάντα το main.py — αυτά τα
+modules διαχειρίζονται ήδη μόνα τους ολόκληρη τη ροή αποστολής
 (περιλαμβανομένου ενός popup επιλογής Test/Κανονική μέσα στο run()), οπότε
 το tab «Αποστολή» παραμένει κλειδωμένο με επεξηγηματικό μήνυμα.
+
+Το checks/ypoloipa.py ακολουθούσε παλιότερα αυτό το CUSTOM_RUN μοτίβο
+(με το popup Test/Κανονική μέσα στο run()) αλλά μεταφέρθηκε στο κοινό
+ask_inputs()/process() μοτίβο — παίρνει πλέον κανονικά τα generic tabs
+«✂ Διαχωρισμός» / «✉ Αποστολή» σαν όλους τους «απλούς» ελέγχους.
 """
 import os, threading
 from datetime import datetime
@@ -588,6 +594,24 @@ class CheckRunDialog(tk.Toplevel):
         summary  = result.get('summary', '')
         path_all = result.get('path_all')
 
+        # Προαιρετικά επιπλέον αρχεία πέρα από το ΣΥΝΟΛΟ (π.χ. pivot αναφορά
+        # στο checks/ypoloipa.py — βλ. SAVE_EXTRA στο core/framework.py).
+        # Δεκτές μορφές από SAVE_EXTRA: None, ένα path (str), ή λίστα από
+        # (label, path) / bare paths.
+        raw_extra = result.get('extra_files')
+        extra_files = []
+        if raw_extra:
+            if isinstance(raw_extra, str):
+                raw_extra = [raw_extra]
+            for item in raw_extra:
+                if isinstance(item, (tuple, list)) and len(item) == 2:
+                    lbl, p = item
+                else:
+                    p   = item
+                    lbl = os.path.basename(str(item))
+                if p:
+                    extra_files.append((lbl, p))
+
         win = tk.Toplevel(self)
         win.title(f'Αποτελέσματα — {title}')
         win.configure(bg='#FFF8E1')
@@ -633,6 +657,24 @@ class CheckRunDialog(tk.Toplevel):
                   font=('Arial', 9, 'bold'), relief='flat',
                   padx=14, pady=5, cursor='hand2',
                   command=_open_excel).pack(side='left', padx=4)
+
+        def _make_open_extra(p):
+            def _open_extra():
+                try:
+                    os.startfile(os.path.normpath(p))
+                except Exception as e:
+                    messagebox.showerror('Σφάλμα',
+                                          f'Δεν ήταν δυνατό το άνοιγμα του αρχείου:\n{e}',
+                                          parent=win)
+            return _open_extra
+
+        for _lbl, _p in extra_files:
+            tk.Button(btn_f, text=f'📊 Άνοιγμα {_lbl}',
+                      bg='#E65100', fg='white',
+                      font=('Arial', 9, 'bold'), relief='flat',
+                      padx=14, pady=5, cursor='hand2',
+                      command=_make_open_extra(_p)).pack(side='left', padx=4)
+
         tk.Button(btn_f, text='Κλείσιμο',
                   bg='#E8EDF3', fg='#333333',
                   font=('Arial', 9), relief='flat',

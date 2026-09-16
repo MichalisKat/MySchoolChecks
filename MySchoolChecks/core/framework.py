@@ -98,8 +98,11 @@ def build_sheet(ws, df_sheet, title, columns, center_cols, today,
     ctr   = Alignment(horizontal='center', vertical='center', wrap_text=True)
     lft   = Alignment(horizontal='left',   vertical='center', wrap_text=True)
 
-    # Normalize columns σε (name, width)
+    # Normalize columns σε (name, width) + προαιρετικό label (alias) — αν
+    # δοθεί 3ο στοιχείο (name, width, alias), εμφανίζεται ως header αντί για
+    # το πλήρες όνομα· το name παραμένει το κλειδί δεδομένων/highlight_col.
     col_defs = [(c[0], c[1]) for c in columns]
+    labels   = [(c[2] if len(c) > 2 and c[2] else c[0]) for c in columns]
     ncols    = len(col_defs)
 
     # Γραμμή τίτλου
@@ -121,8 +124,8 @@ def build_sheet(ws, df_sheet, title, columns, center_cols, today,
     # Headers
     hl_col_idx = None
     hl_colors  = highlight_colors or ('F4B942', 'FFF3CD', 'FFF8E1')
-    for ci, (name, width) in enumerate(col_defs, 1):
-        c = ws.cell(row=3, column=ci, value=name)
+    for ci, ((name, width), label) in enumerate(zip(col_defs, labels), 1):
+        c = ws.cell(row=3, column=ci, value=label)
         if highlight_col and name == highlight_col:
             c.fill    = PatternFill('solid', start_color=hl_colors[0])
             c.font    = Font(name='Arial', bold=True, color='000000', size=10)
@@ -1241,7 +1244,8 @@ def execute_check(check_module, config):
 
     subfolder = rfold.replace('results_', '') if rfold.startswith('results_') else rfold
     import sys as _sys2
-    if getattr(_sys2, 'frozen', False):
+    _force_docs = getattr(check_module, 'FORCE_DOCUMENTS_DIR', False)
+    if getattr(_sys2, 'frozen', False) or _force_docs:
         _docs = os.path.join(os.path.expanduser('~'), 'Documents')
         _app_base = os.path.join(_docs, 'MySchoolChecks')
     else:
@@ -1264,6 +1268,19 @@ def execute_check(check_module, config):
         return {'status': 'error',
                 'message': 'Το αρχείο ΣΥΝΟΛΟ.xlsx είναι ανοιχτό σε άλλο πρόγραμμα. '
                            'Κλείστε το και τρέξτε ξανά τον έλεγχο.'}
+
+    # Προαιρετικό hook: επιπλέον αρχεία πέρα από το ΣΥΝΟΛΟ (π.χ. pivot
+    # αναφορά στο checks/ypoloipa.py) — το module ορίζει
+    # SAVE_EXTRA(ctx, df_out, out_dir, today) αν το χρειάζεται.
+    extra_save  = getattr(check_module, 'SAVE_EXTRA', None)
+    extra_files = None
+    if callable(extra_save):
+        try:
+            extra_files = extra_save(ctx, df_out, out_dir, today)
+        except PermissionError:
+            return {'status': 'error',
+                    'message': 'Ένα από τα επιπλέον αρχεία Excel είναι ανοιχτό σε άλλο '
+                               'πρόγραμμα. Κλείστε το και τρέξτε ξανά τον έλεγχο.'}
 
     schools = df_out[scol].unique()
 
@@ -1293,7 +1310,7 @@ def execute_check(check_module, config):
         'status': 'ok',
         'check_module': check_module, 'config': config,
         'title': title, 'today': today, 'df_out': df_out,
-        'out_dir': out_dir, 'path_all': path_all,
+        'out_dir': out_dir, 'path_all': path_all, 'extra_files': extra_files,
         'scol': scol, 'ecol': ecol, 'subj': subj, 'body_t': body_t,
         'cols': cols, 'ccols': ccols, 'hlcol': hlcol, 'hlclrs': hlclrs,
         'sclrs': sclrs, 'scol2': scol2, 'has_email': has_email,
