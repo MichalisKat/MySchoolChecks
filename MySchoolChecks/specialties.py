@@ -66,6 +66,43 @@ def _build_index(rows_all, code_prefix):
     return idx
 
 
+def _load_xlsx_rows(path, sheet=None):
+    """Διαβάζει ένα .xlsx (π.χ. τη λίστα τοποθετήσεων αναπληρωτών) με openpyxl
+    — το xlrd δεν ανοίγει .xlsx. Επιστρέφει τις γραμμές δεδομένων (χωρίς την
+    επικεφαλίδα)."""
+    wbx = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    wsx = wbx[sheet] if sheet else wbx.worksheets[0]
+    rows = list(wsx.iter_rows(min_row=2, values_only=True))
+    wbx.close()
+    return rows
+
+
+def _build_index_repl(rows_all, code_prefix):
+    """Ευρετήριο από το αρχείο τοποθετήσεων αναπληρωτών (Topoth_AFM_*.xlsx):
+    ΕΠΙΘΕΤΟ=1, ΟΝΟΜΑ=2, ΕΙΔΙΚΟΤΗΤΑ=6, ΣΥΝΟΛΟ ΩΡΩΝ=9. Απαιτεί ακριβές ταίριασμα
+    ειδικότητας (όχι startswith) ώστε να μη μπερδεύονται π.χ. ΠΕ06 και
+    ΠΕ06.ΕΑΕ, που είναι διαφορετικές κατηγορίες τοποθέτησης."""
+    idx = defaultdict(list)
+    seen = set()
+    for row in rows_all:
+        if len(row) <= 9:
+            continue
+        spec = _s(row[6]).upper()
+        if spec != code_prefix.upper():
+            continue
+        surname = _s(row[1]).upper()
+        fname = _s(row[2]).upper()
+        total = row[9]
+        if not surname or total in (None, ''):
+            continue
+        key = (surname, fname, total)
+        if key in seen:
+            continue
+        seen.add(key)
+        idx[surname].append((fname, total))
+    return idx
+
+
 def _parse_name(raw):
     raw = raw.strip()
     raw_nonum = re.sub(r'\s*\d+\s*$', '', raw).strip()
@@ -75,12 +112,15 @@ def _parse_name(raw):
     return surname, fname_hint
 
 
-def _make_lookup(rows41_all, rows42_all, code_prefix):
+def _make_lookup(rows41_all, rows42_all, code_prefix, rows_repl_all=None):
     idx41 = _build_index(rows41_all, code_prefix)
     idx42 = _build_index(rows42_all, code_prefix)
+    sources = [(idx41, '4.1'), (idx42, '4.2')]
+    if rows_repl_all:
+        sources.append((_build_index_repl(rows_repl_all, code_prefix), 'αναπληρωτές'))
 
     def lookup(surname, fname_hint):
-        for idx, src in ((idx41, '4.1'), (idx42, '4.2')):
+        for idx, src in sources:
             cands = idx.get(surname)
             if not cands:
                 continue
@@ -98,7 +138,12 @@ def _make_lookup(rows41_all, rows42_all, code_prefix):
 
 
 def _num(x):
-    return x if isinstance(x, (int, float)) and x != '' else None
+    if not isinstance(x, (int, float)) or x == '':
+        return None
+    # Το xlrd διαβάζει όλους τους αριθμούς σαν float (π.χ. 16.0) — τους
+    # μετατρέπουμε σε int όταν είναι ακέραιοι, ώστε να μη γεμίζει το φύλλο
+    # με περιττά δεκαδικά (.0).
+    return int(x) if isinstance(x, float) and x == int(x) else x
 
 
 def _s(x):
@@ -106,7 +151,12 @@ def _s(x):
 
 
 def _name_mandatory(raw_name):
-    m = re.search(r'(\d+)\s*$', raw_name)
+    # Το υποχρεωτικό ωράριο εμφανίζεται σαν αυτοτελής αριθμός μέσα στο όνομα
+    # (π.χ. «ΖΑΧΑΡΝΑ 21», «ΠΑΠΑΔΟΠΟΥΛΟΥ ΣΕΒΑΣΤΗ 21», «ΣΑΒΒΟΠΟΥΛΟΣ 22 ΣΕ ΑΔΕΙΑ
+    # ΑΠΌ ΝΟΕΜΒΡΗ 2026») — παίρνουμε τον ΠΡΩΤΟ αυτοτελή αριθμό, όχι τον
+    # τελευταίο, γιατί μετά το ωράριο μπορεί να ακολουθεί σχόλιο που καταλήγει
+    # και αυτό σε αριθμό (π.χ. έτος).
+    m = re.search(r'(?<!\S)(\d+)(?!\S)', raw_name)
     return int(m.group(1)) if m else None
 
 
@@ -179,15 +229,38 @@ def _classify_family_b(hdr):
         if cur is None:
             continue
         if 'ΕΝΔΕΙΚΤΙΚΕΣ' in H or 'αναθέσεις' in H:
-            cur['indicative'].append(i)
-        elif 'ΩΡΕΣ' in H.upper() or 'ώρες' in H:
-            if cur['hours'] is None:
-                cur['hours'] = i
+            cur['indicative'].append((i, _indicative_label(H)))
+        # Στήλες «ώρες πρωινού» ΧΩΡΙΣ το πρόθεμα ΕΝΔΕΙΚΤΙΚΕΣ αγνοούνται σκόπιμα:
+        # σε ορισμένες εξαγωγές του πρωτοτύπου η ίδια τιμή εμφανίζεται και στην
+        # απλή στήλη ΩΡΕΣ και στην ΕΝΔΕΙΚΤΙΚΕΣ ΩΡΕΣ ταυτόχρονα (π.χ. 16.0 και
+        # στις δύο) — αν τις μετρούσαμε και τις δύο θα διπλομετρούσαμε το
+        # σύνολο. Πηγή ωρών είναι αποκλειστικά οι στήλες ΕΝΔΕΙΚΤΙΚΕΣ.
     return dict(theseis=theseis, aa=aa, name=name, apousies=apousies,
                 paratiriseis=paratiriseis, blocks=blocks)
 
 
-def _build_family_b_sheet(wb, wb1, lookup_factory, sheet_name, code_prefix, out_title):
+def _strip_accents(s):
+    import unicodedata
+    return ''.join(c for c in unicodedata.normalize('NFD', s)
+                   if unicodedata.category(c) != 'Mn')
+
+
+def _indicative_label(h):
+    """Ξεχωρίζει το είδος μιας στήλης 'ΕΝΔΕΙΚΤΙΚΕΣ ...' (π.χ. 'ώρες πρωινού'
+    vs 'άλλες αναθέσεις') ώστε να μείνουν σε ξεχωριστές στήλες στην έξοδο
+    αντί να αθροίζονται σε μία — κάθε πρωτότυπο αρχείο μπορεί να έχει
+    περισσότερες από μία ΕΝΔΕΙΚΤΙΚΕΣ στήλες ανά σχολείο (π.χ. στο ΤΟΠΟΘΕΤΗΣΗΣ)."""
+    m = re.search(r'ΕΝΔΕΙΚΤΙΚΕΣ\s+(.+?)\s+στ[οα]', h, re.IGNORECASE)
+    phrase = m.group(1).strip() if m else h
+    low = _strip_accents(phrase.lower())
+    if 'ωρ' in low:
+        return 'ώρες'
+    if 'αναθεσ' in low:
+        return 'αναθέσεις'
+    return 'λοιπά'
+
+
+def _build_family_b_sheet(wb, wb1, lookup_factory, sheet_name, code_prefix, out_title, has_repl=False):
     sh = wb1.sheet_by_name(sheet_name)
     hdr = [_s(sh.cell_value(0, c)) for c in range(sh.ncols)]
     layout = _classify_family_b(hdr)
@@ -202,7 +275,8 @@ def _build_family_b_sheet(wb, wb1, lookup_factory, sheet_name, code_prefix, out_
         idx_in_symp = sum(1 for x in layout['blocks'][:layout['blocks'].index(b) + 1]
                            if x['kind'] == 'symplirosi')
         label = 'Τοποθέτησης' if b['kind'] == 'topothetisi' else f'Συμπλ.{idx_in_symp}'
-        headers += [f'Σχολείο {label}', f'Ώρες {label}', f'Ενδεικτικές {label}']
+        headers += [f'Σχολείο {label}']
+        headers += [f'Ενδ. {ind_label} {label}' for _, ind_label in b['indicative']]
     headers += ['Σύνολο Ωρών', 'Υπόλοιπο για Τοποθέτηση', 'Απουσίες', 'Παρατηρήσεις']
 
     out_rows = []
@@ -219,13 +293,11 @@ def _build_family_b_sheet(wb, wb1, lookup_factory, sheet_name, code_prefix, out_
         all_hours = []
         for b in layout['blocks']:
             school = _s(sh.cell_value(r, b['school']))
-            hrs = _num(sh.cell_value(r, b['hours'])) if b['hours'] is not None else None
-            indic = sum(v for v in (_num(sh.cell_value(r, ic)) for ic in b['indicative']) if v is not None) or None
-            block_vals += [school, hrs, indic]
-            if hrs is not None:
-                all_hours.append(hrs)
-            if indic is not None:
-                all_hours.append(indic)
+            indic_vals = [_num(sh.cell_value(r, ic)) for ic, _ in b['indicative']]
+            block_vals += [school] + indic_vals
+            for v in indic_vals:
+                if v is not None:
+                    all_hours.append(v)
 
         total = sum(all_hours) if all_hours else None
         apousies_v = _s(sh.cell_value(r, layout['apousies'])) if layout['apousies'] is not None else ''
@@ -268,7 +340,10 @@ def _build_family_b_sheet(wb, wb1, lookup_factory, sheet_name, code_prefix, out_
     remain_col = headers.index('Υπόλοιπο για Τοποθέτηση') + 1
     _style_sheet(ws, headers, remain_col, ms_col, name_mand_col, len(out_rows))
 
-    widths = [6, 20, 22, 11, 7, 11] + [26, 8, 9] * len(layout['blocks']) + [10, 11, 18, 18]
+    widths = [6, 20, 22, 11, 7, 11]
+    for b in layout['blocks']:
+        widths += [26] + [9] * len(b['indicative'])
+    widths += [10, 11, 18, 18]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -280,7 +355,9 @@ def _build_family_b_sheet(wb, wb1, lookup_factory, sheet_name, code_prefix, out_
         (f'Δομή: {n_topo} σχολείο τοποθέτησης + {n_symp} σχολεία συμπλήρωσης ανά εκπαιδευτικό '
          '(ανιχνεύτηκε από τις επικεφαλίδες του πρωτότυπου αρχείου).', False, 10),
         ('Οι "Ενδεικτικές" ώρες κάθε σχολείου προστίθενται κανονικά στο "Σύνολο Ωρών".', False, 10),
-        (f'Υποχρεωτικό MySchool: από 4.1 (πρώτα) → 4.2 (αν δεν βρεθεί), κωδικός ειδικότητας "{code_prefix}".', False, 10),
+        (f'Υποχρεωτικό MySchool: από 4.1 (πρώτα) → 4.2 → '
+         + ('αναπληρωτές (αν δεν βρεθεί εκεί)' if has_repl else '(αν δεν βρεθεί στο 4.2)')
+         + f', κωδικός ειδικότητας "{code_prefix}".', False, 10),
         (f'Κάλυψη: {covered}/{len(real_teachers)} πραγματικών εκπαιδευτικών.', False, 10),
         ('', False, 10),
     ]
@@ -331,7 +408,7 @@ def _classify_family_a(hdr):
                 apousies=apousies, paratiriseis=paratiriseis)
 
 
-def _build_family_a_sheet(wb, wb1, lookup_factory, sheet_name, code_prefix, out_title, max_symp=4):
+def _build_family_a_sheet(wb, wb1, lookup_factory, sheet_name, code_prefix, out_title, max_symp=4, has_repl=False):
     sh = wb1.sheet_by_name(sheet_name)
     hdr = [_s(sh.cell_value(0, c)) for c in range(sh.ncols)]
     L = _classify_family_a(hdr)
@@ -442,7 +519,9 @@ def _build_family_a_sheet(wb, wb1, lookup_factory, sheet_name, code_prefix, out_
         ('"Σύνολο Ωρών (MySchool αρχείο)" = η τιμή που είχε ήδη το πρωτότυπο αρχείο. '
          '"Σύνολο Ωρών (υπολογισμένο)" = άθροισμα όλων των ωρών/αναθέσεων — κρατήθηκαν και τα δύο '
          'για διασταύρωση.', False, 10),
-        (f'Υποχρεωτικό MySchool: από 4.1 (πρώτα) → 4.2 (αν δεν βρεθεί), κωδικός ειδικότητας "{code_prefix}".', False, 10),
+        (f'Υποχρεωτικό MySchool: από 4.1 (πρώτα) → 4.2 → '
+         + ('αναπληρωτές (αν δεν βρεθεί εκεί)' if has_repl else '(αν δεν βρεθεί στο 4.2)')
+         + f', κωδικός ειδικότητας "{code_prefix}".', False, 10),
         (f'Κάλυψη: {covered}/{len(real_teachers)} πραγματικών εκπαιδευτικών.', False, 10),
         ('', False, 10),
     ]
@@ -504,10 +583,15 @@ def _cross_check_second_file(wb1, wb2_path):
 # ══════════════════════════════════════════════════════════════════════════
 
 def build_workbook(xls1_path, csv41_path, csv42_path, out_path, xls2_path=None,
-                    progress_cb=None):
+                    repl_path=None, progress_cb=None):
     """Χτίζει το βιβλίο εργασίας με όλες τις ειδικότητες και το αποθηκεύει
     στο `out_path`. Επιστρέφει dict με summary στατιστικά ανά ειδικότητα
     (για εμφάνιση στο UI μετά την εκτέλεση).
+
+    repl_path: προαιρετικό αρχείο τοποθετήσεων αναπληρωτών (Topoth_AFM_*.xlsx)
+    — χρησιμοποιείται σαν 3η πηγή (μετά τα 4.1/4.2) για το «Υποχρεωτικό
+    MySchool», ώστε να καλύπτονται εκπαιδευτικοί που δεν εμφανίζονται ακόμα
+    στα στατιστικά 4.1/4.2 (π.χ. πρόσφατα προσληφθέντες αναπληρωτές).
 
     progress_cb(text): προαιρετικό callback για ενημέρωση προόδου στο UI.
     """
@@ -518,7 +602,8 @@ def build_workbook(xls1_path, csv41_path, csv42_path, out_path, xls2_path=None,
     wb1 = xlrd.open_workbook(xls1_path)
     rows41_all = _load_csv_rows(csv41_path)
     rows42_all = _load_csv_rows(csv42_path)
-    lookup_factory = lambda code_prefix: _make_lookup(rows41_all, rows42_all, code_prefix)
+    rows_repl_all = _load_xlsx_rows(repl_path) if repl_path else None
+    lookup_factory = lambda code_prefix: _make_lookup(rows41_all, rows42_all, code_prefix, rows_repl_all)
 
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
@@ -538,9 +623,9 @@ def build_workbook(xls1_path, csv41_path, csv42_path, out_path, xls2_path=None,
             continue
         try:
             if family == 'A':
-                notes = _build_family_a_sheet(wb, wb1, lookup_factory, sheet_name, code_prefix, title)
+                notes = _build_family_a_sheet(wb, wb1, lookup_factory, sheet_name, code_prefix, title, has_repl=bool(rows_repl_all))
             else:
-                notes = _build_family_b_sheet(wb, wb1, lookup_factory, sheet_name, code_prefix, title)
+                notes = _build_family_b_sheet(wb, wb1, lookup_factory, sheet_name, code_prefix, title, has_repl=bool(rows_repl_all))
             all_notes.append((title, notes))
             summary.append((title, True, ''))
         except Exception as e:
