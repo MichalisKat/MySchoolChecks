@@ -1114,6 +1114,8 @@ def _send_loop(config, test_mode, title, today, subject_base, body_template,
             print(f'   ⚠  {len(bad_format)} σχολεία με λάθος format email — θα παραλειφθούν.')
 
         ok = fail = 0
+        _sample_sent = None  # (school, email, path) του ΠΡΩΤΟΥ επιτυχημένου send —
+                              # για προαιρετικό «δείγμα αντιγράφου» πιο κάτω.
         for school, path_s in school_files.items():
             df_s    = df_out[df_out[scol] == school]
             email_s = str(df_s[ecol].iloc[0]).strip() if ecol in df_s.columns else ''
@@ -1126,6 +1128,8 @@ def _send_loop(config, test_mode, title, today, subject_base, body_template,
                 send_email(config, [email_s], subject, body, path_s)
                 print(f'  ✓ {str(school)[:50]} → {email_s}')
                 ok += 1
+                if _sample_sent is None:
+                    _sample_sent = (school, email_s, path_s, body)
             except Exception as e:
                 print(f'  ✗ {str(school)[:50]} → {e}')
                 fail += 1
@@ -1140,6 +1144,30 @@ def _send_loop(config, test_mode, title, today, subject_base, body_template,
                 if email_s and '@' in email_s and email_s not in ('', 'nan', 'None'):
                     sent_schools.append(str(school))
             _send_notify(config, title, today, ok, sent_schools)
+
+            # Προαιρετικό (opt-in ανά check_module, βλ. SEND_SAMPLE_COPY):
+            # στέλνει ΞΕΧΩΡΙΣΤΑ ΕΝΑ πραγματικό αντίγραφο (κείμενο προτύπου +
+            # συνημμένο) — από ΕΝΑ μόνο σχολείο (το πρώτο που στάλθηκε
+            # επιτυχώς), όχι από όλα — στο ίδιο notify address, ώστε να
+            # φαίνεται το πραγματικό περιεχόμενο που έφυγε. Best-effort: ΔΕΝ
+            # μπορεί ποτέ να μπλοκάρει/ακυρώσει την κανονική αποστολή — τυχόν
+            # σφάλμα εδώ απλά τυπώνεται.
+            if _sample_sent and check_module is not None \
+                    and getattr(check_module, 'SEND_SAMPLE_COPY', False):
+                try:
+                    _s_school, _s_email, _s_path, _s_body = _sample_sent
+                    notify = (getattr(config, 'NOTIFY_EMAIL', '').strip()
+                              or getattr(config, 'FROM_EMAIL', '').strip())
+                    if notify:
+                        send_email(
+                            config, notify,
+                            f'[Δείγμα αντιγράφου] {subject}',
+                            f'(Δείγμα ΕΝΟΣ email από την κανονική αποστολή — '
+                            f'προς: {_s_school} <{_s_email}>)\n{"─"*40}\n\n{_s_body}',
+                            _s_path)
+                        print(f'  ✓ Δείγμα αντιγράφου εστάλη → {notify}  (από {_s_school})')
+                except Exception as e:
+                    print(f'  ⚠ Δείγμα αντιγράφου: {e}')
 
 
 # ═══════════════════════════════════════════════════════════════════

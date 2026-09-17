@@ -34,6 +34,9 @@ EMAIL_COLUMN      = 'Email'   # πραγματικό όνομα στήλης ema
 FORCE_DOCUMENTS_DIR = True   # πάντα Documents/MySchoolChecks/results_YYYYMMDD/...
                               # (και σε dev mode: python main.py) — όχι κάτω
                               # από τον φάκελο του project.
+SEND_SAMPLE_COPY   = True   # μετά την κανονική αποστολή, στέλνει ΕΝΑ πραγματικό
+                              # αντίγραφο (κείμενο+συνημμένο, από ΕΝΑ σχολείο)
+                              # στο NOTIFY_EMAIL/FROM_EMAIL — βλ. core/framework.py::_send_loop.
 
 EIDI_SXOLEION  = None  # Φιλτράρισμα βάσει αποκλεισμού "Ιδιωτικό"
 ADYN_FILTER    = 'ΑΔΥΝΑΤΟΥΝΤΕΣ'
