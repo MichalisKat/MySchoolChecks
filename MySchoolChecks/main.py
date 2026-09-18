@@ -5268,8 +5268,8 @@ class WorkHoursDetailsDialog(tk.Toplevel):
     _LBL_CLR = '#6A1B9A'
 
     _DESCRIPTIONS = [
-        'Γραμματειακή Υποστήριξη Συμπλήρωση',
-        'ΠΑΡΑΛΛΗΛΗ ΣΤΗΡΙΞΗ / ΣΤΗΡΙΞΗ ΑΠΟ Ε.Ε.Π.-Ε.Β.Π. Συμπλήρωση',
+        'Γραμματειακή Υποστήριξη',
+        'ΠΑΡΑΛΛΗΛΗ ΣΤΗΡΙΞΗ / ΣΤΗΡΙΞΗ ΑΠΟ Ε.Ε.Π.-Ε.Β.Π.',
     ]
 
     def __init__(self, parent):
@@ -5291,7 +5291,7 @@ class WorkHoursDetailsDialog(tk.Toplevel):
 
         self._build()
         self.update_idletasks()
-        self.geometry('620x560')
+        self.geometry('620x580')
         pw = parent.winfo_x() + (parent.winfo_width()  - self.winfo_width())  // 2
         ph = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
         self.geometry(f'+{pw}+{ph}')
@@ -5326,17 +5326,26 @@ class WorkHoursDetailsDialog(tk.Toplevel):
 
         tk.Label(body,
                  text='Απαιτείται: Α.Μ. ή/και Α.Φ.Μ.  +  Κωδικός ή/και Ονομασία Σχολείου  '
-                      '(προαιρετικά: Επώνυμο, Όνομα)',
+                      '(προαιρετικά: Επώνυμο, Όνομα)  —  ΣΥΝΙΣΤΑΤΑΙ ο Κωδικός Σχολείου, '
+                      'πιο αξιόπιστος από την ονομασία.',
                  bg=C['bg'], fg='#666666', font=('Arial', 8),
                  anchor='w', wraplength=580, justify='left').grid(
-            row=2, column=0, sticky='w', pady=(0, 10))
+            row=2, column=0, sticky='w', pady=(0, 2))
+
+        lbl_tpl = tk.Label(body, text='📥 Πρότυπο Excel',
+                            bg=C['bg'], fg='#1565C0',
+                            font=('Arial', 8, 'underline'), cursor='hand2')
+        lbl_tpl.grid(row=3, column=0, sticky='w', pady=(0, 10))
+        lbl_tpl.bind('<Button-1>',
+                      lambda e: _open_template_file(self, 'work_hours_details_template.xlsx'))
+        self._tpl_tool_label = 'Λεπτομέρειες ωραρίου'
 
         # Περιγραφή
         tk.Label(body, text='Περιγραφή:',
                  bg=C['bg'], fg=self._LBL_CLR,
-                 font=('Arial', 9, 'bold')).grid(row=3, column=0, sticky='w', pady=(0, 3))
+                 font=('Arial', 9, 'bold')).grid(row=4, column=0, sticky='w', pady=(0, 3))
         desc_frame = tk.Frame(body, bg=C['bg'])
-        desc_frame.grid(row=4, column=0, sticky='w', pady=(0, 10))
+        desc_frame.grid(row=5, column=0, sticky='w', pady=(0, 10))
         for opt in self._DESCRIPTIONS:
             tk.Radiobutton(desc_frame, text=opt, variable=self._desc_var, value=opt,
                             bg=C['bg'], font=('Arial', 9), anchor='w',
@@ -5345,26 +5354,26 @@ class WorkHoursDetailsDialog(tk.Toplevel):
         # Ισχύει από / έως
         tk.Label(body, text='Ισχύει από (ΗΗ/Μ/ΕΕΕΕ) — άδειο = η ημ. έναρξης τοποθέτησης του καθενός:',
                  bg=C['bg'], fg=self._LBL_CLR,
-                 font=('Arial', 9, 'bold')).grid(row=5, column=0, sticky='w', pady=(0, 3))
+                 font=('Arial', 9, 'bold')).grid(row=6, column=0, sticky='w', pady=(0, 3))
         tk.Entry(body, textvariable=self._from_var, font=('Arial', 9),
-                 relief='solid', bd=1, width=14).grid(row=6, column=0, sticky='w', pady=(0, 8))
+                 relief='solid', bd=1, width=14).grid(row=7, column=0, sticky='w', pady=(0, 8))
 
         tk.Label(body, text='Έως (ΗΗ/Μ/ΕΕΕΕ) — άδειο = η ημ. λήξης τοποθέτησης του καθενός:',
                  bg=C['bg'], fg=self._LBL_CLR,
-                 font=('Arial', 9, 'bold')).grid(row=7, column=0, sticky='w', pady=(0, 3))
+                 font=('Arial', 9, 'bold')).grid(row=8, column=0, sticky='w', pady=(0, 3))
         tk.Entry(body, textvariable=self._to_var, font=('Arial', 9),
-                 relief='solid', bd=1, width=14).grid(row=8, column=0, sticky='w', pady=(0, 10))
+                 relief='solid', bd=1, width=14).grid(row=9, column=0, sticky='w', pady=(0, 10))
 
         tk.Label(body,
                  text='Οι ΩΡΕΣ της νέας εγγραφής παίρνουν πάντα, για τον καθένα, την τιμή που ήδη '
                       'έχει στις «Διαθέσιμες ώρες μονάδας».',
                  bg=C['bg'], fg='#666666', font=('Arial', 8),
                  anchor='w', wraplength=580, justify='left').grid(
-            row=9, column=0, sticky='w', pady=(0, 8))
+            row=10, column=0, sticky='w', pady=(0, 8))
 
         # Κουμπί εκτέλεσης
         btn_row = tk.Frame(body, bg=C['bg'])
-        btn_row.grid(row=10, column=0, sticky='w', pady=(0, 8))
+        btn_row.grid(row=11, column=0, sticky='w', pady=(0, 8))
         self._conn_btn = tk.Button(btn_row,
                   text='▶  Σύνδεση & Εκτέλεση',
                   bg=C['btn_bg'], fg=C['btn_fg'],
@@ -5377,17 +5386,17 @@ class WorkHoursDetailsDialog(tk.Toplevel):
         self._status_var = tk.StringVar(value='Επίλεξε αρχείο και πάτα Σύνδεση & Εκτέλεση.')
         tk.Label(body, textvariable=self._status_var,
                  bg=C['bg'], fg=C['status_run'],
-                 font=('Arial', 8), anchor='w').grid(row=11, column=0, sticky='w', pady=(0, 4))
+                 font=('Arial', 8), anchor='w').grid(row=12, column=0, sticky='w', pady=(0, 4))
 
         # Log
         tk.Label(body, text='Αρχείο καταγραφής:',
                  bg=C['bg'], fg=self._LBL_CLR,
-                 font=('Arial', 9, 'bold')).grid(row=12, column=0, sticky='w', pady=(4, 2))
+                 font=('Arial', 9, 'bold')).grid(row=13, column=0, sticky='w', pady=(4, 2))
         self._log = st2.ScrolledText(body, height=12, font=('Consolas', 8),
                                       relief='solid', bd=1, state='disabled',
                                       bg='#F5F5F5', wrap=tk.WORD)
-        self._log.grid(row=13, column=0, sticky='nsew', pady=(0, 4))
-        body.rowconfigure(13, weight=1)
+        self._log.grid(row=14, column=0, sticky='nsew', pady=(0, 4))
+        body.rowconfigure(14, weight=1)
 
         self.protocol('WM_DELETE_WINDOW', self._on_close)
 

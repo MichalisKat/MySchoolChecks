@@ -64,13 +64,20 @@ BASE_URL     = 'https://app.myschool.sch.gr'
 SEARCH_URL   = BASE_URL + '/Worker.list.myEmplUnit.aspx'
 TIME_TO_WAIT = 15
 
-# Οι δύο επιλογές περιγραφής — ΑΚΡΙΒΕΣ κείμενο όπως εμφανίζεται στο
-# dropdown του MySchool (cmbWorkHoursDetailsType), κατηγορία
-# «συμπλήρωση» ήδη ενσωματωμένη στο κείμενο.
+# Οι δύο επιλογές περιγραφής — ΑΚΡΙΒΕΣ κείμενο της στήλης «Περιγραφή» στο
+# dropdown του combo περιγραφής (cmbWorkHoursDetailsType), ΧΩΡΙΣ την
+# κατηγορία — ίδιο μοτίβο με το WORK_TYPE_TEXT = 'Γραμματειακή Υποστήριξη'
+# του editor.py (Ε5). Το ίδιο dropdown εμφανίζεται σαν πίνακας 2 στηλών
+# (Περιγραφή | Κατηγορία) — η ΙΔΙΑ περιγραφή μπορεί να έχει πάνω από μία
+# γραμμή με διαφορετική κατηγορία (πχ Συμπλήρωση/Υπερωρία), οπότε η
+# επιλογή γίνεται με βάση τον ΣΥΝΔΥΑΣΜΟ περιγραφής+κατηγορίας μέσα στο
+# ίδιο combo (βλ. _select_description_combo).
 DESCRIPTION_OPTIONS = [
-    'Γραμματειακή Υποστήριξη Συμπλήρωση',
-    'ΠΑΡΑΛΛΗΛΗ ΣΤΗΡΙΞΗ / ΣΤΗΡΙΞΗ ΑΠΟ Ε.Ε.Π.-Ε.Β.Π. Συμπλήρωση',
+    'Γραμματειακή Υποστήριξη',
+    'ΠΑΡΑΛΛΗΛΗ ΣΤΗΡΙΞΗ / ΣΤΗΡΙΞΗ ΑΠΟ Ε.Ε.Π.-Ε.Β.Π.',
 ]
+
+CATEGORY_TEXT = 'Συμπλήρωση'
 
 TYPE_COMBO_BASE_ID = 'ctl00_ContentData_gridEmplDet_editnew_2_cmbWorkHoursDetailsType'
 ADD_BTN_ID          = 'ctl00_ContentData_gridEmplDet_header0_new'
@@ -81,6 +88,8 @@ NEW_ROW_DATE_TO_ID   = 'ctl00_ContentData_gridEmplDet_DXEditor6_I'
 CARD_HOURS_ID     = 'ctl00_ContentData_txtAvailableHoursForUnit_I'
 CARD_DATE_FROM_ID = 'ctl00_ContentData_dtDutyStartDate_I'
 CARD_DATE_TO_ID   = 'ctl00_ContentData_dtDutyStopDate_I'
+
+GRID_ID = 'ctl00_ContentData_gridEmplDet'
 
 
 # ── Ανάγνωση Excel ───────────────────────────────────────────────────────────
@@ -235,6 +244,47 @@ def _dispatch_keyboard_value(driver, field, value):
     """, field, value)
 
 
+def _fill_search_field(driver, field_id, value, log):
+    """Συμπληρώνει το πεδίο αναζήτησης (field_id) με value, ΕΠΙΒΕΒΑΙΩΝΟΝΤΑΣ
+    ότι η τιμή όντως «κόλλησε» στο DOM — αν όχι, δοκιμάζει fallback με
+    πραγματικό πληκτρολόγημα (Selenium send_keys) πριν παραιτηθεί.
+    Επιστρέφει το WebElement του πεδίου (για να ξαναδιαβαστεί αν χρειαστεί)."""
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+
+    field = WebDriverWait(driver, TIME_TO_WAIT).until(
+        EC.presence_of_element_located((By.ID, field_id)))
+
+    _dispatch_keyboard_value(driver, field, value)
+    time.sleep(0.5)
+    current = (field.get_attribute('value') or '').strip()
+
+    if current != value:
+        log(f'  ⚠ Το πεδίο έμεινε «{current}» αντί για «{value}» μετά το JS — '
+            f'δοκιμή με πραγματικό πληκτρολόγημα...')
+        try:
+            driver.execute_script('arguments[0].click();', field)
+            time.sleep(0.2)
+            field.clear()
+            time.sleep(0.2)
+            field.send_keys(value)
+            time.sleep(0.3)
+            field.send_keys('\t')  # blur -> trigger change/lostfocus handlers
+            time.sleep(0.5)
+        except Exception as e:
+            log(f'  ⚠ Fallback πληκτρολόγηση απέτυχε: {e}')
+        current = (field.get_attribute('value') or '').strip()
+
+    if current != value:
+        log(f'  ✗ Το πεδίο αναζήτησης ΔΕΝ συμπληρώθηκε σωστά (τελική τιμή: «{current}») — '
+            'η αναζήτηση πιθανόν θα επιστρέψει λάθος/όλα τα αποτελέσματα')
+    else:
+        log(f'  ✓ Πεδίο αναζήτησης επιβεβαιώθηκε: «{current}»')
+
+    return field
+
+
 def _search_person(driver, person, log):
     """Ψάχνει με ΑΦΜ (αν υπάρχει) αλλιώς με Α.Μ. Επιστρέφει λίστα edit
     links (Διόρθωση)."""
@@ -252,10 +302,7 @@ def _search_person(driver, person, log):
         field_id, value = 'ctl00_ContentData_txtRegistryNo_I', person['am']
         log(f'  Αναζήτηση με Α.Μ.: {value}')
 
-    field = WebDriverWait(driver, TIME_TO_WAIT).until(
-        EC.presence_of_element_located((By.ID, field_id)))
-    _dispatch_keyboard_value(driver, field, value)
-    time.sleep(1)
+    _fill_search_field(driver, field_id, value, log)
 
     search_link = WebDriverWait(driver, TIME_TO_WAIT).until(
         EC.element_to_be_clickable((By.CSS_SELECTOR, 'a.hint_search')))
@@ -302,13 +349,45 @@ def _pick_matching_row(driver, edit_links, school_name_norm, school_code, log):
     return None, 'ambiguous'
 
 
-def _select_dxe_combo(driver, base_id, text, log):
-    """Επιλέγει τιμή από DevExpress ComboBox με πληκτρολόγηση + κλικ στο
-    ταιριαστό στοιχείο (ίδιος μηχανισμός με το editor.py)."""
+def _normalize_combo_text(s):
+    """Κανονικοποίηση κειμένου επιλογής combo για ανεκτική σύγκριση —
+    αφαιρεί τόνους, πεζά/κεφαλαία, περιττά κενά."""
+    import re
+    import unicodedata
+    if not s:
+        return ''
+    s = unicodedata.normalize('NFD', s)
+    s = ''.join(ch for ch in s if unicodedata.category(ch) != 'Mn')
+    s = s.upper()
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+
+def _select_description_combo(driver, base_id, description_text, category_text, log):
+    """
+    Επιλέγει από το combo περιγραφής — το dropdown ΕΙΝΑΙ ΕΝΑ combo, αλλά
+    εμφανίζεται σαν ΠΙΝΑΚΑΣ ΔΥΟ ΣΤΗΛΩΝ («Περιγραφή» | «Κατηγορία»), όπου η
+    ΙΔΙΑ περιγραφή μπορεί να εμφανίζεται σε πάνω από μία γραμμές με
+    διαφορετική κατηγορία (πχ «Συμπλήρωση» / «Υπερωρία») — επιβεβαιωμένο
+    από screenshot του χρήστη. Άρα ΔΕΝ αρκεί να ταιριάξουμε μόνο την
+    περιγραφή (διφορούμενο)· πρέπει να βρούμε τη ΓΡΑΜΜΗ όπου ταιριάζουν
+    ΚΑΙ τα δύο κελιά — περιγραφή ΚΑΙ κατηγορία.
+
+    1. Πληκτρολογεί ένα διακριτό «κομμάτι-κλειδί» (πρώτο τμήμα πριν το '/')
+       για να φιλτράρει τη λίστα.
+    2. Ομαδοποιεί τα ορατά td[dxtext] κελιά ανά γραμμή (κοινό ancestor tr)
+       και καταγράφει ΟΛΕΣ τις γραμμές που βρέθηκαν (για έλεγχο).
+    3. Διαλέγει τη ΜΟΝΑΔΙΚΗ γραμμή όπου κάποιο κελί ταιριάζει με την
+       περιγραφή ΚΑΙ κάποιο άλλο κελί περιέχει την κατηγορία. Αν δεν
+       προκύψει μοναδική → ΔΕΝ επιλέγει τίποτα (δεν μαντεύουμε).
+    """
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.common.keys import Keys
+
+    search_key = description_text.split('/')[0].strip()
+    if len(search_key) > 20:
+        search_key = search_key[:20]
 
     try:
         inp = driver.find_element(By.ID, base_id + '_I')
@@ -316,25 +395,135 @@ def _select_dxe_combo(driver, base_id, text, log):
         time.sleep(0.5)
         inp.clear()
         time.sleep(0.3)
-        for char in text:
+        for char in search_key:
             inp.send_keys(char)
             time.sleep(0.05)
         time.sleep(1.5)
-        try:
-            item = WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, f'td[dxtext="{text}"]')))
-            driver.execute_script('arguments[0].click();', item)
-            time.sleep(0.5)
-            return True
-        except Exception:
-            pass
-        inp.send_keys(Keys.TAB)
-        time.sleep(0.5)
-        return True
     except Exception as e:
-        log(f'  ⚠ Combo {base_id}: {e}')
+        log(f'  ⚠ Άνοιγμα combo περιγραφής ({search_key!r}): {e}')
         return False
+
+    try:
+        cells = WebDriverWait(driver, 5).until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'td[dxtext]')))
+        visible_cells = [c for c in cells if c.is_displayed()]
+    except Exception:
+        visible_cells = []
+
+    if not visible_cells:
+        log(f'  ⚠ Δεν εμφανίστηκαν επιλογές στο dropdown μετά την πληκτρολόγηση «{search_key}»')
+        return False
+
+    # Ομαδοποίηση ανά γραμμή (tr) — 2 στήλες (Περιγραφή/Κατηγορία). ΜΟΝΟ το
+    # κελί «Περιγραφή» έχει το attribute dxtext (χρησιμοποιείται για να
+    # εντοπίσουμε/κλικάρουμε τη γραμμή) — το κελί «Κατηγορία» ΔΕΝ το έχει,
+    # οπότε διαβάζουμε το ΠΛΗΡΕΣ ορατό κείμενο της κάθε γραμμής (tr.text)
+    # για να δούμε και τις δύο στήλες μαζί.
+    seen_tr_ids = set()
+    row_entries = []   # [(tr_element, click_cell, full_row_text)]
+    for c in visible_cells:
+        try:
+            tr = c.find_element(By.XPATH, './ancestor::tr[1]')
+        except Exception:
+            continue
+        if tr.id in seen_tr_ids:
+            continue
+        seen_tr_ids.add(tr.id)
+        try:
+            row_text = tr.text
+        except Exception:
+            row_text = c.get_attribute('dxtext') or ''
+        row_entries.append((tr, c, row_text))
+
+    if not row_entries:
+        log('  ⚠ Δεν εντοπίστηκαν γραμμές (tr) στο dropdown')
+        return False
+
+    log('  ℹ Γραμμές που βρέθηκαν στο dropdown περιγραφής (για έλεγχο):')
+    for _, _, row_text in row_entries:
+        log('      • ' + ' | '.join(row_text.splitlines()))
+
+    desc_norm  = _normalize_combo_text(description_text)
+    desc_core  = _normalize_combo_text(search_key)
+    categ_norm = _normalize_combo_text(category_text)
+
+    matching = []
+    for tr, click_cell, row_text in row_entries:
+        row_norm = _normalize_combo_text(row_text)
+        has_desc = desc_norm in row_norm or (desc_core and desc_core in row_norm)
+        has_categ = bool(categ_norm) and categ_norm in row_norm
+        if has_desc and has_categ:
+            matching.append((tr, click_cell, row_text))
+
+    if len(matching) != 1:
+        log(f'  ✗ Δεν βρέθηκε ΜΟΝΑΔΙΚΗ γραμμή για περιγραφή «{description_text}» + '
+            f'κατηγορία «{category_text}» ({len(matching)} ταίριασμα(-τα)) — καμία επιλογή '
+            '(δεν μαντεύουμε)')
+        return False
+
+    _, target_cell, row_text = matching[0]
+
+    # ΣΗΜΑΝΤΙΚΟ (bugfix): ένα JS execute_script(...).click() στο <td> ΚΛΕΙΝΕΙ
+    # οπτικά το dropdown αλλά ΔΕΝ γεμίζει πάντα το πεδίο «Περιγραφή ωραρίου
+    # εργασίας» — επιβεβαιώθηκε με screenshot του χρήστη: το πεδίο έμενε
+    # ΚΕΝΟ και το «Αποδοχή» πετούσε server-side σφάλμα («Object reference
+    # not set to an instance of an object.») επειδή προσπαθούσαμε να
+    # αποδεχτούμε γραμμή χωρίς πραγματική επιλογή. Γι' αυτό ΕΔΩ κάνουμε
+    # πραγματικό κλικ ποντικιού (όχι JS) και ΕΠΙΒΕΒΑΙΩΝΟΥΜΕ ότι το πεδίο
+    # όντως γέμισε πριν πούμε "OK" — αλλιώς δεν προχωράμε καθόλου σε
+    # Αποδοχή (δεν μαντεύουμε, δεν στέλνουμε άδεια φόρμα).
+    from selenium.webdriver.common.action_chains import ActionChains
+
+    def _combo_value():
+        try:
+            return (driver.find_element(By.ID, base_id + '_I').get_attribute('value') or '').strip()
+        except Exception:
+            return ''
+
+    for attempt in range(1, 4):
+        try:
+            driver.execute_script('arguments[0].scrollIntoView({block:"center"});', target_cell)
+            time.sleep(0.2)
+            if attempt == 1:
+                target_cell.click()
+            elif attempt == 2:
+                ActionChains(driver).move_to_element(target_cell).click().perform()
+            else:
+                driver.execute_script('arguments[0].click();', target_cell)
+            time.sleep(0.6)
+        except Exception as e:
+            log(f'  ⚠ Κλικ στη γραμμή (προσπάθεια {attempt}) απέτυχε: {e}')
+            continue
+
+        confirmed = _normalize_combo_text(_combo_value())
+        if desc_norm in confirmed or (desc_core and desc_core in confirmed):
+            log(f'  ✓ Επιλέχθηκε γραμμή (επιβεβαιωμένο στο πεδίο): ' +
+                ' | '.join(row_text.splitlines()))
+            return True
+        log(f'  ⚠ Μετά το κλικ (προσπάθεια {attempt}) το πεδίο περιγραφής δείχνει '
+            f'«{_combo_value()}» — δεν επιβεβαιώθηκε η επιλογή, νέα προσπάθεια...')
+
+    log(f'  ✗ Το πεδίο περιγραφής ΔΕΝ γέμισε μετά την επιλογή γραμμής «{description_text}» / '
+        f'«{category_text}» — καμία επιλογή (δεν στέλνουμε άδεια/ημιτελή φόρμα)')
+    return False
+
+
+def _date_in_text(date_str, normalized_text):
+    """Ελέγχει αν η ημερομηνία date_str (πχ '7/9/2026') εμφανίζεται μέσα στο
+    ήδη κανονικοποιημένο (μέσω _normalize_combo_text) κείμενο, ΑΝΕΞΑΡΤΗΤΩΣ
+    leading zeros — ο πίνακας «Λεπτομέρειες ωραρίου» συχνά εμφανίζει τις
+    ημερομηνίες ως «07/09/2026» ενώ το πεδίο της καρτέλας/φόρμας δίνει
+    «7/9/2026» (χωρίς μηδενικά), οπότε το απλό substring απέτυχε ψευδώς."""
+    import re
+    m = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', (date_str or '').strip())
+    if not m:
+        return date_str in normalized_text
+    d, mo, y = (int(x) for x in m.groups())
+    candidates = {
+        f'{d}/{mo}/{y}', f'{d:02d}/{mo:02d}/{y}',
+        f'{d:02d}/{mo}/{y}', f'{d}/{mo:02d}/{y}',
+    }
+    return any(c in normalized_text for c in candidates)
 
 
 def _set_dxe_value(driver, element_id, value):
@@ -440,8 +629,11 @@ def process_person(driver, person, description_text, fixed_date_from, fixed_date
         return 'error'
 
     # ── Περιγραφή ─────────────────────────────────────────────────────────
-    ok_c = _select_dxe_combo(driver, TYPE_COMBO_BASE_ID, description_text, log)
-    log(f'  {"✓" if ok_c else "⚠"} Περιγραφή: {description_text}')
+    ok_c = _select_description_combo(driver, TYPE_COMBO_BASE_ID, description_text, CATEGORY_TEXT, log)
+    if not ok_c:
+        log(f'  ✗ Δεν επιλέχθηκε περιγραφή «{description_text}» — παράλειψη εγγραφής '
+            '(δεν αποθηκεύουμε ημιτελή εγγραφή)')
+        return 'error'
 
     # ── Ώρες νέας εγγραφής ───────────────────────────────────────────────
     if person_hours:
@@ -458,36 +650,82 @@ def process_person(driver, person, description_text, fixed_date_from, fixed_date
                 el.dispatchEvent(new Event('change', {bubbles: true}));
                 aspxEValueChanged('ctl00_ContentData_gridEmplDet_DXEditor4');
             """, hours_inp, person_hours)
-            log(f'  ✓ Ώρες νέας εγγραφής: {person_hours}')
+            time.sleep(0.3)
+            confirmed_hours = (hours_inp.get_attribute('value') or '').strip()
+            if confirmed_hours == str(person_hours):
+                log(f'  ✓ Ώρες νέας εγγραφής επιβεβαιώθηκαν: «{confirmed_hours}»')
+            else:
+                log(f'  ⚠ Ώρες νέας εγγραφής: πεδίο δείχνει «{confirmed_hours}» αντί για '
+                    f'«{person_hours}»')
         except Exception as e:
             log(f'  ⚠ Ώρες φόρμα: {e}')
     else:
         log('  ⚠ Καμία τιμή ωρών να συμπληρωθεί στη νέα εγγραφή')
 
     # ── Ημερομηνίες ───────────────────────────────────────────────────────
-    try:
-        _set_dxe_value(driver, NEW_ROW_DATE_FROM_ID, date_from)
-        log(f'  ✓ Ημ. από: {date_from}')
-    except Exception as e:
-        log(f'  ⚠ Ημ. από: {e}')
-    try:
-        _set_dxe_value(driver, NEW_ROW_DATE_TO_ID, date_to)
-        log(f'  ✓ Ημ. έως: {date_to}')
-    except Exception as e:
-        log(f'  ⚠ Ημ. έως: {e}')
+    for field_id, val, label in (
+        (NEW_ROW_DATE_FROM_ID, date_from, 'Ημ. από'),
+        (NEW_ROW_DATE_TO_ID, date_to, 'Ημ. έως'),
+    ):
+        try:
+            _set_dxe_value(driver, field_id, val)
+            time.sleep(0.3)
+            confirmed = (driver.find_element(By.ID, field_id).get_attribute('value') or '').strip()
+            if confirmed == val:
+                log(f'  ✓ {label} επιβεβαιώθηκε: «{confirmed}»')
+            else:
+                log(f'  ⚠ {label}: πεδίο δείχνει «{confirmed}» αντί για «{val}»')
+        except Exception as e:
+            log(f'  ⚠ {label}: {e}')
 
     time.sleep(0.5)
 
     # ── Αποδοχή ───────────────────────────────────────────────────────────
+    # ΣΗΜΑΝΤΙΚΟ: επιβεβαιώθηκε (log χρήστη + χειροκίνητος έλεγχος στο ίδιο
+    # το MySchool) ότι όταν το combo περιγραφής παραμένει ΟΡΑΤΟ μετά το
+    # «Αποδοχή», η γραμμή ΔΕΝ έχει όντως καταχωρηθεί στο grid — το
+    # «Αποθήκευση» που ακολουθεί απλώς αποθηκεύει την καρτέλα ΧΩΡΙΣ τη νέα
+    # εγγραφή, και το log δείχνει ψευδώς «✓» παντού. Άρα ΕΔΩ μπλοκάρουμε αν
+    # η γραμμή δεν έχει όντως κλείσει — δεν το αγνοούμε πια σαν
+    # «πληροφοριακό».
+    def _row_still_editing():
+        try:
+            els = driver.find_elements(By.ID, TYPE_COMBO_BASE_ID + '_I')
+            return any(el.is_displayed() for el in els)
+        except Exception:
+            return False
+
     try:
         accept_btn = WebDriverWait(driver, TIME_TO_WAIT).until(
             EC.presence_of_element_located((By.XPATH, '//img[@alt="Αποδοχή"]')))
         driver.execute_script('arguments[0].click();', accept_btn)
         time.sleep(2)
-        log('  ✓ Αποδοχή')
     except Exception as e:
         log(f'  ✗ Αποδοχή: {e}')
         return 'error'
+
+    if _row_still_editing():
+        # 2η προσπάθεια: απευθείας κλήση του DevExpress client API αντί για
+        # κλικ στο <img> — πιο αξιόπιστο, ίδια ενέργεια με το εικονίδιο
+        # «Αποδοχή» (UpdateEdit κλείνει τη γραμμή επεξεργασίας του grid).
+        log('  ⚠ Η γραμμή παραμένει σε λειτουργία επεξεργασίας μετά το κλικ «Αποδοχή» — '
+            'δοκιμή μέσω client API του grid...')
+        try:
+            driver.execute_script(f"""
+                var g = ASPxClientGridView.Cast('{GRID_ID}');
+                if (g) g.UpdateEdit();
+            """)
+        except Exception as e:
+            log(f'  ⚠ Client API UpdateEdit: {e}')
+        time.sleep(2)
+
+    if _row_still_editing():
+        log('  ✗ Η γραμμή ΔΕΝ έγινε αποδεκτή — παραμένει σε λειτουργία επεξεργασίας και μετά '
+            'τις δύο προσπάθειες (κλικ + client API) — ΔΕΝ πατιέται Αποθήκευση ώστε να μη '
+            'χαθεί/μπερδευτεί η φόρμα (πιθανό πρόβλημα εγκυρότητας σε κάποιο πεδίο)')
+        return 'error'
+
+    log('  ✓ Αποδοχή (η γραμμή έκλεισε κανονικά)')
 
     # ── Αποθήκευση ────────────────────────────────────────────────────────
     try:
@@ -496,9 +734,30 @@ def process_person(driver, person, description_text, fixed_date_from, fixed_date
         driver.execute_script('arguments[0].click();', save_btn)
         time.sleep(3)
         log('  ✓ Αποθήκευση')
-        return 'ok'
     except Exception as e:
         log(f'  ✗ Αποθήκευση: {e}')
+        return 'error'
+
+    # ── Επιβεβαίωση ΜΕΤΑ την αποθήκευση: εμφανίζεται όντως η νέα εγγραφή
+    # στον πίνακα «Λεπτομέρειες ωραρίου εργασίας»; (ground-truth έλεγχος,
+    # αντί να υποθέτουμε ότι το Αποδοχή+Αποθήκευση «έπιασε»). ─────────────
+    try:
+        grid_el = driver.find_element(By.ID, GRID_ID)
+        grid_text = _normalize_combo_text(grid_el.text)
+    except Exception:
+        grid_text = _normalize_combo_text(driver.page_source)
+
+    desc_ok  = _normalize_combo_text(description_text) in grid_text
+    categ_ok = _normalize_combo_text(CATEGORY_TEXT) in grid_text
+    from_ok  = _date_in_text(date_from, grid_text)
+
+    if desc_ok and categ_ok and from_ok:
+        log('  ✓ Επιβεβαιώθηκε: η νέα εγγραφή εμφανίζεται στον πίνακα μετά την αποθήκευση')
+        return 'ok'
+    else:
+        log('  ⚠ ΔΕΝ επιβεβαιώθηκε ότι η νέα εγγραφή εμφανίζεται στον πίνακα μετά την '
+            f'αποθήκευση (περιγραφή βρέθηκε: {desc_ok}, κατηγορία: {categ_ok}, '
+            f'ημ. από: {from_ok}) — έλεγξε χειροκίνητα στο MySchool')
         return 'error'
 
 
