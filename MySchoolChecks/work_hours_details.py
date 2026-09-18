@@ -320,6 +320,14 @@ def _pick_matching_row(driver, edit_links, school_name_norm, school_code, log):
     """
     Μοναδικό ταίριασμα με βάση Ονομασία Σχολείου (κανονικοποιημένα, fuzzy)
     ή/και Κωδικό Σχολείου (κυριολεκτικό substring στο κείμενο γραμμής).
+
+    Αν η αναζήτηση (ΑΦΜ/Α.Μ.) επέστρεψε ΜΟΝΟ ΕΝΑ αποτέλεσμα συνολικά, αυτό
+    το αποτέλεσμα είναι ήδη μοναδικό (το άτομο δεν έχει άλλη τοποθέτηση) —
+    το εμπιστευόμαστε ΑΝΕΥ ΟΡΩΝ, ΧΩΡΙΣ να εφαρμόζουμε επιπλέον το φίλτρο
+    ονόματος/κωδικού σχολείου (ίδια λογική με το editor.py / Ε5:
+    `if len(edit_links) == 1: target = edit_links[0]`). Το φίλτρο σχολείου
+    χρησιμεύει μόνο για να διαλέξουμε ανάμεσα σε ΠΟΛΛΑΠΛΑ αποτελέσματα.
+
     Επιστρέφει (link, reason) — reason ∈ {'ok','notfound','ambiguous'}.
     """
     from selenium.webdriver.common.by import By
@@ -331,6 +339,9 @@ def _pick_matching_row(driver, edit_links, school_name_norm, school_code, log):
             rows.append((link, row.text))
         except Exception:
             continue
+
+    if len(rows) == 1:
+        return rows[0][0], 'ok'
 
     candidates = rows
     if school_name_norm:
@@ -431,18 +442,21 @@ def _select_work_type_combo(driver, base_id, text, log):
 def _date_in_text(date_str, normalized_text):
     """Ελέγχει αν η ημερομηνία date_str (πχ '7/9/2026') εμφανίζεται μέσα στο
     ήδη κανονικοποιημένο (μέσω _normalize_combo_text) κείμενο, ΑΝΕΞΑΡΤΗΤΩΣ
-    leading zeros — ο πίνακας «Λεπτομέρειες ωραρίου» συχνά εμφανίζει τις
-    ημερομηνίες ως «07/09/2026» ενώ το πεδίο της καρτέλας/φόρμας δίνει
-    «7/9/2026» (χωρίς μηδενικά), οπότε το απλό substring απέτυχε ψευδώς."""
+    leading zeros ΚΑΙ ανεξαρτήτως διαχωριστικού — ο πίνακας «Λεπτομέρειες
+    ωραρίου» εμφανίζει τις ημερομηνίες με ΠΑΥΛΑ και δύο ψηφία («07-09-2026»,
+    επιβεβαιωμένο με screenshot), ενώ το πεδίο της καρτέλας/φόρμας δίνει
+    «7/9/2026» με «/» και χωρίς μηδενικά — οπότε ελέγχουμε όλους τους
+    συνδυασμούς μηδενικού/χωρίς-μηδενικό ΚΑΙ «/»/«-»."""
     import re
     m = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', (date_str or '').strip())
     if not m:
         return date_str in normalized_text
     d, mo, y = (int(x) for x in m.groups())
-    candidates = {
-        f'{d}/{mo}/{y}', f'{d:02d}/{mo:02d}/{y}',
-        f'{d:02d}/{mo}/{y}', f'{d}/{mo:02d}/{y}',
-    }
+    candidates = set()
+    for sep in ('/', '-'):
+        for dd in (f'{d}', f'{d:02d}'):
+            for mm in (f'{mo}', f'{mo:02d}'):
+                candidates.add(f'{dd}{sep}{mm}{sep}{y}')
     return any(c in normalized_text for c in candidates)
 
 
@@ -591,7 +605,10 @@ def process_person(driver, person, description_text, fixed_date_from, fixed_date
             _set_dxe_value(driver, field_id, val)
             time.sleep(0.3)
             confirmed = (driver.find_element(By.ID, field_id).get_attribute('value') or '').strip()
-            if confirmed == val:
+            # Ανεκτική σύγκριση (leading zeros) — το πεδίο συχνά κανονικοποιεί
+            # την εμφάνιση («18/09/2026» -> «18/9/2026») χωρίς να αλλάζει την
+            # ουσιαστική τιμή, οπότε δεν είναι πραγματικό πρόβλημα.
+            if confirmed == val or _date_in_text(val, _normalize_combo_text(confirmed)):
                 log(f'  ✓ {label} επιβεβαιώθηκε: «{confirmed}»')
             else:
                 log(f'  ⚠ {label}: πεδίο δείχνει «{confirmed}» αντί για «{val}»')
@@ -776,14 +793,16 @@ def get_panic_path():
 
 def run_delete(ctx, driver, callback=None):
     """
-    ΛΗΞΗ — διαγράφει την ΠΡΩΤΗ («πιο πρόσφατη») εγγραφή στον πίνακα
-    «Λεπτομέρειες ωραρίου εργασίας» για κάθε άτομο του excel. ΙΔΙΑ λογική
-    με το editor.py (Ε5) run_delete: κλικ στο πρώτο εικονίδιο «Διαγραφή»
-    του πίνακα, ΧΩΡΙΣ έλεγχο περιγραφής/κατηγορίας/ημερομηνιών — σκοπός
-    είναι το γρήγορο undo αμέσως μετά από μια εσφαλμένη μαζική καταχώρηση,
-    όχι στοχευμένος καθαρισμός. Ο εντοπισμός ατόμου/σχολείου γίνεται όμως
-    με την πιο αξιόπιστη λογική του Ε7 (ΑΦΜ/Α.Μ. + Κωδικός/Ονομασία
-    Σχολείου), όχι το απλούστερο ταίριασμα του Ε5.
+    ΛΗΞΗ — διαγράφει την εγγραφή «Γραμματειακή Υποστήριξη» στον πίνακα
+    «Λεπτομέρειες ωραρίου εργασίας» για κάθε άτομο του excel. Σκοπός είναι
+    το γρήγορο undo αμέσως μετά από μια εσφαλμένη μαζική καταχώρηση, όχι
+    στοχευμένος καθαρισμός — ΧΩΡΙΣ έλεγχο ημερομηνιών/ωρών. Επειδή όμως οι
+    γραμμές του πίνακα δεν στοιχίζονται πάντα με προβλέψιμη σειρά (μπορεί
+    να υπάρχει ΚΑΙ άλλη, παλαιότερη εγγραφή), ΔΕΝ διαγράφουμε τυφλά την
+    πρώτη γραμμή· επιβεβαιώνουμε πρώτα ότι η γραμμή που θα διαγραφεί
+    περιέχει όντως «Γραμματειακή» — 0 ή >1 τέτοιες γραμμές → παράλειψη
+    (δεν μαντεύουμε). Ο εντοπισμός ατόμου/σχολείου γίνεται με την πιο
+    αξιόπιστη λογική του Ε7 (ΑΦΜ/Α.Μ. + Κωδικός/Ονομασία Σχολείου).
 
     ctx αναμενόμενα κλειδιά:
       'file_path' — η ίδια λίστα (ή ίδιας μορφής) με αυτή που χρησιμοποιήθηκε
@@ -847,16 +866,58 @@ def run_delete(ctx, driver, callback=None):
                 fail += 1
                 continue
 
-            # ── Κουμπί Διαγραφή (πρώτη γραμμή gridEmplDet) ─────────────────
+            # ── Κουμπί Διαγραφή — ΜΟΝΟ αν η γραμμή είναι όντως
+            # «Γραμματειακή Υποστήριξη» ────────────────────────────────────
+            # Οι γραμμές του πίνακα «Λεπτομέρειες ωραρίου εργασίας» δεν
+            # στοιχίζονται πάντα με προβλέψιμη σειρά (μπορεί να υπάρχει
+            # ΚΑΙ άλλη, παλαιότερη εγγραφή) — άρα ΔΕΝ παίρνουμε πλέον
+            # τυφλά το πρώτο εικονίδιο «Διαγραφή» στη σειρά DOM. Μαζεύουμε
+            # ΟΛΑ τα εικονίδια «Διαγραφή» της gridEmplDet, διαβάζουμε το
+            # κείμενο της γραμμής (ancestor <tr>) του καθενός, και
+            # προχωράμε ΜΟΝΟ αν ΑΚΡΙΒΩΣ ΜΙΑ γραμμή περιέχει «Γραμματειακή» —
+            # 0 ή >1 ταιριάσματα → παράλειψη με καθαρό log (δεν μαντεύουμε).
             try:
-                del_btn = WebDriverWait(driver, TIME_TO_WAIT).until(
-                    EC.presence_of_element_located(
-                        (By.XPATH, '//img[@alt="Διαγραφή" and contains(@onclick,"gridEmplDet")]')))
+                del_links = driver.find_elements(
+                    By.XPATH, '//img[@alt="Διαγραφή" and contains(@onclick,"gridEmplDet")]')
+            except Exception as e:
+                log(f'  ✗ Διαγραφή: {e}')
+                fail += 1
+                continue
+
+            if not del_links:
+                log('  ✗ Καμία εγγραφή στις «Λεπτομέρειες ωραρίου» προς διαγραφή')
+                fail += 1
+                continue
+
+            gram_candidates = []
+            for dl in del_links:
+                try:
+                    row = dl.find_element(By.XPATH, './ancestor::tr[1]')
+                    if 'ΓΡΑΜΜΑΤΕΙΑΚΗ' in _normalize_combo_text(row.text):
+                        gram_candidates.append(dl)
+                except Exception:
+                    continue
+
+            if len(gram_candidates) == 1:
+                del_btn = gram_candidates[0]
+            elif len(gram_candidates) == 0:
+                log(f'  ✗ Δεν βρέθηκε γραμμή «Γραμματειακή Υποστήριξη» προς διαγραφή '
+                    f'({len(del_links)} εγγραφή(-ές) συνολικά στον πίνακα) — παράλειψη '
+                    '(δεν διαγράφουμε άλλη/λάθος εγγραφή)')
+                fail += 1
+                continue
+            else:
+                log(f'  ⚠ Βρέθηκαν {len(gram_candidates)} γραμμές «Γραμματειακή Υποστήριξη» — '
+                    'παράλειψη (χειροκίνητος έλεγχος, δεν μαντεύουμε ποια)')
+                fail += 1
+                continue
+
+            try:
                 driver.execute_script('arguments[0].scrollIntoView({block:"center"});', del_btn)
                 time.sleep(0.5)
                 driver.execute_script('arguments[0].click();', del_btn)
                 time.sleep(1)
-                log('  Διαγραφή κλικ')
+                log('  Διαγραφή κλικ (επιβεβαιωμένη γραμμή «Γραμματειακή»)')
             except Exception as e:
                 log(f'  ✗ Διαγραφή: {e}')
                 fail += 1
