@@ -1204,17 +1204,14 @@ class LauncherApp:
              'desc': 'Έλεγχος υποχρεωτικού ωραρίου ΠΕ60/ΠΕ60.50 βάσει λειτουργικότητας νηπιαγωγείου '
                      'τοποθέτησης (2.1 + 4.1 + 4.2).',
              'cmd': self._run_orario_pe60},
-            {'title': 'Επιβεβαίωση Δ/νσης',
-             'desc': 'Καταχώρηση/αναίρεση Γραμματειακής Υποστήριξης (πρώην «PANIC») — Έναρξη ή Λήξη.',
-             'menu': [('▶  Έναρξη', self._open_editor), ('⏹  Λήξη', self._open_panic_end)]},
+            {'title': 'Λεπτομέρειες ωραρίου',
+             'desc': 'Καταχώρηση/αναίρεση (ΛΗΞΗ) εγγραφών στις Λεπτομέρειες ωραρίου εργασίας '
+                     'τοποθέτησης (Γραμματειακή Υποστήριξη ή Παράλληλη Στήριξη/ΕΕΠ-ΕΒΠ).',
+             'cmd': lambda: WorkHoursDetailsDialog(self.root)},
             {'title': 'Καταχώρηση Απουσίας σε Οργανική',
              'desc': 'Αυτόματη καταχώρηση απουσίας Ολικής Διάθεσης στην οργανική τοποθέτηση '
                      'εκπαιδευτικών.',
              'cmd': lambda: AbsencesDialog(self.root)},
-            {'title': 'Λεπτομέρειες ωραρίου',
-             'desc': 'Καταχώρηση νέας εγγραφής στις Λεπτομέρειες ωραρίου εργασίας τοποθέτησης '
-                     '(Γραμματειακή Υποστήριξη ή Παράλληλη Στήριξη/ΕΕΠ-ΕΒΠ).',
-             'cmd': lambda: WorkHoursDetailsDialog(self.root)},
         ]
         for idx, item in enumerate(items, start=1):
             item['title'] = f"Ε{idx}. {item['title']}"
@@ -1336,12 +1333,6 @@ class LauncherApp:
 
     def _open_neo_school_year(self):
         NeoSchoolYearDialog(self.root)
-
-    def _open_editor(self):
-        EditorDialog(self.root)
-
-    def _open_panic_end(self):
-        PanicEndDialog(self.root)
 
     def _open_inform_email(self):
         InformEmailDialog(self.root)
@@ -5009,173 +5000,6 @@ class PlacementsDialog(tk.Toplevel):
         self.destroy()
 
 
-class EditorDialog(tk.Toplevel):
-    """Παράθυρο αυτόματης επεξεργασίας καρτέλας εκπαιδευτικού."""
-
-    _HDR_BG  = '#1A5276'   # σκούρο μπλε (διαφορετικό από Τοποθετήσεις)
-    _LBL_CLR = '#1A5276'
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title('Editor — Επεξεργασία Καρτέλας Εκπαιδευτικού')
-        self.configure(bg=C['bg'])
-        self.resizable(False, False)
-        self.transient(parent)
-        self._driver   = None
-        self._file_var = tk.StringVar()
-        from datetime import date as _date
-        self._date_var = tk.StringVar(value=_date.today().strftime('%d/%m/%Y'))
-
-        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
-        if os.path.exists(ico):
-            try: self.iconbitmap(ico)
-            except Exception: pass
-
-        self._build()
-        self.update_idletasks()
-        self.geometry('580x460')
-        pw = parent.winfo_x() + (parent.winfo_width()  - self.winfo_width())  // 2
-        ph = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
-        self.geometry(f'+{pw}+{ph}')
-
-    def _build(self):
-        from tkinter import scrolledtext as st2
-
-        hdr = tk.Frame(self, bg=self._HDR_BG, pady=10)
-        hdr.pack(fill='x')
-        tk.Label(hdr, text='✏  Editor — Επεξεργασία Καρτέλας Εκπαιδευτικού',
-                 bg=self._HDR_BG, fg='white',
-                 font=('Arial', 12, 'bold')).pack()
-
-        body = tk.Frame(self, bg=C['bg'], padx=16, pady=12)
-        body.pack(fill='both', expand=True)
-        body.columnconfigure(0, weight=1)
-
-        # Αρχείο
-        tk.Label(body, text='Αρχείο εκπαιδευτικών (Excel ή CSV):',
-                 bg=C['bg'], fg=self._LBL_CLR,
-                 font=('Arial', 9, 'bold')).grid(row=0, column=0, sticky='w', pady=(0, 3))
-        ff = tk.Frame(body, bg=C['bg'])
-        ff.grid(row=1, column=0, sticky='ew', pady=(0, 10))
-        ff.columnconfigure(0, weight=1)
-        tk.Entry(ff, textvariable=self._file_var, font=('Arial', 9),
-                 relief='solid', bd=1).pack(side='left', fill='x', expand=True)
-        tk.Button(ff, text='📂', bg=C['bg'], relief='flat', font=('Arial', 11),
-                  cursor='hand2', command=self._browse).pack(side='left', padx=(4, 0))
-
-        # Απαιτούμενες στήλες
-        note = tk.Label(body,
-                 text='Απαιτείται στήλη: Α.Φ.Μ.  |  Προαιρετική: Ονομασία Σχολείου (για επιλογή όταν υπάρχουν πολλά αποτελέσματα)',
-                 bg=C['bg'], fg='#666666', font=('Arial', 8), anchor='w', wraplength=520, justify='left')
-        note.grid(row=2, column=0, sticky='w', pady=(0, 2))
-
-        lbl_tpl = tk.Label(body, text='📥 Πρότυπο Excel',
-                            bg=C['bg'], fg='#1565C0',
-                            font=('Arial', 8, 'underline'), cursor='hand2')
-        lbl_tpl.grid(row=3, column=0, sticky='w', pady=(0, 10))
-        lbl_tpl.bind('<Button-1>',
-                      lambda e: _open_template_file(self, 'confirmation_template.xlsx'))
-        self._tpl_tool_label = 'Επιβεβαίωση Δ/νσης'
-
-        # Ημερομηνία
-        tk.Label(body, text='Ημερομηνία καταχώρησης (ΗΗ/ΜΜ/ΕΕΕΕ):',
-                 bg=C['bg'], fg=self._LBL_CLR,
-                 font=('Arial', 9, 'bold')).grid(row=4, column=0, sticky='w', pady=(0, 3))
-        date_row = tk.Frame(body, bg=C['bg'])
-        date_row.grid(row=5, column=0, sticky='w', pady=(0, 10))
-        tk.Entry(date_row, textvariable=self._date_var, font=('Arial', 9),
-                 relief='solid', bd=1, width=14).pack(side='left')
-        tk.Label(date_row, text='  (προεπιλογή: σήμερα)',
-                 bg=C['bg'], fg='#888888', font=('Arial', 8)).pack(side='left')
-
-        # Κουμπί ενοποιημένο
-        btn_row = tk.Frame(body, bg=C['bg'])
-        btn_row.grid(row=6, column=0, sticky='w', pady=(0, 8))
-        self._conn_btn = tk.Button(btn_row,
-                  text='▶  Σύνδεση & Εκτέλεση',
-                  bg=C['btn_bg'], fg=C['btn_fg'],
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=12, pady=5, cursor='hand2',
-                  command=self._connect_and_run)
-        self._conn_btn.pack(side='left')
-
-        edit_btn = tk.Button(btn_row, text='✏  Επεξεργασία αρχείου',
-                  bg=C['btn_dis'], fg=C['btn_fg'],
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=12, pady=5, cursor='hand2',
-                  activebackground=C['btn_dis'],
-                  command=lambda: _password_gate(
-                      self, lambda: _edit_file_stub(self, self._tpl_tool_label)))
-        edit_btn.pack(side='left', padx=(8, 0))
-
-        # Status
-        self._status_var = tk.StringVar(value='Επίλεξε αρχείο και πάτα Σύνδεση & Εκτέλεση.')
-        tk.Label(body, textvariable=self._status_var,
-                 bg=C['bg'], fg=C['status_run'],
-                 font=('Arial', 8), anchor='w').grid(row=7, column=0, sticky='w', pady=(0, 4))
-
-        # Log
-        tk.Label(body, text='Αρχείο καταγραφής:',
-                 bg=C['bg'], fg=self._LBL_CLR,
-                 font=('Arial', 9, 'bold')).grid(row=8, column=0, sticky='w', pady=(4, 2))
-        self._log = st2.ScrolledText(body, height=12, font=('Consolas', 8),
-                                      relief='solid', bd=1, state='disabled',
-                                      bg='#F5F5F5', wrap=tk.WORD)
-        self._log.grid(row=9, column=0, sticky='nsew', pady=(0, 4))
-        body.rowconfigure(9, weight=1)
-
-        self.protocol('WM_DELETE_WINDOW', self._on_close)
-
-    def _browse(self):
-        from tkinter import filedialog
-        path = filedialog.askopenfilename(
-            parent=self,
-            title='Επιλογή αρχείου εκπαιδευτικών',
-            filetypes=[('Excel/CSV', '*.xlsx *.xls *.csv'), ('Όλα', '*.*')])
-        if path:
-            self._file_var.set(path)
-
-    def _log_msg(self, msg):
-        def _do():
-            self._log.configure(state='normal')
-            self._log.insert(tk.END, msg + '\n')
-            self._log.see(tk.END)
-            self._log.configure(state='disabled')
-        self.after(0, _do)
-
-    def _connect_and_run(self):
-        import threading as _th
-        path = self._file_var.get().strip()
-        if not path:
-            messagebox.showwarning('Προσοχή', 'Επίλεξε αρχείο πρώτα.', parent=self)
-            return
-        self._conn_btn.configure(state='disabled', text='Εκτελείται...')
-        self._status_var.set('Σύνδεση στο MySchool...')
-        def _do():
-            import editor
-            drv = editor.connect(log=self._log_msg)
-            if not drv:
-                def _fail():
-                    self._conn_btn.configure(state='normal', text='▶  Σύνδεση & Εκτέλεση')
-                    self._status_var.set('Αποτυχία σύνδεσης — έλεγξε credentials στις Ρυθμίσεις.')
-                self.after(0, _fail)
-                return
-            self._driver = drv
-            self.after(0, lambda: self._status_var.set('Εκτέλεση...'))
-            editor.run({'file_path': path, 'date': self._date_var.get().strip()}, drv, callback=self._log_msg)
-            def _after():
-                self._conn_btn.configure(state='normal', text='▶  Σύνδεση & Εκτέλεση')
-                self._status_var.set('Ολοκλήρωση.')
-            self.after(0, _after)
-        _th.Thread(target=_do, daemon=True).start()
-
-    def _on_close(self):
-        if self._driver:
-            try: self._driver.quit()
-            except Exception: pass
-        self.destroy()
-
-
 class _NumberedChoiceDialog(tk.Toplevel):
     """Modal dialog επιλογής από αριθμημένη λίστα (thread-safe — καλείται από main thread)."""
 
@@ -5281,7 +5105,8 @@ class WorkHoursDetailsDialog(tk.Toplevel):
         self._driver       = None
         self._file_var     = tk.StringVar()
         self._desc_var     = tk.StringVar(value=self._DESCRIPTIONS[0])
-        self._from_var     = tk.StringVar()
+        from datetime import date as _date
+        self._from_var     = tk.StringVar(value=_date.today().strftime('%d/%m/%Y'))
         self._to_var       = tk.StringVar()
 
         ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
@@ -5346,13 +5171,24 @@ class WorkHoursDetailsDialog(tk.Toplevel):
                  font=('Arial', 9, 'bold')).grid(row=4, column=0, sticky='w', pady=(0, 3))
         desc_frame = tk.Frame(body, bg=C['bg'])
         desc_frame.grid(row=5, column=0, sticky='w', pady=(0, 10))
-        for opt in self._DESCRIPTIONS:
-            tk.Radiobutton(desc_frame, text=opt, variable=self._desc_var, value=opt,
-                            bg=C['bg'], font=('Arial', 9), anchor='w',
-                            wraplength=560, justify='left').pack(anchor='w')
+
+        row_gram = tk.Frame(desc_frame, bg=C['bg'])
+        row_gram.pack(anchor='w', fill='x')
+        tk.Radiobutton(row_gram, text=self._DESCRIPTIONS[0], variable=self._desc_var,
+                        value=self._DESCRIPTIONS[0], bg=C['bg'], font=('Arial', 9),
+                        anchor='w').pack(side='left')
+        self._lixi_btn = tk.Button(row_gram, text='⏹ ΛΗΞΗ',
+                  bg='#C62828', fg='white', font=('Arial', 7, 'bold'),
+                  relief='flat', padx=6, pady=1, cursor='hand2',
+                  command=self._open_lixi)
+        self._lixi_btn.pack(side='left', padx=(10, 0))
+
+        tk.Radiobutton(desc_frame, text=self._DESCRIPTIONS[1], variable=self._desc_var,
+                        value=self._DESCRIPTIONS[1], bg=C['bg'], font=('Arial', 9),
+                        anchor='w', wraplength=560, justify='left').pack(anchor='w')
 
         # Ισχύει από / έως
-        tk.Label(body, text='Ισχύει από (ΗΗ/Μ/ΕΕΕΕ) — άδειο = η ημ. έναρξης τοποθέτησης του καθενός:',
+        tk.Label(body, text='Ισχύει από (ΗΗ/Μ/ΕΕΕΕ) — προεπιλογή: σήμερα (άδειο = η ημ. έναρξης τοποθέτησης του καθενός):',
                  bg=C['bg'], fg=self._LBL_CLR,
                  font=('Arial', 9, 'bold')).grid(row=6, column=0, sticky='w', pady=(0, 3))
         tk.Entry(body, textvariable=self._from_var, font=('Arial', 9),
@@ -5448,6 +5284,57 @@ class WorkHoursDetailsDialog(tk.Toplevel):
             def _after():
                 self._conn_btn.configure(state='normal', text='▶  Σύνδεση & Εκτέλεση')
                 self._status_var.set('Ολοκλήρωση.')
+            self.after(0, _after)
+        _th.Thread(target=_do, daemon=True).start()
+
+    def _open_lixi(self):
+        from tkinter import filedialog
+        import work_hours_details
+
+        default_path = work_hours_details.get_panic_path()
+        path = filedialog.askopenfilename(
+            parent=self,
+            title='ΛΗΞΗ — Αρχείο (η ίδια λίστα με την καταχώρηση που θες να αναιρέσεις)',
+            initialdir=os.path.dirname(default_path) if default_path else '',
+            filetypes=[('Excel/CSV', '*.xlsx *.xls *.csv'), ('Όλα', '*.*')])
+        if not path:
+            path = default_path
+        if not path:
+            messagebox.showwarning('Προσοχή',
+                'Δεν βρέθηκε πρόσφατο αρχείο. Επίλεξε αρχείο.', parent=self)
+            return
+
+        if not messagebox.askyesno(
+                'Επιβεβαίωση ΛΗΞΗΣ',
+                'Θα διαγραφεί η ΠΡΩΤΗ («πιο πρόσφατη») εγγραφή Λεπτομερειών ωραρίου\n'
+                'για κάθε άτομο του αρχείου:\n\n' + path + '\n\n'
+                'ΧΩΡΙΣ έλεγχο περιγραφής/ημερομηνιών (ίδια λογική με το Ε5) — '
+                'χρησιμοποίησέ το μόνο για να αναιρέσεις πρόσφατη λανθασμένη '
+                'μαζική καταχώρηση. Συνέχεια;',
+                parent=self, icon='warning'):
+            return
+
+        import threading as _th
+        self._lixi_btn.configure(state='disabled', text='ΛΗΞΗ...')
+        self._conn_btn.configure(state='disabled')
+        self._status_var.set('Σύνδεση στο MySchool (ΛΗΞΗ)...')
+
+        def _do():
+            drv = work_hours_details.connect(log=self._log_msg)
+            if not drv:
+                def _fail():
+                    self._lixi_btn.configure(state='normal', text='⏹ ΛΗΞΗ')
+                    self._conn_btn.configure(state='normal')
+                    self._status_var.set('Αποτυχία σύνδεσης — έλεγξε credentials στις Ρυθμίσεις.')
+                self.after(0, _fail)
+                return
+            self._driver = drv
+            self.after(0, lambda: self._status_var.set('ΛΗΞΗ σε εξέλιξη...'))
+            work_hours_details.run_delete({'file_path': path}, drv, callback=self._log_msg)
+            def _after():
+                self._lixi_btn.configure(state='normal', text='⏹ ΛΗΞΗ')
+                self._conn_btn.configure(state='normal')
+                self._status_var.set('Ολοκλήρωση ΛΗΞΗΣ.')
             self.after(0, _after)
         _th.Thread(target=_do, daemon=True).start()
 
@@ -6003,155 +5890,6 @@ class FunctionalityDialog(tk.Toplevel):
                 self._status_var.set('Ολοκλήρωση.')
             self.after(0, _after)
 
-        _th.Thread(target=_do, daemon=True).start()
-
-    def _on_close(self):
-        if self._driver:
-            try: self._driver.quit()
-            except Exception: pass
-        self.destroy()
-
-
-class PanicEndDialog(tk.Toplevel):
-    """Λήξη PANIC — Διαγραφή εγγραφών Γραμματειακής Υποστήριξης."""
-
-    _HDR_BG  = '#B71C1C'
-    _LBL_CLR = '#B71C1C'
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title('PANIC — Λήξη')
-        self.configure(bg=C['bg'])
-        self.resizable(False, False)
-        self.transient(parent)
-        self._driver   = None
-        self._file_var = tk.StringVar()
-
-        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
-        if os.path.exists(ico):
-            try: self.iconbitmap(ico)
-            except Exception: pass
-
-        self._build()
-        self.update_idletasks()
-        self.geometry('580x460')
-        pw = parent.winfo_x() + (parent.winfo_width()  - self.winfo_width())  // 2
-        ph = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
-        self.geometry(f'+{pw}+{ph}')
-
-    def _build(self):
-        from tkinter import scrolledtext as st2
-
-        hdr = tk.Frame(self, bg=self._HDR_BG, pady=10)
-        hdr.pack(fill='x')
-        tk.Label(hdr, text='⏹  PANIC — Λήξη / Αναίρεση Γραμματειακής Υποστήριξης',
-                 bg=self._HDR_BG, fg='white',
-                 font=('Arial', 12, 'bold')).pack()
-
-        body = tk.Frame(self, bg=C['bg'], padx=16, pady=12)
-        body.pack(fill='both', expand=True)
-        body.columnconfigure(0, weight=1)
-
-        # Αρχείο
-        tk.Label(body, text='Αρχείο εκπαιδευτικών (Excel ή CSV):',
-                 bg=C['bg'], fg=self._LBL_CLR,
-                 font=('Arial', 9, 'bold')).grid(row=0, column=0, sticky='w', pady=(0, 3))
-        ff = tk.Frame(body, bg=C['bg'])
-        ff.grid(row=1, column=0, sticky='ew', pady=(0, 4))
-        ff.columnconfigure(0, weight=1)
-        tk.Entry(ff, textvariable=self._file_var, font=('Arial', 9),
-                 relief='solid', bd=1).pack(side='left', fill='x', expand=True)
-        tk.Button(ff, text='📂', bg=C['bg'], relief='flat', font=('Arial', 11),
-                  cursor='hand2', command=self._browse).pack(side='left', padx=(4, 0))
-
-        # Ενημέρωση από τελευταία Έναρξη
-        import editor as _ed
-        _last = _ed.get_panic_path()
-        if _last and os.path.exists(_last):
-            self._file_var.set(_last)
-            _hint = f'Προφορτώθηκε από την τελευταία Έναρξη: {os.path.basename(_last)}'
-            _hint_clr = C.get('status_ok', '#388E3C')
-        else:
-            _hint = 'Δεν βρέθηκε αρχείο από προηγούμενη Έναρξη — επίλεξε χειροκίνητα.'
-            _hint_clr = C.get('warn', '#E65100')
-        tk.Label(body, text=_hint, bg=C['bg'], fg=_hint_clr,
-                 font=('Arial', 8), anchor='w', wraplength=520).grid(
-                 row=2, column=0, sticky='w', pady=(0, 10))
-
-        # Κουμπί
-        btn_row = tk.Frame(body, bg=C['bg'])
-        btn_row.grid(row=3, column=0, sticky='w', pady=(0, 8))
-        self._run_btn = tk.Button(btn_row,
-                  text='⏹  Σύνδεση & Διαγραφή',
-                  bg='#B71C1C', fg='white',
-                  font=('Arial', 9, 'bold'), relief='flat',
-                  padx=12, pady=5, cursor='hand2',
-                  activebackground='#D32F2F', activeforeground='white',
-                  command=self._connect_and_run)
-        self._run_btn.pack(side='left')
-
-        # Status
-        self._status_var = tk.StringVar(value='Επίλεξε αρχείο και πάτα Σύνδεση & Διαγραφή.')
-        tk.Label(body, textvariable=self._status_var,
-                 bg=C['bg'], fg=C['status_run'],
-                 font=('Arial', 8), anchor='w').grid(row=4, column=0, sticky='w', pady=(0, 4))
-
-        # Log
-        tk.Label(body, text='Αρχείο καταγραφής:',
-                 bg=C['bg'], fg=self._LBL_CLR,
-                 font=('Arial', 9, 'bold')).grid(row=5, column=0, sticky='w', pady=(4, 2))
-        self._log = st2.ScrolledText(body, height=12, font=('Consolas', 8),
-                                      relief='solid', bd=1, state='disabled',
-                                      bg='#F5F5F5', wrap=tk.WORD)
-        self._log.grid(row=6, column=0, sticky='nsew', pady=(0, 4))
-        body.rowconfigure(6, weight=1)
-
-        self.protocol('WM_DELETE_WINDOW', self._on_close)
-
-    def _browse(self):
-        from tkinter import filedialog
-        path = filedialog.askopenfilename(
-            parent=self,
-            title='Επιλογή αρχείου εκπαιδευτικών',
-            filetypes=[('Excel/CSV', '*.xlsx *.xls *.csv'), ('Όλα', '*.*')])
-        if path:
-            self._file_var.set(path)
-
-    def _log_msg(self, msg):
-        def _do():
-            self._log.configure(state='normal')
-            self._log.insert(tk.END, msg + '\n')
-            self._log.see(tk.END)
-            self._log.configure(state='disabled')
-        self.after(0, _do)
-
-    def _connect_and_run(self):
-        import threading as _th
-        path = self._file_var.get().strip()
-        if not path:
-            messagebox.showwarning('Προσοχή', 'Επίλεξε αρχείο πρώτα.', parent=self)
-            return
-        if not os.path.exists(path):
-            messagebox.showwarning('Προσοχή', 'Το αρχείο δεν βρέθηκε.', parent=self)
-            return
-        self._run_btn.configure(state='disabled', text='Εκτελείται...')
-        self._status_var.set('Σύνδεση στο MySchool...')
-        def _do():
-            import editor
-            drv = editor.connect(log=self._log_msg)
-            if not drv:
-                def _fail():
-                    self._run_btn.configure(state='normal', text='⏹  Σύνδεση & Διαγραφή')
-                    self._status_var.set('Αποτυχία σύνδεσης — έλεγξε credentials στις Ρυθμίσεις.')
-                self.after(0, _fail)
-                return
-            self._driver = drv
-            self.after(0, lambda: self._status_var.set('Εκτέλεση διαγραφών...'))
-            editor.run_delete({'file_path': path}, drv, callback=self._log_msg)
-            def _after():
-                self._run_btn.configure(state='normal', text='⏹  Σύνδεση & Διαγραφή')
-                self._status_var.set('Ολοκλήρωση.')
-            self.after(0, _after)
         _th.Thread(target=_do, daemon=True).start()
 
     def _on_close(self):

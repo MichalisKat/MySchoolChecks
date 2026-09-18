@@ -11,16 +11,20 @@ work_hours_details.py
 ωραρίου»), το οποίο ζητάει πριν την εκτέλεση:
 
   1. Περιγραφή (μία από τις δύο, ραδιοπλήκτρα στο παράθυρο):
-       α) «Γραμματειακή Υποστήριξη Συμπλήρωση»
-       β) «ΠΑΡΑΛΛΗΛΗ ΣΤΗΡΙΞΗ / ΣΤΗΡΙΞΗ ΑΠΟ Ε.Ε.Π.-Ε.Β.Π. Συμπλήρωση»
-     (Το ίδιο dropdown περιγραφής στο MySchool — cmbWorkHoursDetailsType —
-     έχει το κάθε στοιχείο σαν ΕΝΙΑΙΟ κείμενο μαζί με την κατηγορία, οπότε
-     αρκεί η ίδια λογική επιλογής με το editor.py, χωρίς δεύτερο combo.)
-  2. «Ισχύει από»: πεδίο ημερομηνίας. Αν μείνει ΚΕΝΟ (Enter/τίποτα), το
-     script παίρνει για ΤΟΝ ΚΑΘΕΝΑ την τιμή που ΗΔΗ έχει στο πεδίο
-     dtDutyStartDate της καρτέλας τοποθέτησής του. Αν δοθεί ημερομηνία,
-     αυτή μπαίνει ΣΕ ΟΛΟΥΣ.
-  3. «Έως»: ίδια λογική με το dtDutyStopDate.
+       α) «Γραμματειακή Υποστήριξη»
+       β) «ΠΑΡΑΛΛΗΛΗ ΣΤΗΡΙΞΗ / ΣΤΗΡΙΞΗ ΑΠΟ Ε.Ε.Π.-Ε.Β.Π.»
+     Η επιλογή από το dropdown περιγραφής (cmbWorkHoursDetailsType) γίνεται
+     με την ΙΔΙΑ απλή μέθοδο του editor.py (Ε5) — πληκτρολόγηση αργά +
+     κλικ στο πρώτο td[dxtext=κείμενο] + fallback TAB — δοκιμασμένη και
+     αξιόπιστη εκεί. Για την ΠΑΡΑΛΛΗΛΗ ΣΤΗΡΙΞΗ το dropdown δείχνει 2 γραμμές
+     με το ίδιο κείμενο (Συμπλήρωση/Υπερωρία, με τη Συμπλήρωση πάντα πρώτη
+     στην πράξη) — συνειδητή επιλογή απλότητας αντί για πολύπλοκη ανά-γραμμή
+     αντιστοίχιση κατηγορίας.
+  2. «Ισχύει από»: πεδίο ημερομηνίας, προσυμπληρωμένο με τη ΣΗΜΕΡΙΝΗ
+     ημερομηνία (όπως το Ε5). Αν το αδειάσεις (Enter/τίποτα), το script
+     παίρνει για ΤΟΝ ΚΑΘΕΝΑ την τιμή που ΗΔΗ έχει στο πεδίο dtDutyStartDate
+     της καρτέλας τοποθέτησής του.
+  3. «Έως»: ίδια λογική με το dtDutyStopDate (κενό = ανά άτομο).
 
 Οι ΩΡΕΣ της νέας εγγραφής παίρνουν ΠΑΝΤΑ, για τον καθένα, την τιμή που
 ήδη έχει στο πεδίο «Διαθέσιμες ώρες μονάδας» (txtAvailableHoursForUnit).
@@ -65,18 +69,18 @@ SEARCH_URL   = BASE_URL + '/Worker.list.myEmplUnit.aspx'
 TIME_TO_WAIT = 15
 
 # Οι δύο επιλογές περιγραφής — ΑΚΡΙΒΕΣ κείμενο της στήλης «Περιγραφή» στο
-# dropdown του combo περιγραφής (cmbWorkHoursDetailsType), ΧΩΡΙΣ την
-# κατηγορία — ίδιο μοτίβο με το WORK_TYPE_TEXT = 'Γραμματειακή Υποστήριξη'
-# του editor.py (Ε5). Το ίδιο dropdown εμφανίζεται σαν πίνακας 2 στηλών
-# (Περιγραφή | Κατηγορία) — η ΙΔΙΑ περιγραφή μπορεί να έχει πάνω από μία
-# γραμμή με διαφορετική κατηγορία (πχ Συμπλήρωση/Υπερωρία), οπότε η
-# επιλογή γίνεται με βάση τον ΣΥΝΔΥΑΣΜΟ περιγραφής+κατηγορίας μέσα στο
-# ίδιο combo (βλ. _select_description_combo).
+# dropdown του combo περιγραφής (cmbWorkHoursDetailsType) — ίδιο μοτίβο με
+# το WORK_TYPE_TEXT = 'Γραμματειακή Υποστήριξη' του editor.py (Ε5). Η
+# επιλογή γίνεται με την ΙΔΙΑ απλή μέθοδο του Ε5 (_select_work_type_combo):
+# πρώτο ταίριασμα, χωρίς διάκριση κατηγορίας.
 DESCRIPTION_OPTIONS = [
     'Γραμματειακή Υποστήριξη',
     'ΠΑΡΑΛΛΗΛΗ ΣΤΗΡΙΞΗ / ΣΤΗΡΙΞΗ ΑΠΟ Ε.Ε.Π.-Ε.Β.Π.',
 ]
 
+# Η κατηγορία που εμφανίζεται συνήθως ΠΡΩΤΗ στο dropdown (και άρα
+# επιλέγεται από την απλή μέθοδο) — χρησιμοποιείται μόνο για τον
+# προαιρετικό ground-truth έλεγχο μετά την αποθήκευση.
 CATEGORY_TEXT = 'Συμπλήρωση'
 
 TYPE_COMBO_BASE_ID = 'ctl00_ContentData_gridEmplDet_editnew_2_cmbWorkHoursDetailsType'
@@ -363,31 +367,34 @@ def _normalize_combo_text(s):
     return s
 
 
-def _select_description_combo(driver, base_id, description_text, category_text, log):
-    """
-    Επιλέγει από το combo περιγραφής — το dropdown ΕΙΝΑΙ ΕΝΑ combo, αλλά
-    εμφανίζεται σαν ΠΙΝΑΚΑΣ ΔΥΟ ΣΤΗΛΩΝ («Περιγραφή» | «Κατηγορία»), όπου η
-    ΙΔΙΑ περιγραφή μπορεί να εμφανίζεται σε πάνω από μία γραμμές με
-    διαφορετική κατηγορία (πχ «Συμπλήρωση» / «Υπερωρία») — επιβεβαιωμένο
-    από screenshot του χρήστη. Άρα ΔΕΝ αρκεί να ταιριάξουμε μόνο την
-    περιγραφή (διφορούμενο)· πρέπει να βρούμε τη ΓΡΑΜΜΗ όπου ταιριάζουν
-    ΚΑΙ τα δύο κελιά — περιγραφή ΚΑΙ κατηγορία.
+STRIKE_INTERVAL = 0.3
 
-    1. Πληκτρολογεί ένα διακριτό «κομμάτι-κλειδί» (πρώτο τμήμα πριν το '/')
-       για να φιλτράρει τη λίστα.
-    2. Ομαδοποιεί τα ορατά td[dxtext] κελιά ανά γραμμή (κοινό ancestor tr)
-       και καταγράφει ΟΛΕΣ τις γραμμές που βρέθηκαν (για έλεγχο).
-    3. Διαλέγει τη ΜΟΝΑΔΙΚΗ γραμμή όπου κάποιο κελί ταιριάζει με την
-       περιγραφή ΚΑΙ κάποιο άλλο κελί περιέχει την κατηγορία. Αν δεν
-       προκύψει μοναδική → ΔΕΝ επιλέγει τίποτα (δεν μαντεύουμε).
+
+def _send_keys_slow(element, text, delay=STRIKE_INTERVAL):
+    """Πληκτρολογεί έναν-έναν χαρακτήρα με καθυστέρηση — απαραίτητο για να
+    φιλτράρει σωστά η λίστα του DevExpress combo (ίδια τεχνική με το Ε5)."""
+    for char in str(text):
+        element.send_keys(char)
+        time.sleep(delay)
+
+
+def _select_work_type_combo(driver, base_id, text, log):
+    """
+    Επιλέγει τιμή από το combo περιγραφής ωραρίου — ΙΔΙΑ μέθοδος με το
+    editor.py (Ε5) ._select_dxe_combo: πληκτρολόγηση αργά για να φιλτράρει
+    η λίστα, κλικ στο ΠΡΩΤΟ td[dxtext=κείμενο] που εμφανιστεί, με fallback
+    TAB αν δεν βρεθεί. Δοκιμασμένη, αξιόπιστη μέθοδος στο Ε5.
+
+    ΣΗΜΕΙΩΣΗ: για την «ΠΑΡΑΛΛΗΛΗ ΣΤΗΡΙΞΗ / ΣΤΗΡΙΞΗ ΑΠΟ Ε.Ε.Π.-Ε.Β.Π.» το
+    dropdown δείχνει 2 γραμμές με το ΙΔΙΟ κείμενο (κατηγορία Συμπλήρωση/
+    Υπερωρία) — εδώ επιλέγεται η ΠΡΩΤΗ που βρεθεί, χωρίς να ξεχωρίζεται η
+    κατηγορία (συνειδητή επιλογή απλότητας, όπως το Ε5 — στην πράξη το
+    MySchool δείχνει πάντα πρώτα τη «Συμπλήρωση»).
     """
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
-
-    search_key = description_text.split('/')[0].strip()
-    if len(search_key) > 20:
-        search_key = search_key[:20]
+    from selenium.webdriver.common.keys import Keys
 
     try:
         inp = driver.find_element(By.ID, base_id + '_I')
@@ -395,118 +402,31 @@ def _select_description_combo(driver, base_id, description_text, category_text, 
         time.sleep(0.5)
         inp.clear()
         time.sleep(0.3)
-        for char in search_key:
-            inp.send_keys(char)
-            time.sleep(0.05)
+        _send_keys_slow(inp, text)
         time.sleep(1.5)
     except Exception as e:
-        log(f'  ⚠ Άνοιγμα combo περιγραφής ({search_key!r}): {e}')
+        log(f'  ⚠ Άνοιγμα combo περιγραφής ({text!r}): {e}')
         return False
 
     try:
-        cells = WebDriverWait(driver, 5).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'td[dxtext]')))
-        visible_cells = [c for c in cells if c.is_displayed()]
+        item = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, f'td[dxtext="{text}"]')))
+        driver.execute_script('arguments[0].click();', item)
+        time.sleep(0.5)
+        log(f'  ✓ Επιλέχθηκε: {text}')
+        return True
     except Exception:
-        visible_cells = []
+        pass
 
-    if not visible_cells:
-        log(f'  ⚠ Δεν εμφανίστηκαν επιλογές στο dropdown μετά την πληκτρολόγηση «{search_key}»')
+    try:
+        inp.send_keys(Keys.TAB)
+        time.sleep(0.5)
+        log(f'  ⚠ Επιλογή μέσω TAB (fallback): {text}')
+        return True
+    except Exception as e:
+        log(f'  ✗ Dropdown περιγραφής: {e}')
         return False
-
-    # Ομαδοποίηση ανά γραμμή (tr) — 2 στήλες (Περιγραφή/Κατηγορία). ΜΟΝΟ το
-    # κελί «Περιγραφή» έχει το attribute dxtext (χρησιμοποιείται για να
-    # εντοπίσουμε/κλικάρουμε τη γραμμή) — το κελί «Κατηγορία» ΔΕΝ το έχει,
-    # οπότε διαβάζουμε το ΠΛΗΡΕΣ ορατό κείμενο της κάθε γραμμής (tr.text)
-    # για να δούμε και τις δύο στήλες μαζί.
-    seen_tr_ids = set()
-    row_entries = []   # [(tr_element, click_cell, full_row_text)]
-    for c in visible_cells:
-        try:
-            tr = c.find_element(By.XPATH, './ancestor::tr[1]')
-        except Exception:
-            continue
-        if tr.id in seen_tr_ids:
-            continue
-        seen_tr_ids.add(tr.id)
-        try:
-            row_text = tr.text
-        except Exception:
-            row_text = c.get_attribute('dxtext') or ''
-        row_entries.append((tr, c, row_text))
-
-    if not row_entries:
-        log('  ⚠ Δεν εντοπίστηκαν γραμμές (tr) στο dropdown')
-        return False
-
-    log('  ℹ Γραμμές που βρέθηκαν στο dropdown περιγραφής (για έλεγχο):')
-    for _, _, row_text in row_entries:
-        log('      • ' + ' | '.join(row_text.splitlines()))
-
-    desc_norm  = _normalize_combo_text(description_text)
-    desc_core  = _normalize_combo_text(search_key)
-    categ_norm = _normalize_combo_text(category_text)
-
-    matching = []
-    for tr, click_cell, row_text in row_entries:
-        row_norm = _normalize_combo_text(row_text)
-        has_desc = desc_norm in row_norm or (desc_core and desc_core in row_norm)
-        has_categ = bool(categ_norm) and categ_norm in row_norm
-        if has_desc and has_categ:
-            matching.append((tr, click_cell, row_text))
-
-    if len(matching) != 1:
-        log(f'  ✗ Δεν βρέθηκε ΜΟΝΑΔΙΚΗ γραμμή για περιγραφή «{description_text}» + '
-            f'κατηγορία «{category_text}» ({len(matching)} ταίριασμα(-τα)) — καμία επιλογή '
-            '(δεν μαντεύουμε)')
-        return False
-
-    _, target_cell, row_text = matching[0]
-
-    # ΣΗΜΑΝΤΙΚΟ (bugfix): ένα JS execute_script(...).click() στο <td> ΚΛΕΙΝΕΙ
-    # οπτικά το dropdown αλλά ΔΕΝ γεμίζει πάντα το πεδίο «Περιγραφή ωραρίου
-    # εργασίας» — επιβεβαιώθηκε με screenshot του χρήστη: το πεδίο έμενε
-    # ΚΕΝΟ και το «Αποδοχή» πετούσε server-side σφάλμα («Object reference
-    # not set to an instance of an object.») επειδή προσπαθούσαμε να
-    # αποδεχτούμε γραμμή χωρίς πραγματική επιλογή. Γι' αυτό ΕΔΩ κάνουμε
-    # πραγματικό κλικ ποντικιού (όχι JS) και ΕΠΙΒΕΒΑΙΩΝΟΥΜΕ ότι το πεδίο
-    # όντως γέμισε πριν πούμε "OK" — αλλιώς δεν προχωράμε καθόλου σε
-    # Αποδοχή (δεν μαντεύουμε, δεν στέλνουμε άδεια φόρμα).
-    from selenium.webdriver.common.action_chains import ActionChains
-
-    def _combo_value():
-        try:
-            return (driver.find_element(By.ID, base_id + '_I').get_attribute('value') or '').strip()
-        except Exception:
-            return ''
-
-    for attempt in range(1, 4):
-        try:
-            driver.execute_script('arguments[0].scrollIntoView({block:"center"});', target_cell)
-            time.sleep(0.2)
-            if attempt == 1:
-                target_cell.click()
-            elif attempt == 2:
-                ActionChains(driver).move_to_element(target_cell).click().perform()
-            else:
-                driver.execute_script('arguments[0].click();', target_cell)
-            time.sleep(0.6)
-        except Exception as e:
-            log(f'  ⚠ Κλικ στη γραμμή (προσπάθεια {attempt}) απέτυχε: {e}')
-            continue
-
-        confirmed = _normalize_combo_text(_combo_value())
-        if desc_norm in confirmed or (desc_core and desc_core in confirmed):
-            log(f'  ✓ Επιλέχθηκε γραμμή (επιβεβαιωμένο στο πεδίο): ' +
-                ' | '.join(row_text.splitlines()))
-            return True
-        log(f'  ⚠ Μετά το κλικ (προσπάθεια {attempt}) το πεδίο περιγραφής δείχνει '
-            f'«{_combo_value()}» — δεν επιβεβαιώθηκε η επιλογή, νέα προσπάθεια...')
-
-    log(f'  ✗ Το πεδίο περιγραφής ΔΕΝ γέμισε μετά την επιλογή γραμμής «{description_text}» / '
-        f'«{category_text}» — καμία επιλογή (δεν στέλνουμε άδεια/ημιτελή φόρμα)')
-    return False
-
 
 def _date_in_text(date_str, normalized_text):
     """Ελέγχει αν η ημερομηνία date_str (πχ '7/9/2026') εμφανίζεται μέσα στο
@@ -629,7 +549,7 @@ def process_person(driver, person, description_text, fixed_date_from, fixed_date
         return 'error'
 
     # ── Περιγραφή ─────────────────────────────────────────────────────────
-    ok_c = _select_description_combo(driver, TYPE_COMBO_BASE_ID, description_text, CATEGORY_TEXT, log)
+    ok_c = _select_work_type_combo(driver, TYPE_COMBO_BASE_ID, description_text, log)
     if not ok_c:
         log(f'  ✗ Δεν επιλέχθηκε περιγραφή «{description_text}» — παράλειψη εγγραφής '
             '(δεν αποθηκεύουμε ημιτελή εγγραφή)')
@@ -815,4 +735,156 @@ def run(ctx, driver, callback=None):
     ):
         if results[key]:
             log(f'  {label}: ' + ' | '.join(results[key]))
+    log('─' * 65)
+
+    # Αποθήκευση path για χρήση από το ΛΗΞΗ (ίδιος μηχανισμός με το Ε5) —
+    # μόνο αν έγινε τουλάχιστον μία επιτυχής καταχώρηση.
+    if results['ok']:
+        _save_panic_path(file_path)
+
+
+# ── ΛΗΞΗ — Διαγραφή εγγραφών (ίδια λογική με το editor.py / Ε5) ────────────
+def _panic_path_file():
+    """Path του αρχείου που κρατάει το τελευταίο excel που έτρεξε επιτυχώς
+    (για το κουμπί ΛΗΞΗ). Ξεχωριστό από το αντίστοιχο του Ε5, ώστε τα δύο
+    εργαλεία να μην μπερδεύουν το ένα το «τελευταίο αρχείο» του άλλου."""
+    docs = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks')
+    os.makedirs(docs, exist_ok=True)
+    return os.path.join(docs, '.panic_last_file_whd.txt')
+
+
+def _save_panic_path(file_path):
+    try:
+        with open(_panic_path_file(), 'w', encoding='utf-8') as f:
+            f.write(file_path)
+    except Exception:
+        pass
+
+
+def get_panic_path():
+    """Επιστρέφει το path του τελευταίου excel (ή '' αν δεν υπάρχει) — για
+    να προσυμπληρώνεται στο παράθυρο ΛΗΞΗ."""
+    try:
+        p = _panic_path_file()
+        if os.path.exists(p):
+            with open(p, encoding='utf-8') as f:
+                return f.read().strip()
+    except Exception:
+        pass
+    return ''
+
+
+def run_delete(ctx, driver, callback=None):
+    """
+    ΛΗΞΗ — διαγράφει την ΠΡΩΤΗ («πιο πρόσφατη») εγγραφή στον πίνακα
+    «Λεπτομέρειες ωραρίου εργασίας» για κάθε άτομο του excel. ΙΔΙΑ λογική
+    με το editor.py (Ε5) run_delete: κλικ στο πρώτο εικονίδιο «Διαγραφή»
+    του πίνακα, ΧΩΡΙΣ έλεγχο περιγραφής/κατηγορίας/ημερομηνιών — σκοπός
+    είναι το γρήγορο undo αμέσως μετά από μια εσφαλμένη μαζική καταχώρηση,
+    όχι στοχευμένος καθαρισμός. Ο εντοπισμός ατόμου/σχολείου γίνεται όμως
+    με την πιο αξιόπιστη λογική του Ε7 (ΑΦΜ/Α.Μ. + Κωδικός/Ονομασία
+    Σχολείου), όχι το απλούστερο ταίριασμα του Ε5.
+
+    ctx αναμενόμενα κλειδιά:
+      'file_path' — η ίδια λίστα (ή ίδιας μορφής) με αυτή που χρησιμοποιήθηκε
+                    στην καταχώρηση που θέλουμε να αναιρέσουμε.
+    """
+    log = callback or print
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+
+    file_path = ctx.get('file_path')
+    if not file_path:
+        log('✗ Δεν δόθηκε αρχείο — τέλος.')
+        return
+
+    people = load_people(file_path, log=log)
+    if not people:
+        return
+
+    total = len(people)
+    log(f'\n  {total} εγγραφές προς ΔΙΑΓΡΑΦΗ (Λήξη — πρώτη/πιο πρόσφατη εγγραφή ανά άτομο)')
+
+    ok = fail = 0
+
+    try:
+        for idx, person in enumerate(people, 1):
+            ident = person['afm'] or person['am']
+            log(f'\n[{idx}/{total}] {ident}  {person["eponymo"]} {person["onoma"]}  '
+                f'—  {person["school_name"] or person["school_code"]}')
+
+            try:
+                edit_links = _search_person(driver, person, log)
+            except Exception as e:
+                log(f'  ✗ Αναζήτηση απέτυχε: {e}')
+                fail += 1
+                continue
+
+            if not edit_links:
+                log('  ✗ Κανένα αποτέλεσμα αναζήτησης')
+                fail += 1
+                continue
+
+            school_name_norm = _normalize_school_name(person['school_name']) if person['school_name'] else ''
+            link, reason = _pick_matching_row(driver, edit_links, school_name_norm,
+                                               person['school_code'], log)
+            if reason != 'ok':
+                if reason == 'notfound':
+                    log(f'  ⚠ Δεν βρέθηκε γραμμή με σχολείο «{person["school_name"] or person["school_code"]}» '
+                        f'({len(edit_links)} αποτέλεσμα(-τα) συνολικά) — παράλειψη')
+                else:
+                    log('  ⚠ Πάνω από μία γραμμές ταιριάζουν — παράλειψη (χειροκίνητος έλεγχος)')
+                fail += 1
+                continue
+
+            try:
+                driver.execute_script('arguments[0].click();', link)
+                time.sleep(3)
+                log('  Καρτέλα ανοιχτή')
+            except Exception as e:
+                log(f'  ✗ Καρτέλα: {e}')
+                fail += 1
+                continue
+
+            # ── Κουμπί Διαγραφή (πρώτη γραμμή gridEmplDet) ─────────────────
+            try:
+                del_btn = WebDriverWait(driver, TIME_TO_WAIT).until(
+                    EC.presence_of_element_located(
+                        (By.XPATH, '//img[@alt="Διαγραφή" and contains(@onclick,"gridEmplDet")]')))
+                driver.execute_script('arguments[0].scrollIntoView({block:"center"});', del_btn)
+                time.sleep(0.5)
+                driver.execute_script('arguments[0].click();', del_btn)
+                time.sleep(1)
+                log('  Διαγραφή κλικ')
+            except Exception as e:
+                log(f'  ✗ Διαγραφή: {e}')
+                fail += 1
+                continue
+
+            # ── Επιβεβαίωση (OK στο confirm dialog) ─────────────────────────
+            try:
+                WebDriverWait(driver, 5).until(EC.alert_is_present())
+                driver.switch_to.alert.accept()
+                time.sleep(2)
+                log('  ✓ Επιβεβαίωση ΟΚ')
+            except Exception:
+                log('  ⚠ Alert δεν εμφανίστηκε')
+
+            # ── Αποθήκευση ───────────────────────────────────────────────────
+            try:
+                save_btn = WebDriverWait(driver, TIME_TO_WAIT).until(
+                    EC.element_to_be_clickable((By.ID, 'ctl00_ContentData_btnSave')))
+                driver.execute_script('arguments[0].click();', save_btn)
+                time.sleep(3)
+                log('  ✓ Αποθήκευση')
+                ok += 1
+            except Exception as e:
+                log(f'  ✗ Αποθήκευση: {e}')
+                fail += 1
+    except KeyboardInterrupt:
+        log('\n\n⚠ Διακόπηκε από τον χρήστη.')
+
+    log('\n' + '─' * 65)
+    log(f'ΛΗΞΗ — Διαγραφές: {ok} επιτυχείς, {fail} αποτυχίες')
     log('─' * 65)
