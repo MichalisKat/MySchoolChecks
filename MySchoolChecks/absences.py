@@ -35,10 +35,15 @@ absences.py
   4. Συμπλήρωση:
        Τύπος απουσίας: ανάλογα με τη Σχέση τοποθέτησης του αρχείου (βλ.
          πλαίσιο παραπάνω)
-       Ισχύει από: 1/9/2026 (σταθερό για όλους)
+       Ισχύει από: από τη στήλη "Από" της εγγραφής του αρχείου
        Ισχύει έως: από τη στήλη "Έως" της εγγραφής του αρχείου
-  5. Κλικ ✓ (Αποδοχή) → Αποθήκευση
-  6. Επόμενος
+     Μετά τη συμπλήρωση ξαναδιαβάζονται οι τιμές των πεδίων. Αν ΚΑΠΟΙΟ πεδίο
+     δεν έχει τη σωστή τιμή, η νέα γραμμή ακυρώνεται και ΔΕΝ γίνεται
+     Αποθήκευση (ΑΠΟΤΥΧΙΑ) — ποτέ μισή/λάθος εγγραφή στο MySchool.
+  5. Κλικ ✓ (Αποδοχή) — έλεγχος ότι η γραμμή έκλεισε όντως → Αποθήκευση
+  6. Επαλήθευση ΜΕΤΑ την αποθήκευση: η νέα απουσία (τύπος + από + έως)
+     πρέπει να φαίνεται στο grid Απουσιών. Αλλιώς ΑΠΟΤΥΧΙΑ (ξαναδοκιμάζεται).
+  7. Επόμενος
 
   Για οτιδήποτε ΑΛΛΟ διαφοροποιείται από το αναμενόμενο (δεν βρέθηκε
   καθόλου ο εκπαιδευτικός, dropdown/πεδίο απέτυχε κ.λπ.) εμφανίζεται μήνυμα
@@ -54,9 +59,11 @@ Resume & προστασία από διπλοεγγραφές:
     ξαναπερνάει όσους έχουν ήδη καταχωρηθεί (ΕΠΙΤΥΧΙΑ/ΥΠΑΡΧΕΙ ΗΔΗ) — μόνο
     όσους έμειναν σε ΑΠΟΤΥΧΙΑ ή δεν προλάβαιναν να τρέξουν.
   - Επιπλέον, πριν προσθέσει νέα γραμμή απουσίας, ελέγχει το ίδιο το grid
-    Απουσιών στο MySchool — αν βρει ήδη καταχωρημένη την ίδια απουσία (π.χ.
-    από προηγούμενη εκτέλεση που δεν πρόλαβε να γραφτεί στο αρχείο προόδου),
-    δεν την ξαναπροσθέτει, το καταγράφει ως "ΥΠΑΡΧΕΙ ΗΔΗ" και προχωράει.
+    Απουσιών στο MySchool — αν βρει ήδη γραμμή με ΙΔΙΟ τύπο ΚΑΙ ίδιες
+    ημερομηνίες Από/Έως (π.χ. από προηγούμενη εκτέλεση που δεν πρόλαβε να
+    γραφτεί στο αρχείο προόδου), δεν την ξαναπροσθέτει, το καταγράφει ως
+    "ΥΠΑΡΧΕΙ ΗΔΗ" και προχωράει. Απουσία ίδιου τύπου με ΑΛΛΕΣ ημερομηνίες
+    (π.χ. περσινή) ΔΕΝ θεωρείται διπλοεγγραφή.
 """
 
 import os
@@ -95,19 +102,77 @@ SECOND_TRIAD_ABSENCE_TYPE = {
         'ΑΠΟΣΠΑΣΗ ΣΕ ΣΧΟΛΙΚΗ ΜΟΝΑΔΑ ΕΝΤΟΣ ΤΟΥ ΠΥΣΔΕ / ΠΥΣΠΕ - Αλλη Σχολική Μονάδα',
 }
 
-FIXED_FROM_DATE = '1/9/2026'
+GRID_ID = 'ctl00_ContentData_gridAbsences'
+
+
+# ── Ημερομηνίες ───────────────────────────────────────────────────────────────
+
+def _to_timestamp(val):
+    """Δέχεται Timestamp/datetime ή κείμενο ('1/9/2026', '01-09-2026',
+    '2026-09-01') και επιστρέφει pandas Timestamp ή None."""
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(val, pd.Timestamp):
+        return val
+    try:
+        import datetime as _dt
+        if isinstance(val, (_dt.datetime, _dt.date)):
+            return pd.Timestamp(val)
+    except Exception:
+        pass
+    txt = str(val).strip()
+    if not txt or txt.lower() in ('nan', 'none', 'nat'):
+        return None
+    import re
+    if re.match(r'^\d{4}-\d{1,2}-\d{1,2}', txt):          # ISO: έτος πρώτα
+        ts = pd.to_datetime(txt, errors='coerce')
+    else:
+        ts = pd.to_datetime(txt, dayfirst=True, errors='coerce')
+    return None if pd.isna(ts) else ts
+
+
+def _fmt_date(val):
+    """Μετατρέπει ημερομηνία (Timestamp ή κείμενο) σε 'D/M/YYYY' (χωρίς
+    μηδενικά πρόθεμα). Κενό string αν δεν είναι έγκυρη ημερομηνία."""
+    ts = _to_timestamp(val)
+    if ts is None:
+        return ''
+    return f'{ts.day}/{ts.month}/{ts.year}'
+
+
+def _date_key(date_str):
+    """'1/9/2026' → (1, 9, 2026) — για σύγκριση ανεξάρτητα από μηδενικά/διαχωριστικό."""
+    ts = _to_timestamp(date_str)
+    return None if ts is None else (ts.day, ts.month, ts.year)
+
+
+def _dates_in_text(text):
+    """Όλες οι ημερομηνίες (d, m, y) που εμφανίζονται σε ένα κείμενο — δέχεται
+    '/', '-' ή '.' ως διαχωριστικό και με/χωρίς μηδενικά («01-09-2026», «1/9/2026»)."""
+    import re
+    out = set()
+    for d, m, y in re.findall(r'(?<!\d)(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})(?!\d)', text or ''):
+        out.add((int(d), int(m), int(y)))
+    return out
+
+
+def _normalize_text(s):
+    """Αφαιρεί τόνους, κάνει κεφαλαία, συμπτύσσει κενά — για ανεκτική σύγκριση."""
+    import re
+    import unicodedata
+    if not s:
+        return ''
+    s = unicodedata.normalize('NFD', str(s))
+    s = ''.join(ch for ch in s if unicodedata.category(ch) != 'Mn')
+    return re.sub(r'\s+', ' ', s.upper()).strip()
 
 
 # ── Ανάγνωση & φιλτράρισμα αρχείου ────────────────────────────────────────────
-
-def _fmt_date(ts):
-    """Μετατρέπει pandas Timestamp σε 'D/M/YYYY' (χωρίς μηδενικά πρόθεμα)."""
-    if pd.isna(ts):
-        return ''
-    try:
-        return f'{ts.day}/{ts.month}/{ts.year}'
-    except Exception:
-        return str(ts)
 
 
 def load_data(file_path, log=print):
@@ -118,7 +183,7 @@ def load_data(file_path, log=print):
     χρειάζεται να περιέχει γραμμή «Οργανικά» — αυτή εντοπίζεται αργότερα
     απευθείας στο MySchool (βλ. run()).
 
-    Επιστρέφει: [{'am', 'afm', 'name', 'eos', 'absence_type'}], skipped: [str, ...]
+    Επιστρέφει: [{'am', 'afm', 'name', 'apo', 'eos', 'absence_type'}], skipped: [str, ...]
     """
     ext = os.path.splitext(file_path)[1].lower()
     try:
@@ -138,7 +203,7 @@ def load_data(file_path, log=print):
         return [], []
 
     cols = {c.strip(): c for c in df.columns}
-    required = ['Α.Μ.', 'Σχέση τοποθέτησης', 'Έως']
+    required = ['Α.Μ.', 'Σχέση τοποθέτησης', 'Από', 'Έως']
     missing = [c for c in required if c not in cols]
     if missing:
         log(f'Λείπουν στήλες: {missing}. Διαθέσιμες: {list(cols.keys())}')
@@ -146,6 +211,7 @@ def load_data(file_path, log=print):
 
     am_col    = cols['Α.Μ.']
     rel_col   = cols['Σχέση τοποθέτησης']
+    apo_col   = cols['Από']
     eos_col   = cols['Έως']
     afm_col   = cols.get('Α.Φ.Μ.')
     name_col  = cols.get('Επώνυμο') or cols.get('ΕΠΙΘΕΤΟ') or cols.get('Επίθετο')
@@ -153,6 +219,14 @@ def load_data(file_path, log=print):
 
     records = []
     skipped = []
+
+    # Α.Μ. ως κείμενο χωρίς '.0' (αν το Excel το διάβασε ως αριθμό float)
+    def _am_text(v):
+        t = str(v).strip()
+        return t[:-2] if t.endswith('.0') and t[:-2].isdigit() else t
+    df = df[df[am_col].notna()].copy()
+    df[am_col] = df[am_col].map(_am_text)
+    df = df[df[am_col] != '']
 
     for am, grp in df.groupby(am_col):
         # Κρατάμε μόνο τη γραμμή με Σχέση τοποθέτησης Ολική Διάθεση/Απόσπαση.
@@ -176,9 +250,18 @@ def load_data(file_path, log=print):
             skipped.append(f'{full_name} ({am_str}) — άγνωστη Σχέση τοποθέτησης: {second_rel_value}')
             continue
 
+        apo = _fmt_date(second_row.iloc[0][apo_col])
+        if not apo:
+            skipped.append(f'{full_name} ({am_str}) — κενή ή μη έγκυρη ημ. Από')
+            continue
+
         eos = _fmt_date(second_row.iloc[0][eos_col])
         if not eos:
-            skipped.append(f'{full_name} ({am_str}) — κενή ημ. Έως')
+            skipped.append(f'{full_name} ({am_str}) — κενή ή μη έγκυρη ημ. Έως')
+            continue
+
+        if _to_timestamp(apo) > _to_timestamp(eos):
+            skipped.append(f'{full_name} ({am_str}) — ημ. Από ({apo}) μετά την ημ. Έως ({eos})')
             continue
 
         afm = str(grp.iloc[0].get(afm_col, '')).strip() if afm_col else ''
@@ -187,6 +270,7 @@ def load_data(file_path, log=print):
             'am':           am_str,
             'afm':          afm,
             'name':         full_name,
+            'apo':          apo,
             'eos':          eos,
             'absence_type': absence_type,
         })
@@ -311,41 +395,116 @@ def _select_dxe_combo(driver, base_id, text):
         return False
 
 
-def _absence_already_exists(driver, type_text):
+def _grid_absence_rows(driver):
     """
-    Ελέγχει αν το πινακάκι Απουσιών (gridAbsences) έχει ΗΔΗ γραμμή με το
-    δοσμένο λεκτικό τύπου απουσίας — π.χ. από προηγούμενη (διακεκομμένη)
-    εκτέλεση που δεν πρόλαβε να καταγράψει την επιτυχία στο αρχείο προόδου.
-    Στοχεύουμε ρητά στο container του grid (όχι όλη τη σελίδα) γιατί το ίδιο
-    λεκτικό εμφανίζεται και μέσα στη λίστα του dropdown.
+    Επιστρέφει το κείμενο κάθε γραμμής δεδομένων του grid Απουσιών (όχι τη
+    γραμμή επεξεργασίας/νέας εγγραφής, ούτε τη λίστα του dropdown).
+    None αν δεν βρέθηκε καθόλου το grid.
     """
     from selenium.webdriver.common.by import By
     try:
-        container = driver.find_element(By.ID, 'ctl00_ContentData_gridAbsences')
-        if type_text in container.text:
-            return True
+        container = driver.find_element(By.ID, GRID_ID)
     except Exception:
-        pass
+        return None
+    rows = []
     try:
-        containers = driver.find_elements(
-            By.XPATH, '//*[contains(@id,"gridAbsences") and not(contains(@id,"editnew"))]')
-        for c in containers:
-            if type_text in c.text:
-                return True
+        els = container.find_elements(
+            By.XPATH,
+            './/tr[contains(@id,"DXDataRow") or contains(@class,"dxgvDataRow")]')
+        for el in els:
+            rid = el.get_attribute('id') or ''
+            if 'editnew' in rid.lower() or 'dxeditingrow' in (el.get_attribute('class') or '').lower():
+                continue
+            txt = (el.text or '').strip()
+            if txt:
+                rows.append(txt)
     except Exception:
         pass
-    return False
+    if not rows:
+        # Fallback: αν δεν αναγνωρίστηκαν γραμμές, κάθε γραμμή κειμένου του
+        # container αντιμετωπίζεται ως «γραμμή» (DevExpress αποδίδει μία
+        # γραμμή κειμένου ανά εγγραφή).
+        try:
+            rows = [ln for ln in (container.text or '').splitlines() if ln.strip()]
+        except Exception:
+            rows = []
+    return rows
+
+
+def _find_matching_absence(driver, type_text, apo, eos):
+    """
+    Ψάχνει στο grid Απουσιών γραμμή με ΙΔΙΟ τύπο απουσίας ΚΑΙ ίδιες
+    ημερομηνίες Από/Έως.
+
+    Επιστρέφει (match, same_type_other_dates):
+      match                 : True αν υπάρχει ακριβώς η ίδια απουσία
+      same_type_other_dates : λίστα κειμένων γραμμών ίδιου τύπου αλλά με
+                              άλλες ημερομηνίες (π.χ. περσινή) — ΔΕΝ είναι
+                              διπλοεγγραφή, μόνο πληροφοριακά για το log.
+    """
+    rows = _grid_absence_rows(driver) or []
+    t_norm = _normalize_text(type_text)
+    k_apo, k_eos = _date_key(apo), _date_key(eos)
+    others = []
+    for row in rows:
+        if t_norm not in _normalize_text(row):
+            continue
+        dates = _dates_in_text(row)
+        if k_apo in dates and k_eos in dates:
+            return True, others
+        others.append(row)
+    return False, others
+
+
+def _combo_visible(driver, combo_full_id):
+    """True όσο η νέα γραμμή είναι ακόμη σε λειτουργία επεξεργασίας (το combo
+    τύπου απουσίας της φαίνεται) — δηλαδή η Αποδοχή ΔΕΝ «έπιασε»."""
+    from selenium.webdriver.common.by import By
+    try:
+        els = driver.find_elements(By.ID, combo_full_id)
+        return any(el.is_displayed() for el in els)
+    except Exception:
+        return False
+
+
+def _cancel_new_row(driver):
+    """Ακυρώνει τη νέα (μη αποθηκευμένη) γραμμή του grid Απουσιών. Ακόμη κι αν
+    αποτύχει, η επόμενη πλοήγηση (driver.get) απορρίπτει ό,τι δεν
+    αποθηκεύτηκε — το σημαντικό είναι ότι ΔΕΝ πατιέται Αποθήκευση."""
+    try:
+        driver.execute_script(
+            "var g = (typeof ASPxClientGridView !== 'undefined') ? "
+            "ASPxClientGridView.Cast(arguments[0]) : null; if (g) g.CancelEdit();",
+            GRID_ID)
+    except Exception:
+        pass
+
+
+def _read_value(driver, element_id):
+    from selenium.webdriver.common.by import By
+    try:
+        return (driver.find_element(By.ID, element_id).get_attribute('value') or '').strip()
+    except Exception:
+        return ''
+
+
+def _dismiss_alert(driver):
+    """Αν υπάρχει ανοιχτό JS alert (π.χ. μήνυμα λάθους του MySchool), το
+    κλείνει και επιστρέφει το κείμενό του — αλλιώς None."""
+    try:
+        alert = driver.switch_to.alert
+        txt = alert.text
+        alert.accept()
+        return txt
+    except Exception:
+        return None
 
 
 # ── Σύνδεση (καλείται από το UI) ─────────────────────────────────────────────
 
-def connect(log=print):
+def _start_chrome(log):
     from selenium import webdriver
     from selenium.webdriver.chrome.service import Service as ChromeService
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    import config as _cfg
 
     options = webdriver.ChromeOptions()
     options.add_argument('--window-size=1400,900')
@@ -363,8 +522,52 @@ def connect(log=print):
         except Exception as _e:
             log(f'  webdriver-manager απέτυχε: {_e} — δοκιμάζω χωρίς service...')
             driver = webdriver.Chrome(options=options)
+        return driver
     except Exception as e:
         log(f'Αδύνατη εκκίνηση Chrome: {e}')
+        return None
+
+
+def _start_firefox(log):
+    """Ίδια λογική με το core/downloader.py: πρώτα Selenium built-in
+    (χωρίς internet), μετά webdriver-manager."""
+    from selenium import webdriver
+    from selenium.webdriver.firefox.service import Service as FirefoxService
+    from selenium.webdriver.firefox.options import Options as FirefoxOptions
+
+    ff_options = FirefoxOptions()
+    ff_options.add_argument('--width=1400')
+    ff_options.add_argument('--height=900')
+
+    log('  Εκκίνηση Firefox...')
+    try:
+        driver = webdriver.Firefox(options=ff_options)
+        log('  GeckoDriver OK (Selenium built-in)')
+        return driver
+    except Exception as _builtin_err:
+        log(f'  Selenium built-in απέτυχε: {_builtin_err} — δοκιμάζω webdriver-manager...')
+    try:
+        from webdriver_manager.firefox import GeckoDriverManager
+        _gecko_path = GeckoDriverManager().install()
+        driver = webdriver.Firefox(service=FirefoxService(_gecko_path), options=ff_options)
+        log('  GeckoDriver OK (webdriver-manager)')
+        return driver
+    except Exception as e:
+        log(f'Αδύνατη εκκίνηση Firefox: {e} — βεβαιώσου ότι ο Firefox είναι '
+            f'εγκατεστημένος, ή άλλαξε σε Chrome από τις Ρυθμίσεις.')
+        return None
+
+
+def connect(log=print):
+    """Άνοιγμα browser (Chrome ή Firefox, βάσει Ρυθμίσεις → Σύνδεση) + login."""
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    import config as _cfg
+
+    browser = (getattr(_cfg, 'BROWSER', 'chrome') or 'chrome').lower().strip()
+    driver = _start_firefox(log) if browser == 'firefox' else _start_chrome(log)
+    if driver is None:
         return None
 
     try:
@@ -407,7 +610,7 @@ def connect(log=print):
 
 def run(ctx, driver, callback=None, ask_user=None):
     """
-    Καταχώρηση απουσίας Ολικής Διάθεσης στην οργανική τοποθέτηση.
+    Καταχώρηση απουσίας (Ολική Διάθεση / Απόσπαση) στην οργανική τοποθέτηση.
 
     Παράμετροι:
       ctx      : dict με 'file_path'
@@ -486,11 +689,12 @@ def run(ctx, driver, callback=None, ask_user=None):
     for idx, rec in enumerate(to_process, 1):
         am           = rec['am']
         name         = rec['name']
+        apo          = rec['apo']
         eos          = rec['eos']
         absence_type = rec['absence_type']
         label = f'{name} ({am})' if name else am
         log(f'\n[{idx}/{total}] Α.Μ.: {am}  |  {name}  |  Τύπος: {absence_type}  |  '
-            f'Ισχύει έως: {eos}')
+            f'Ισχύει από: {apo}  |  Ισχύει έως: {eos}')
 
         # ── Σελίδα αναζήτησης ─────────────────────────────────────────────
         try:
@@ -593,17 +797,35 @@ def run(ctx, driver, callback=None, ask_user=None):
             fail_list.append(label)
             continue
 
-        # ── Έλεγχος διπλοεγγραφής: υπάρχει ήδη η απουσία στο grid; ────────
+        # ── Έλεγχος διπλοεγγραφής: ίδιος τύπος ΚΑΙ ίδιες ημερομηνίες; ──────
         # Καλύπτει την περίπτωση προηγούμενης διακεκομμένης εκτέλεσης που
         # πρόλαβε να αποθηκεύσει στο MySchool αλλά όχι στο αρχείο προόδου.
+        # Απουσία ίδιου τύπου με ΑΛΛΕΣ ημερομηνίες (π.χ. περσινή) ΔΕΝ
+        # εμποδίζει την καταχώρηση.
         try:
-            if _absence_already_exists(driver, absence_type):
-                log('  ⏭ Η απουσία υπάρχει ήδη καταχωρημένη — παράλειψη')
-                _mark(am, name, 'ΥΠΑΡΧΕΙ ΗΔΗ', 'Βρέθηκε ήδη στο grid κατά τον έλεγχο')
+            exists, others = _find_matching_absence(driver, absence_type, apo, eos)
+            if exists:
+                log(f'  ⏭ Η απουσία ({apo} – {eos}) υπάρχει ήδη καταχωρημένη — παράλειψη')
+                _mark(am, name, 'ΥΠΑΡΧΕΙ ΗΔΗ',
+                      f'Βρέθηκε ήδη στο grid ({apo} – {eos})')
                 already_live_list.append(label)
                 continue
-        except Exception:
-            pass  # αν αποτύχει ο έλεγχος, συνεχίζουμε κανονικά με την προσθήκη
+            for o in others:
+                log(f'  ℹ Υπάρχει απουσία ίδιου τύπου με άλλες ημερομηνίες (δεν '
+                    f'θεωρείται διπλοεγγραφή): {o}')
+        except Exception as e:
+            log(f'  ⚠ Ο έλεγχος διπλοεγγραφής απέτυχε ({e}) — συνεχίζω με την προσθήκη')
+
+        def _abort(reason, popup_msg=None):
+            """Ακύρωση νέας γραμμής ΧΩΡΙΣ Αποθήκευση + καταγραφή ΑΠΟΤΥΧΙΑΣ."""
+            nonlocal fail
+            _cancel_new_row(driver)
+            log(f'  ✗ {reason} — η γραμμή ακυρώθηκε, ΔΕΝ έγινε Αποθήκευση')
+            _notify(f'{label}\n{popup_msg or reason}\n\nΔεν αποθηκεύτηκε τίποτα '
+                    f'για αυτόν τον εκπαιδευτικό.')
+            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', reason)
+            fail += 1
+            fail_list.append(label)
 
         # ── Πινακάκι Απουσιών (gridAbs): scroll + κλικ ➕ (Προσθήκη) ────────
         # Σημείωση: η καρτέλα έχει κι άλλο πινακάκι ("Λεπτομέρειες ωραρίου
@@ -637,50 +859,53 @@ def run(ctx, driver, callback=None, ask_user=None):
                     (By.CSS_SELECTOR, 'input[id*="gridAbsences_editnew"][id*="cmbAbsenceType_I"]')))
             combo_full_id = combo_input.get_attribute('id')     # ..._cmbAbsenceType_I
             combo_base_id = combo_full_id[:-2]                  # χωρίς '_I'
-        except Exception as e:
-            log(f'  ✗ Δεν βρέθηκε το πεδίο τύπου απουσίας: {e}')
-            _notify(f'{label}\nΔεν βρέθηκε το πεδίο τύπου απουσίας μετά το Προσθήκη.')
-            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', 'Δεν βρέθηκε το πεδίο τύπου απουσίας')
-            fail += 1
-            fail_list.append(label)
+        except Exception:
+            _abort('Δεν βρέθηκε το πεδίο τύπου απουσίας μετά το Προσθήκη')
             continue
 
         # Τα πεδία ημερομηνίας (DXEditor5/6) ΔΕΝ έχουν το "editnew_N" prefix
-        # του combo — τα IDs τους είναι σταθερά μέσα στο grid.
-        from_field_id = 'ctl00_ContentData_gridAbsences_DXEditor5_I'
-        to_field_id   = 'ctl00_ContentData_gridAbsences_DXEditor6_I'
+        # του combo — τα IDs τους είναι σταθερά μέσα στο grid. Αν κάποτε
+        # αλλάξουν, η επαλήθευση παρακάτω θα το πιάσει (ΑΠΟΤΥΧΙΑ, όχι λάθος
+        # εγγραφή).
+        from_field_id = GRID_ID + '_DXEditor5_I'
+        to_field_id   = GRID_ID + '_DXEditor6_I'
 
-        # ── Τύπος απουσίας ─────────────────────────────────────────────────
-        ok_c = _select_dxe_combo(driver, combo_base_id, absence_type)
-        log(f'  {"✓" if ok_c else "⚠"} Τύπος απουσίας: {absence_type}')
-        if not ok_c:
-            _notify(f'{label}\nΑποτυχία επιλογής τύπου απουσίας από τη λίστα.')
-
-        # ── Ισχύει από ────────────────────────────────────────────────────
+        # ── Συμπλήρωση ────────────────────────────────────────────────────
+        _select_dxe_combo(driver, combo_base_id, absence_type)
         try:
-            set_ok = _set_dxe_value(driver, from_field_id, FIXED_FROM_DATE)
-            if set_ok:
-                log(f'  ✓ Ισχύει από: {FIXED_FROM_DATE}')
-            else:
-                log(f'  ⚠ Ισχύει από: πεδίο δεν βρέθηκε ({from_field_id})')
-                _notify(f'{label}\nΔεν βρέθηκε το πεδίο "Ισχύει από" ({from_field_id}).')
+            _set_dxe_value(driver, from_field_id, apo)
         except Exception as e:
             log(f'  ⚠ Ισχύει από: {e}')
-            _notify(f'{label}\nΑποτυχία συμπλήρωσης "Ισχύει από": {e}')
-
-        # ── Ισχύει έως ────────────────────────────────────────────────────
         try:
-            set_ok = _set_dxe_value(driver, to_field_id, eos)
-            if set_ok:
-                log(f'  ✓ Ισχύει έως: {eos}')
-            else:
-                log(f'  ⚠ Ισχύει έως: πεδίο δεν βρέθηκε ({to_field_id})')
-                _notify(f'{label}\nΔεν βρέθηκε το πεδίο "Ισχύει έως" ({to_field_id}).')
+            _set_dxe_value(driver, to_field_id, eos)
         except Exception as e:
             log(f'  ⚠ Ισχύει έως: {e}')
-            _notify(f'{label}\nΑποτυχία συμπλήρωσης "Ισχύει έως": {e}')
+        time.sleep(0.7)
 
-        time.sleep(0.5)
+        # ── Επαλήθευση ΟΛΩΝ των πεδίων πριν την Αποδοχή ──────────────────
+        # Αν έστω και ένα δεν έχει τη σωστή τιμή → ακύρωση, καμία αποθήκευση.
+        got_type = _read_value(driver, combo_full_id)
+        got_apo  = _read_value(driver, from_field_id)
+        got_eos  = _read_value(driver, to_field_id)
+
+        problems = []
+        if _normalize_text(got_type) != _normalize_text(absence_type):
+            problems.append(f'Τύπος απουσίας: «{got_type or "κενό"}» αντί για «{absence_type}»')
+        if _date_key(got_apo) != _date_key(apo):
+            problems.append(f'Ισχύει από: «{got_apo or "κενό"}» αντί για «{apo}»')
+        if _date_key(got_eos) != _date_key(eos):
+            problems.append(f'Ισχύει έως: «{got_eos or "κενό"}» αντί για «{eos}»')
+
+        if problems:
+            for pr in problems:
+                log(f'  ✗ {pr}')
+            _abort('Λάθος/κενό πεδίο: ' + '; '.join(problems),
+                   'Τα πεδία δεν συμπληρώθηκαν σωστά:\n• ' + '\n• '.join(problems))
+            continue
+
+        log(f'  ✓ Τύπος απουσίας: {got_type}')
+        log(f'  ✓ Ισχύει από: {got_apo}')
+        log(f'  ✓ Ισχύει έως: {got_eos}')
 
         # ── Αποδοχή (πράσινο τικ) — σκοπευμένο στο gridAbsences ───────────
         try:
@@ -690,14 +915,35 @@ def run(ctx, driver, callback=None, ask_user=None):
                      '//img[@alt="Αποδοχή" and contains(@onclick,"gridAbsences")]')))
             driver.execute_script('arguments[0].click();', accept_btn)
             time.sleep(2)
-            log('  ✓ Αποδοχή')
         except Exception as e:
-            log(f'  ✗ Αποδοχή: {e}')
-            _notify(f'{label}\nΣφάλμα κατά την Αποδοχή: {e}')
-            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', f'Αποδοχή: {e}')
-            fail += 1
-            fail_list.append(label)
+            _abort(f'Αποδοχή: {e}', f'Σφάλμα κατά την Αποδοχή: {e}')
             continue
+
+        alert_txt = _dismiss_alert(driver)
+        if alert_txt:
+            _abort(f'Μήνυμα MySchool στην Αποδοχή: {alert_txt}')
+            continue
+
+        # Αν η γραμμή είναι ακόμη σε επεξεργασία, η Αποδοχή δεν «έπιασε»
+        # (π.χ. πρόβλημα εγκυρότητας) — 2η προσπάθεια μέσω client API.
+        if _combo_visible(driver, combo_full_id):
+            log('  ⚠ Η γραμμή παραμένει σε επεξεργασία — δοκιμή μέσω client API...')
+            try:
+                driver.execute_script(
+                    "var g = ASPxClientGridView.Cast(arguments[0]); if (g) g.UpdateEdit();",
+                    GRID_ID)
+            except Exception as e:
+                log(f'  ⚠ UpdateEdit: {e}')
+            time.sleep(2)
+            alert_txt = _dismiss_alert(driver)
+            if alert_txt:
+                _abort(f'Μήνυμα MySchool στην Αποδοχή: {alert_txt}')
+                continue
+        if _combo_visible(driver, combo_full_id):
+            _abort('Η γραμμή ΔΕΝ έγινε αποδεκτή (παραμένει σε επεξεργασία — '
+                   'πιθανό πρόβλημα εγκυρότητας ή επικάλυψη ημερομηνιών)')
+            continue
+        log('  ✓ Αποδοχή (η γραμμή έκλεισε κανονικά)')
 
         # ── Scroll στην κορυφή + Αποθήκευση ─────────────────────────────
         driver.execute_script('window.scrollTo(0, 0);')
@@ -707,14 +953,61 @@ def run(ctx, driver, callback=None, ask_user=None):
                 EC.element_to_be_clickable((By.ID, 'ctl00_ContentData_btnSave')))
             driver.execute_script('arguments[0].click();', save_btn)
             time.sleep(3)
-            log('  ✓ Αποθήκευση')
-            ok += 1
-            ok_list.append(label)
-            _mark(am, name, 'ΕΠΙΤΥΧΙΑ', 'Καταχωρήθηκε')
         except Exception as e:
             log(f'  ✗ Αποθήκευση: {e}')
             _notify(f'{label}\nΣφάλμα κατά την Αποθήκευση: {e}')
             _mark(am, name, 'ΑΠΟΤΥΧΙΑ', f'Αποθήκευση: {e}')
+            fail += 1
+            fail_list.append(label)
+            continue
+
+        alert_txt = _dismiss_alert(driver)
+        if alert_txt:
+            log(f'  ✗ Μήνυμα MySchool μετά την Αποθήκευση: {alert_txt}')
+            _notify(f'{label}\nΤο MySchool εμφάνισε μήνυμα μετά την Αποθήκευση:\n'
+                    f'{alert_txt}\n\nΈλεγξε χειροκίνητα την καρτέλα.')
+            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', f'Μήνυμα μετά την Αποθήκευση: {alert_txt}')
+            fail += 1
+            fail_list.append(label)
+            continue
+
+        # ── Επαλήθευση ΜΕΤΑ την αποθήκευση (ground truth) ────────────────
+        # Η νέα απουσία (τύπος + από + έως) πρέπει να φαίνεται στο grid. Αν
+        # όχι, ΑΠΟΤΥΧΙΑ → θα ξαναδοκιμαστεί στην επόμενη εκτέλεση· αν τελικά
+        # είχε σωθεί, ο έλεγχος διπλοεγγραφής θα τη βρει και δεν θα τη
+        # ξαναβάλει.
+        try:
+            saved, _ = _find_matching_absence(driver, absence_type, apo, eos)
+        except Exception:
+            saved = False
+        if not saved:
+            # 2η ματιά: ξαναφόρτωση της καρτέλας με GET (ΟΧΙ refresh(), που
+            # μετά από postback μπορεί να ξαναστείλει την Αποθήκευση).
+            time.sleep(2)
+            try:
+                saved, _ = _find_matching_absence(driver, absence_type, apo, eos)
+            except Exception:
+                saved = False
+        if not saved:
+            try:
+                driver.get(driver.current_url)
+                time.sleep(3)
+                _dismiss_alert(driver)
+                saved, _ = _find_matching_absence(driver, absence_type, apo, eos)
+            except Exception:
+                saved = False
+
+        if saved:
+            log('  ✓ Αποθήκευση — επιβεβαιώθηκε στον πίνακα Απουσιών')
+            ok += 1
+            ok_list.append(label)
+            _mark(am, name, 'ΕΠΙΤΥΧΙΑ', f'Καταχωρήθηκε ({apo} – {eos})')
+        else:
+            log('  ✗ ΔΕΝ επιβεβαιώθηκε ότι η απουσία εμφανίζεται στον πίνακα μετά '
+                'την Αποθήκευση — έλεγξε χειροκίνητα')
+            _notify(f'{label}\nΠατήθηκε Αποθήκευση αλλά η νέα απουσία ΔΕΝ φαίνεται '
+                    f'στον πίνακα Απουσιών.\nΈλεγξε χειροκίνητα την καρτέλα.')
+            _mark(am, name, 'ΑΠΟΤΥΧΙΑ', 'Μη επιβεβαιωμένη αποθήκευση — έλεγχος χειροκίνητα')
             fail += 1
             fail_list.append(label)
 

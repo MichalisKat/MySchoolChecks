@@ -1209,8 +1209,8 @@ class LauncherApp:
                      'τοποθέτησης (Γραμματειακή Υποστήριξη ή Παράλληλη Στήριξη/ΕΕΠ-ΕΒΠ).',
              'cmd': lambda: WorkHoursDetailsDialog(self.root)},
             {'title': 'Καταχώρηση Απουσίας σε Οργανική',
-             'desc': 'Αυτόματη καταχώρηση απουσίας Ολικής Διάθεσης στην οργανική τοποθέτηση '
-                     'εκπαιδευτικών.',
+             'desc': 'Αυτόματη καταχώρηση απουσίας Ολικής Διάθεσης / Απόσπασης στην οργανική '
+                     'τοποθέτηση εκπαιδευτικών.',
              'cmd': lambda: AbsencesDialog(self.root)},
         ]
         for idx, item in enumerate(items, start=1):
@@ -5549,7 +5549,7 @@ class TerminationDialog(tk.Toplevel):
 
 
 class AbsencesDialog(tk.Toplevel):
-    """Καταχώρηση Απουσίας σε Οργανική — Ολική Διάθεση."""
+    """Καταχώρηση Απουσίας σε Οργανική — Ολική Διάθεση / Απόσπαση."""
 
     _HDR_BG  = '#1F4E79'
     _LBL_CLR = '#1F4E79'
@@ -5583,7 +5583,7 @@ class AbsencesDialog(tk.Toplevel):
         tk.Label(hdr, text='📝  Καταχώρηση Απουσίας σε Οργανική',
                  bg=self._HDR_BG, fg='white',
                  font=('Arial', 12, 'bold')).pack()
-        tk.Label(hdr, text='Ολική Διάθεση — μόνο για χρήση από Δ/νση Π.Ε. Αν. Θεσσαλονίκης',
+        tk.Label(hdr, text='Ολική Διάθεση / Απόσπαση — μόνο για χρήση από Δ/νση Π.Ε. Αν. Θεσσαλονίκης',
                  bg=self._HDR_BG, fg='#FF6B6B',
                  font=('Arial', 8, 'italic')).pack()
 
@@ -5604,10 +5604,11 @@ class AbsencesDialog(tk.Toplevel):
                   cursor='hand2', command=self._browse).pack(side='left', padx=(4, 0))
 
         tk.Label(body,
-                 text=('Απαιτούνται στήλες: Α.Μ., Σχέση τοποθέτησης, Έως.\n'
-                       'Επεξεργάζονται όσοι έχουν 2η εγγραφή "Ολική Διάθεση '
+                 text=('Απαιτούνται στήλες: Α.Μ., Σχέση τοποθέτησης, Από, Έως.\n'
+                       'Επεξεργάζονται όσοι έχουν εγγραφή "Ολική Διάθεση '
                        '(ανάγκες υπηρεσίας - κύριος φορέας)" ή "Απόσπαση '
-                       '(με αίτηση - κύριος φορέας)".'),
+                       '(με αίτηση - κύριος φορέας)".\n'
+                       'Οι ημερομηνίες Ισχύει από/έως παίρνονται από τις στήλες Από/Έως.'),
                  bg=C['bg'], fg='#666666', font=('Arial', 8),
                  justify='left', anchor='w').grid(row=2, column=0, sticky='w', pady=(0, 2))
 
@@ -6184,6 +6185,27 @@ def _edit_file_stub(parent, tool_label):
                         parent=parent)
 
 
+# Κωδικός κλειδώματος: στον κώδικα (που είναι δημόσιος στο GitHub) υπάρχει
+# ΜΟΝΟ το PBKDF2-SHA256 hash του — ποτέ ο ίδιος ο κωδικός. Για αλλαγή κωδικού:
+#     python tools/make_lock_hash.py
+# και αντικατάσταση των τριών τιμών παρακάτω με αυτές που τυπώνει.
+_LOCK_SALT_HEX   = 'da281726db2c0b91895ff4566d47ac0e'
+_LOCK_ITERATIONS = 600000
+_LOCK_HASH_HEX   = '7c9c284aba027a0a026a53421061dc7b7ef9279c766a73289325a95e30ace4aa'
+
+
+def _check_lock_password(pwd):
+    """True αν ο κωδικός ταιριάζει με το αποθηκευμένο hash (σύγκριση
+    σταθερού χρόνου)."""
+    import hashlib, hmac
+    try:
+        digest = hashlib.pbkdf2_hmac('sha256', (pwd or '').encode('utf-8'),
+                                     bytes.fromhex(_LOCK_SALT_HEX), _LOCK_ITERATIONS)
+        return hmac.compare_digest(digest.hex(), _LOCK_HASH_HEX)
+    except Exception:
+        return False
+
+
 def _password_gate(parent, action):
     """Ζητάει κωδικό πρόσβασης πριν εκτελέσει το `action` — χρησιμοποιείται
     για στοιχεία που παραμένουν ενεργά αλλά προορίζονται αποκλειστικά για
@@ -6195,7 +6217,7 @@ def _password_gate(parent, action):
         show='*', parent=parent)
     if pwd is None:
         return
-    if pwd == '1511':
+    if _check_lock_password(pwd):
         action()
     else:
         messagebox.showerror('Λάθος κωδικός', 'Ο κωδικός δεν είναι σωστός.', parent=parent)
