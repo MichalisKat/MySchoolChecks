@@ -1428,6 +1428,40 @@ def split_exec_result(exec_result, log=print):
     return len(school_files)
 
 
+def _resolve_email_template(check_module, config):
+    """
+    Επιστρέφει (θέμα, body_template) για τον έλεγχο, διαβάζοντας ΤΩΡΑ το
+    custom πρότυπο από το local_settings.json (email_templates[<module>]) —
+    ίδια λογική με execute_check()/run_check(). Αν δεν υπάρχει custom
+    πρότυπο, επιστρέφει τα EMAIL_SUBJECT / EMAIL_BODY του module.
+    """
+    subj   = getattr(check_module, 'EMAIL_SUBJECT', '')
+    body_t = getattr(check_module, 'EMAIL_BODY',    '')
+    try:
+        import json, sys as _sys
+        _mod_name = check_module.__name__.split('.')[-1]
+        if getattr(_sys, 'frozen', False):
+            _exe_dir = os.path.dirname(_sys.executable)
+            if 'program files' in _exe_dir.lower():
+                _base = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'MySchoolChecks')
+            else:
+                _base = _exe_dir
+        else:
+            _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        _settings_path = os.path.join(_base, 'data', 'local_settings.json')
+        if os.path.exists(_settings_path):
+            with open(_settings_path, encoding='utf-8') as _f:
+                _sdata = json.load(_f)
+            _tmpl = _sdata.get('email_templates', {}).get(_mod_name)
+            if _tmpl:
+                subj   = _tmpl.get('subject', subj)
+                _cbody = _tmpl.get('body', '')
+                body_t = lambda school='', _b=_cbody: _b + config.email_signature()
+    except Exception:
+        pass
+    return subj, body_t
+
+
 def send_from_exec_result(exec_result, test_mode):
     """
     Στέλνει email με βάση αποτέλεσμα του execute_check() (status='ok').
@@ -1453,6 +1487,14 @@ def send_from_exec_result(exec_result, test_mode):
     df_out        = exec_result['df_out']
     scol, ecol    = exec_result['scol'], exec_result['ecol']
     subj, body_t  = exec_result['subj'], exec_result['body_t']
+    # Το πρότυπο ξαναδιαβάζεται ΤΩΡΑ, τη στιγμή της αποστολής: αν ο χρήστης
+    # άλλαξε/επανέφερε το «Πρότυπο Email» στο tab «✉ Αποστολή» ΜΕΤΑ την
+    # Εκτέλεση, να φύγει το τρέχον κείμενο — όχι αυτό που ίσχυε όταν έτρεξε
+    # η Εκτέλεση.
+    try:
+        subj, body_t = _resolve_email_template(check_module, config)
+    except Exception:
+        pass
     cols, ccols   = exec_result['cols'], exec_result['ccols']
     hlcol, hlclrs = exec_result['hlcol'], exec_result['hlclrs']
     sclrs, scol2  = exec_result['sclrs'], exec_result['scol2']
