@@ -37,6 +37,9 @@ COLUMNS = [
 
 SCHOOL_COLUMN = 'Κωδικός Σχολείου'
 EMAIL_COLUMN  = 'Email Σχολείου'
+SEND_SAMPLE_COPY = True   # μετά την κανονική αποστολή, στέλνει ΕΝΑ πραγματικό
+                          # αντίγραφο (κείμενο+συνημμένο, από ΕΝΑ σχολείο)
+                          # στο NOTIFY_EMAIL/FROM_EMAIL — βλ. core/framework.py::_send_loop.
 
 CENTER_COLS = {
     'Α.Μ.', 'Α.Φ.Μ.', 'Κωδικός Σχολείου',

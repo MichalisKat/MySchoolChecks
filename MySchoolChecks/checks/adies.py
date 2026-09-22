@@ -33,6 +33,9 @@ COLUMNS = [
 
 SCHOOL_COLUMN = 'Ονομασία Σχολείου'
 EMAIL_COLUMN  = 'Email Σχολείου'
+SEND_SAMPLE_COPY = True   # μετά την κανονική αποστολή, στέλνει ΕΝΑ πραγματικό
+                          # αντίγραφο (κείμενο+συνημμένο, από ΕΝΑ σχολείο)
+                          # στο NOTIFY_EMAIL/FROM_EMAIL — βλ. core/framework.py::_send_loop.
 
 EMAIL_SUBJECT = 'Παρόντες με ενεργή μακροχρόνια άδεια'
 EMAIL_BODY    = lambda school='': (
