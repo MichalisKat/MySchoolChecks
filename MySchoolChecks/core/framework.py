@@ -403,12 +403,21 @@ def _show_results_popup(title, body_text, result_type='warn', excel_path=None):
     win.wait_window()
 
 
+# ΠΡΟΣΩΡΙΝΑ ΑΠΕΝΕΡΓΟΠΟΙΗΜΕΝΟ: το αρχείο Αδυνατούντων υπό έγκριση δεν λαμβάνεται
+# υπόψη σε κανέναν έλεγχο και δεν εμφανίζεται στις Ρυθμίσεις.
+# Για επαναφορά: άλλαξε σε True.
+ADY_YPO_EGKRISI_ENABLED = False
+
+
 def get_ady_xoris_egkrisi(prompt='Αρχείο Αδυνατούντων (υπό έγκριση) [csv / xlsx]:'):
     """
     Επιστρέφει το αρχείο Αδυνατούντων υπό έγκριση.
     Πρώτα ελέγχει το ADY_XORIS_EGKRISI_PATH στο config.
     Αν δεν υπάρχει → επιστρέφει None (θεωρείται άδειο, δεν ζητείται αρχείο).
     """
+    if not ADY_YPO_EGKRISI_ENABLED:
+        print('  ℹ Αδυνατούντες (υπό έγκριση): προσωρινά απενεργοποιημένο — αγνοείται.')
+        return None
     try:
         import config as _cfg
         path = getattr(_cfg, 'ADY_XORIS_EGKRISI_PATH', '').strip()

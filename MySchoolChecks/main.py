@@ -392,7 +392,10 @@ class SettingsDialog(tk.Toplevel):
         tab3 = tk.Frame(nb, bg=C['bg'], padx=20, pady=14)
         nb.add(tab1, text='  Σύνδεση  ')
         nb.add(tab2, text='  Email  ')
-        nb.add(tab3, text='  Αρχεία  ')
+        # Tab «Αρχεία» (Αδυνατούντες υπό έγκριση) — προσωρινά κρυφό.
+        from core.framework import ADY_YPO_EGKRISI_ENABLED
+        if ADY_YPO_EGKRISI_ENABLED:
+            nb.add(tab3, text='  Αρχεία  ')
 
         # ── Tab 1: Σύνδεση (MySchool + email password) ───────────────────────
         self._section_label(tab1, 0, 'MySchool (SSO):')
