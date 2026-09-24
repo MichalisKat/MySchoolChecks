@@ -97,6 +97,11 @@ GRID_ID = 'ctl00_ContentData_gridEmplDet'
 
 
 # ── Ανάγνωση Excel ───────────────────────────────────────────────────────────
+def _clean_cell(v):
+    v = str(v if v is not None else '').strip()
+    return '' if v.lower() in ('nan', 'none') else v
+
+
 def load_people(file_path, log=print):
     """Διαβάζει το excel και επιστρέφει λίστα από dict:
     {'afm','am','eponymo','onoma','school_name','school_code'}."""
@@ -119,6 +124,10 @@ def load_people(file_path, log=print):
     onoma_col    = _find(('ΟΝΟΜΑ', 'Όνομα'))
     sxname_col   = _find(('Ονομασία Σχολείου', 'ΣΧΟΛΕΙΟ', 'Σχολείο'))
     sxcode_col   = _find(('Κωδικός Σχολείου', 'Κωδικός Υπουργείου', 'ΚΩΔ. ΣΧΟΛΕΙΟΥ'))
+    # Προαιρετική στήλη — χρησιμοποιείται ΜΟΝΟ από το κουμπί ΑΠΟΦΑΣΗ
+    # (run_decision). Αν υπάρχει και έχει τιμή, υπερισχύει του κειμένου
+    # που δόθηκε στο παράθυρο για τη συγκεκριμένη γραμμή.
+    apof_col     = _find(('Απόφαση', 'ΑΠΟΦΑΣΗ', 'Αρ. Απόφασης', 'Αριθμός Απόφασης'))
 
     if not afm_col and not am_col:
         raise ValueError(f'Λείπει στήλη Α.Φ.Μ. ή Α.Μ. Διαθέσιμες: {list(df.columns)}')
@@ -150,6 +159,7 @@ def load_people(file_path, log=print):
             'onoma':       str(row.get(onoma_col, '')).strip() if onoma_col else '',
             'school_name': school_name,
             'school_code': school_code,
+            'apofasi':     _clean_cell(row.get(apof_col, '')) if apof_col else '',
         })
 
     log(f'  ✓ Διαβάστηκαν {len(people)} εγγραφές από το excel.')
@@ -948,4 +958,296 @@ def run_delete(ctx, driver, callback=None):
 
     log('\n' + '─' * 65)
     log(f'ΛΗΞΗ — Διαγραφές: {ok} επιτυχείς, {fail} αποτυχίες')
+    log('─' * 65)
+
+
+# ── ΑΠΟΦΑΣΗ — Συμπλήρωση Παρατηρήσεων σε ΥΠΑΡΧΟΥΣΑ «Γραμματειακή» ─────────────
+# Δεν προσθέτει νέα εγγραφή. Για κάθε άτομο του excel:
+#   1. Αναζήτηση (ΑΦΜ/Α.Μ.) + μοναδικό ταίριασμα σχολείου (ίδια λογική με Ε5).
+#   2. Στον πίνακα «Λεπτομέρειες ωραρίου εργασίας» εντοπίζει τη γραμμή που
+#      περιέχει «Γραμματειακή» — ΑΚΡΙΒΩΣ ΜΙΑ, αλλιώς παράλειψη.
+#   3. Την ανοίγει για επεξεργασία (εικονίδιο ή client API StartEditRow).
+#   4. Σβήνει ό,τι υπάρχει στις Παρατηρήσεις (DXEditor7 — ίδιο πεδίο με το
+#      «ΠΔΕ-» του Ε8) και γράφει το κείμενο της απόφασης.
+#   5. Αποδοχή → Αποθήκευση → έλεγχος ότι το νέο κείμενο φαίνεται στον πίνακα.
+# Η παλιά τιμή των Παρατηρήσεων γράφεται στο log ΚΑΙ σε CSV backup
+# (Documents/MySchoolChecks/apofasi_backup_*.csv) για χειροκίνητη επαναφορά.
+
+NOTES_EDITOR_ID = 'ctl00_ContentData_gridEmplDet_DXEditor7_I'   # Παρατηρήσεις
+DATA_ROW_PREFIX = GRID_ID + '_DXDataRow'
+EDIT_ROW_PREFIX = GRID_ID + '_DXEditingRow'
+
+
+def _find_gram_row(driver, log):
+    """Επιστρέφει (tr_element, visible_index) της ΜΟΝΑΔΙΚΗΣ γραμμής
+    «Γραμματειακή» ή (None, reason) με reason ∈ {'notfound','ambiguous'}."""
+    from selenium.webdriver.common.by import By
+    rows = driver.find_elements(By.CSS_SELECTOR, f'tr[id^="{DATA_ROW_PREFIX}"]')
+    cands = []
+    for tr in rows:
+        try:
+            if 'ΓΡΑΜΜΑΤΕΙΑΚΗ' in _normalize_combo_text(tr.text):
+                idx = int(tr.get_attribute('id')[len(DATA_ROW_PREFIX):])
+                cands.append((tr, idx))
+        except Exception:
+            continue
+    if len(cands) == 1:
+        return cands[0]
+    if not cands:
+        log(f'  ✗ Δεν βρέθηκε γραμμή «Γραμματειακή Υποστήριξη» '
+            f'({len(rows)} εγγραφή(-ές) στον πίνακα) — παράλειψη')
+        return None, 'notfound'
+    log(f'  ⚠ Βρέθηκαν {len(cands)} γραμμές «Γραμματειακή» — παράλειψη '
+        '(χειροκίνητος έλεγχος, δεν μαντεύουμε ποια)')
+    return None, 'ambiguous'
+
+
+def _editing_open(driver):
+    from selenium.webdriver.common.by import By
+    try:
+        els = driver.find_elements(By.ID, NOTES_EDITOR_ID)
+        return any(el.is_displayed() for el in els)
+    except Exception:
+        return False
+
+
+def _open_row_for_edit(driver, tr, vis_idx, log):
+    """Ανοίγει τη γραμμή για επεξεργασία. 1η προσπάθεια: το εικονίδιο
+    επεξεργασίας ΜΕΣΑ στη γραμμή· 2η: ASPxClientGridView.StartEditRow."""
+    from selenium.webdriver.common.by import By
+
+    try:
+        driver.execute_script('arguments[0].scrollIntoView({block:"center"});', tr)
+        time.sleep(0.5)
+    except Exception:
+        pass
+
+    icons = []
+    try:
+        icons = tr.find_elements(
+            By.XPATH, './/img[@alt="Επεξεργασία" or @alt="Διόρθωση" or @alt="Edit"]')
+    except Exception:
+        pass
+    if icons:
+        try:
+            driver.execute_script('arguments[0].click();', icons[0])
+            time.sleep(2)
+        except Exception as e:
+            log(f'  ⚠ Κλικ εικονιδίου επεξεργασίας: {e}')
+
+    if not _editing_open(driver):
+        log('  (δοκιμή ανοίγματος μέσω client API του grid...)')
+        try:
+            driver.execute_script(f"""
+                var g = ASPxClientGridView.Cast('{GRID_ID}');
+                if (g) g.StartEditRow(arguments[0]);
+            """, vis_idx)
+        except Exception as e:
+            log(f'  ⚠ StartEditRow: {e}')
+        time.sleep(2.5)
+
+    return _editing_open(driver)
+
+
+def _set_notes(driver, text, log):
+    """Σβήνει τις Παρατηρήσεις και γράφει text. Επιστρέφει (ok, old_value)."""
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.common.keys import Keys
+
+    el = driver.find_element(By.ID, NOTES_EDITOR_ID)
+    old = (el.get_attribute('value') or '').strip()
+    log(f'  Παλιές Παρατηρήσεις: «{old}»')
+
+    _set_dxe_value(driver, NOTES_EDITOR_ID, '')
+    time.sleep(0.3)
+    _set_dxe_value(driver, NOTES_EDITOR_ID, text)
+    time.sleep(0.4)
+    cur = (driver.find_element(By.ID, NOTES_EDITOR_ID).get_attribute('value') or '').strip()
+
+    if cur != text.strip():
+        log('  ⚠ Η τιμή δεν «κόλλησε» μέσω JS — δοκιμή με πληκτρολόγηση...')
+        try:
+            el = driver.find_element(By.ID, NOTES_EDITOR_ID)
+            driver.execute_script('arguments[0].click(); arguments[0].focus();', el)
+            el.send_keys(Keys.CONTROL, 'a')
+            el.send_keys(Keys.DELETE)
+            time.sleep(0.2)
+            el.send_keys(text)
+            time.sleep(0.3)
+        except Exception as e:
+            log(f'  ⚠ Πληκτρολόγηση: {e}')
+        cur = (driver.find_element(By.ID, NOTES_EDITOR_ID).get_attribute('value') or '').strip()
+
+    if cur == text.strip():
+        log(f'  ✓ Νέες Παρατηρήσεις: «{cur}»')
+        return True, old
+    log(f'  ✗ Το πεδίο δείχνει «{cur}» αντί για «{text}»')
+    return False, old
+
+
+def _backup_file():
+    from datetime import datetime
+    docs = os.path.join(os.path.expanduser('~'), 'Documents', 'MySchoolChecks')
+    os.makedirs(docs, exist_ok=True)
+    return os.path.join(docs, f'apofasi_backup_{datetime.now():%Y%m%d_%H%M}.csv')
+
+
+def _append_backup(path, person, old, new):
+    import csv
+    first = not os.path.exists(path)
+    try:
+        with open(path, 'a', newline='', encoding='utf-8-sig') as f:
+            w = csv.writer(f, delimiter=';')
+            if first:
+                w.writerow(['ΑΦΜ', 'Α.Μ.', 'Επώνυμο', 'Όνομα', 'Σχολείο',
+                            'Παλιές Παρατηρήσεις', 'Νέες Παρατηρήσεις'])
+            w.writerow([person['afm'], person['am'], person['eponymo'], person['onoma'],
+                        person['school_name'] or person['school_code'], old, new])
+    except Exception:
+        pass
+
+
+def process_person_decision(driver, person, text, backup_path, log):
+    """'ok' | 'notfound' | 'ambiguous' | 'error'"""
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+
+    school_name_norm = _normalize_school_name(person['school_name']) if person['school_name'] else ''
+    try:
+        edit_links = _search_person(driver, person, log)
+    except Exception as e:
+        log(f'  ✗ Αναζήτηση απέτυχε: {e}')
+        return 'error'
+    if not edit_links:
+        log('  ✗ Κανένα αποτέλεσμα αναζήτησης')
+        return 'notfound'
+
+    link, reason = _pick_matching_row(driver, edit_links, school_name_norm,
+                                       person['school_code'], log)
+    if reason != 'ok':
+        log('  ⚠ ' + ('Δεν βρέθηκε γραμμή με το σχολείο' if reason == 'notfound'
+                      else 'Πάνω από μία γραμμές ταιριάζουν') + ' — παράλειψη')
+        return reason
+
+    try:
+        driver.execute_script('arguments[0].click();', link)
+        time.sleep(3)
+        WebDriverWait(driver, TIME_TO_WAIT).until(
+            EC.presence_of_element_located((By.ID, GRID_ID)))
+        log('  Καρτέλα ανοιχτή')
+    except Exception as e:
+        log(f'  ✗ Άνοιγμα καρτέλας: {e}')
+        return 'error'
+
+    tr, vis_idx = _find_gram_row(driver, log)
+    if tr is None:
+        return vis_idx   # 'notfound' / 'ambiguous'
+
+    if not _open_row_for_edit(driver, tr, vis_idx, log):
+        log('  ✗ Η γραμμή «Γραμματειακή» δεν άνοιξε για επεξεργασία — παράλειψη')
+        return 'error'
+    log('  ✓ Γραμμή «Γραμματειακή» σε επεξεργασία')
+
+    ok_n, old = _set_notes(driver, text, log)
+    if not ok_n:
+        try:
+            driver.execute_script(f"ASPxClientGridView.Cast('{GRID_ID}').CancelEdit();")
+        except Exception:
+            pass
+        log('  ✗ Ακύρωση επεξεργασίας — ΔΕΝ αποθηκεύτηκε τίποτα')
+        return 'error'
+
+    # ── Αποδοχή ───────────────────────────────────────────────────────────
+    try:
+        accept_btn = WebDriverWait(driver, TIME_TO_WAIT).until(
+            EC.presence_of_element_located((By.XPATH, '//img[@alt="Αποδοχή"]')))
+        driver.execute_script('arguments[0].click();', accept_btn)
+        time.sleep(2)
+    except Exception as e:
+        log(f'  ⚠ Κλικ Αποδοχή: {e}')
+    if _editing_open(driver):
+        log('  ⚠ Η γραμμή παραμένει σε επεξεργασία — δοκιμή UpdateEdit μέσω client API...')
+        try:
+            driver.execute_script(f"ASPxClientGridView.Cast('{GRID_ID}').UpdateEdit();")
+        except Exception as e:
+            log(f'  ⚠ UpdateEdit: {e}')
+        time.sleep(2)
+    if _editing_open(driver):
+        log('  ✗ Η γραμμή ΔΕΝ έγινε αποδεκτή — ΔΕΝ πατιέται Αποθήκευση')
+        return 'error'
+    log('  ✓ Αποδοχή')
+
+    # ── Αποθήκευση ────────────────────────────────────────────────────────
+    try:
+        save_btn = WebDriverWait(driver, TIME_TO_WAIT).until(
+            EC.element_to_be_clickable((By.ID, 'ctl00_ContentData_btnSave')))
+        driver.execute_script('arguments[0].click();', save_btn)
+        time.sleep(3)
+        log('  ✓ Αποθήκευση')
+    except Exception as e:
+        log(f'  ✗ Αποθήκευση: {e}')
+        return 'error'
+
+    _append_backup(backup_path, person, old, text)
+
+    # ── Επιβεβαίωση στον πίνακα (πρώτοι 15 χαρακτήρες — ο πίνακας μπορεί
+    #    να κόβει μεγάλα κείμενα) ──────────────────────────────────────────
+    try:
+        grid_text = _normalize_combo_text(driver.find_element(By.ID, GRID_ID).text)
+    except Exception:
+        grid_text = _normalize_combo_text(driver.page_source)
+    if _normalize_combo_text(text)[:15] in grid_text:
+        log('  ✓ Επιβεβαιώθηκε: το κείμενο της απόφασης εμφανίζεται στον πίνακα')
+        return 'ok'
+    log('  ⚠ ΔΕΝ επιβεβαιώθηκε το νέο κείμενο στον πίνακα — έλεγξε χειροκίνητα')
+    return 'error'
+
+
+def run_decision(ctx, driver, callback=None):
+    """
+    ΑΠΟΦΑΣΗ — ctx:
+      'file_path' — ίδιας μορφής excel με το Ε5 (+ προαιρετική στήλη «Απόφαση»)
+      'text'      — κείμενο απόφασης για όλους (η στήλη «Απόφαση» υπερισχύει
+                    ανά γραμμή όταν έχει τιμή)
+    """
+    log = callback or print
+    file_path    = ctx.get('file_path')
+    default_text = (ctx.get('text') or '').strip()
+
+    people = load_people(file_path, log=log)
+    if not people:
+        return
+
+    backup_path = _backup_file()
+    total = len(people)
+    log(f'\n  {total} εγγραφές — ΑΠΟΦΑΣΗ (Παρατηρήσεις σε υπάρχουσα «Γραμματειακή»)')
+    log(f'  Backup παλιών τιμών: {backup_path}')
+
+    results = {'ok': [], 'notfound': [], 'ambiguous': [], 'error': []}
+    try:
+        for idx, person in enumerate(people, 1):
+            ident = person['afm'] or person['am']
+            log(f'\n[{idx}/{total}] {ident}  {person["eponymo"]} {person["onoma"]}  '
+                f'—  {person["school_name"] or person["school_code"]}')
+            text = person.get('apofasi') or default_text
+            if not text:
+                log('  ✗ Κενό κείμενο απόφασης (ούτε στο παράθυρο ούτε στη στήλη «Απόφαση») — παράλειψη')
+                results['error'].append(ident)
+                continue
+            status = process_person_decision(driver, person, text, backup_path, log)
+            results[status].append(ident)
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        log('\n\n⚠ Διακόπηκε από τον χρήστη. Ό,τι έχει ήδη αποθηκευτεί παραμένει.')
+
+    log('\n' + '─' * 65)
+    log(f'✓ Ενημερώθηκαν : {len(results["ok"])}')
+    log(f'⚠ Δεν βρέθηκαν (σχολείο ή γραμμή Γραμματειακής) : {len(results["notfound"])}')
+    log(f'⚠ Διφορούμενα : {len(results["ambiguous"])}')
+    log(f'✗ Σφάλματα : {len(results["error"])}')
+    for key, label in (('notfound', 'Δεν βρέθηκαν'), ('ambiguous', 'Διφορούμενα'),
+                       ('error', 'Σφάλματα')):
+        if results[key]:
+            log(f'  {label}: ' + ' | '.join(results[key]))
     log('─' * 65)

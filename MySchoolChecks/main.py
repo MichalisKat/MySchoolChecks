@@ -5185,6 +5185,11 @@ class WorkHoursDetailsDialog(tk.Toplevel):
                   relief='flat', padx=6, pady=1, cursor='hand2',
                   command=self._open_lixi)
         self._lixi_btn.pack(side='left', padx=(10, 0))
+        self._apof_btn = tk.Button(row_gram, text='📝 ΑΠΟΦΑΣΗ',
+                  bg='#1565C0', fg='white', font=('Arial', 7, 'bold'),
+                  relief='flat', padx=6, pady=1, cursor='hand2',
+                  command=self._open_apofasi)
+        self._apof_btn.pack(side='left', padx=(6, 0))
 
         tk.Radiobutton(desc_frame, text=self._DESCRIPTIONS[1], variable=self._desc_var,
                         value=self._DESCRIPTIONS[1], bg=C['bg'], font=('Arial', 9),
@@ -5340,6 +5345,137 @@ class WorkHoursDetailsDialog(tk.Toplevel):
                 self._conn_btn.configure(state='normal')
                 self._status_var.set('Ολοκλήρωση ΛΗΞΗΣ.')
             self.after(0, _after)
+        _th.Thread(target=_do, daemon=True).start()
+
+    def _ask_apofasi_inputs(self):
+        """Μικρό παράθυρο: αρχείο excel + κείμενο απόφασης.
+        Επιστρέφει (path, text) ή None αν ακυρωθεί."""
+        import work_hours_details
+        win = tk.Toplevel(self)
+        win.title('ΑΠΟΦΑΣΗ — Παρατηρήσεις σε υπάρχουσα Γραμματειακή')
+        win.configure(bg=C['bg'])
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+
+        file_var = tk.StringVar(value=self._file_var.get().strip()
+                                or work_hours_details.get_panic_path())
+        result = {}
+
+        body = tk.Frame(win, bg=C['bg'], padx=16, pady=14)
+        body.pack(fill='both', expand=True)
+
+        tk.Label(body, text='Αρχείο εκπαιδευτικών (Excel ή CSV):',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).pack(anchor='w')
+        ff = tk.Frame(body, bg=C['bg'])
+        ff.pack(fill='x', pady=(2, 10))
+        tk.Entry(ff, textvariable=file_var, font=('Arial', 9), width=58,
+                 relief='solid', bd=1).pack(side='left', fill='x', expand=True)
+
+        def _pick_file():
+            from tkinter import filedialog
+            p = filedialog.askopenfilename(
+                parent=win, title='Επιλογή αρχείου εκπαιδευτικών',
+                filetypes=[('Excel/CSV', '*.xlsx *.xls *.csv'), ('Όλα', '*.*')])
+            if p:
+                file_var.set(p)
+        tk.Button(ff, text='📂', bg=C['bg'], relief='flat', font=('Arial', 11),
+                  cursor='hand2', command=_pick_file).pack(side='left', padx=(4, 0))
+
+        tk.Label(body, text='Κείμενο απόφασης (γράφεται στις Παρατηρήσεις):',
+                 bg=C['bg'], fg=self._LBL_CLR,
+                 font=('Arial', 9, 'bold')).pack(anchor='w')
+        txt = tk.Text(body, height=3, width=60, font=('Arial', 9),
+                      relief='solid', bd=1, wrap=tk.WORD)
+        txt.pack(fill='x', pady=(2, 4))
+        txt.insert('1.0', 'ΠΔΕ-')
+        txt.focus_set()
+
+        tk.Label(body,
+                 text='Αν το excel έχει στήλη «Απόφαση» με τιμή, αυτή υπερισχύει για τη '
+                      'συγκεκριμένη γραμμή. Ό,τι υπάρχει ήδη στις Παρατηρήσεις ΣΒΗΝΕΤΑΙ '
+                      '(η παλιά τιμή κρατιέται σε backup CSV).',
+                 bg=C['bg'], fg='#666666', font=('Arial', 8),
+                 wraplength=480, justify='left').pack(anchor='w', pady=(0, 10))
+
+        def _ok():
+            path = file_var.get().strip()
+            text = ' '.join(txt.get('1.0', 'end').split())
+            if not path:
+                messagebox.showwarning('Προσοχή', 'Επίλεξε αρχείο.', parent=win)
+                return
+            if text in ('', 'ΠΔΕ-'):
+                if not messagebox.askyesno(
+                        'Κενό κείμενο',
+                        'Δεν έδωσες κείμενο απόφασης. Θα χρησιμοποιηθεί ΜΟΝΟ η στήλη '
+                        '«Απόφαση» του excel (όσοι δεν έχουν τιμή θα παραλειφθούν). Συνέχεια;',
+                        parent=win):
+                    return
+                text = ''
+            result['v'] = (path, text)
+            win.destroy()
+
+        br = tk.Frame(body, bg=C['bg'])
+        br.pack(anchor='e')
+        tk.Button(br, text='Άκυρο', bg=C['bg2'], fg=C['desc'], font=('Arial', 9),
+                  relief='flat', padx=10, pady=4, cursor='hand2',
+                  command=win.destroy).pack(side='left', padx=(0, 8))
+        tk.Button(br, text='▶  Εκτέλεση', bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat', padx=12, pady=4,
+                  cursor='hand2', command=_ok).pack(side='left')
+
+        win.update_idletasks()
+        pw = self.winfo_x() + (self.winfo_width() - win.winfo_width()) // 2
+        ph = self.winfo_y() + (self.winfo_height() - win.winfo_height()) // 2
+        win.geometry(f'+{pw}+{ph}')
+        win.wait_window()
+        return result.get('v')
+
+    def _open_apofasi(self):
+        import work_hours_details
+        vals = self._ask_apofasi_inputs()
+        if not vals:
+            return
+        path, text = vals
+
+        if not messagebox.askyesno(
+                'Επιβεβαίωση ΑΠΟΦΑΣΗΣ',
+                'Για κάθε άτομο του αρχείου:\n\n' + path + '\n\n'
+                'θα ανοιχτεί η ΥΠΑΡΧΟΥΣΑ εγγραφή «Γραμματειακή Υποστήριξη» στις '
+                'Λεπτομέρειες ωραρίου, θα σβηστούν οι Παρατηρήσεις και θα γραφτεί:\n\n'
+                f'«{text or "(από τη στήλη Απόφαση του excel)"}»\n\n'
+                'Δεν προστίθεται νέα εγγραφή. Αν δεν υπάρχει ή υπάρχουν πάνω από μία '
+                'γραμμές Γραμματειακής, το άτομο παραλείπεται. Συνέχεια;',
+                parent=self):
+            return
+
+        import threading as _th
+        self._apof_btn.configure(state='disabled', text='ΑΠΟΦΑΣΗ...')
+        self._lixi_btn.configure(state='disabled')
+        self._conn_btn.configure(state='disabled')
+        self._status_var.set('Σύνδεση στο MySchool (ΑΠΟΦΑΣΗ)...')
+
+        def _restore(msg):
+            self._apof_btn.configure(state='normal', text='📝 ΑΠΟΦΑΣΗ')
+            self._lixi_btn.configure(state='normal')
+            self._conn_btn.configure(state='normal')
+            self._status_var.set(msg)
+
+        def _do():
+            drv = work_hours_details.connect(log=self._log_msg)
+            if not drv:
+                self.after(0, lambda: _restore(
+                    'Αποτυχία σύνδεσης — έλεγξε credentials στις Ρυθμίσεις.'))
+                return
+            self._driver = drv
+            self.after(0, lambda: self._status_var.set('ΑΠΟΦΑΣΗ σε εξέλιξη...'))
+            try:
+                work_hours_details.run_decision(
+                    {'file_path': path, 'text': text}, drv, callback=self._log_msg)
+            except Exception as e:
+                self._log_msg(f'✗ Σφάλμα: {e}')
+            self.after(0, lambda: _restore('Ολοκλήρωση ΑΠΟΦΑΣΗΣ.'))
         _th.Thread(target=_do, daemon=True).start()
 
     def _on_close(self):
