@@ -295,7 +295,7 @@ def _find_col(df, *keywords):
     return None
 
 
-def CUSTOM_SPLIT_SOURCE(exec_result, log=print):
+def CUSTOM_SPLIT_SOURCE(exec_result, log=print, path=None):
     """
     Ζητά από τον χρήστη να επιλέξει το ΕΠΕΞΕΡΓΑΣΜΕΝΟ αρχείο Excel (μετά από
     έλεγχο/διορθώσεις στο αρχικό αποτέλεσμα) και επιστρέφει το αντίστοιχο
@@ -312,15 +312,19 @@ def CUSTOM_SPLIT_SOURCE(exec_result, log=print):
     from tkinter import filedialog, messagebox
     import pandas as pd
 
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes('-topmost', True)
-    path_xl = filedialog.askopenfilename(
-        title='Επιλέξτε το επεξεργασμένο αρχείο Excel για διαχωρισμό',
-        filetypes=[('Excel', '*.xlsx *.xls')],
-        parent=root
-    )
-    root.destroy()
+    # Το αρχείο επιλέγεται πλέον από το κουμπί «📂 Επιλογή αρχείου» του tab
+    # «✂ Διαχωρισμός» (core/check_dialog.py) και περνά εδώ ως `path`.
+    path_xl = path
+    if not path_xl:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        path_xl = filedialog.askopenfilename(
+            title='Επιλέξτε το επεξεργασμένο αρχείο Excel για διαχωρισμό',
+            filetypes=[('Excel', '*.xlsx *.xls')],
+            parent=root
+        )
+        root.destroy()
     if not path_xl:
         log('  ✗ Δεν επιλέχθηκε αρχείο — ο διαχωρισμός ακυρώθηκε.')
         return None

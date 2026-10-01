@@ -1170,7 +1170,8 @@ def build_split_tab(parent, config):
 
     tk.Label(parent,
              text='Παίρνει το πιο πρόσφατο συγκεντρωτικό αρχείο αποτελεσμάτων του '
-                  'ελέγχου και το χωρίζει σε ξεχωριστά αρχεία Excel — ένα ανά '
+                  'ελέγχου — ή όποιο Excel υποδείξεις με «📂 Επιλογή αρχείου» (π.χ. '
+                  'αφού αφαιρέσεις σχολεία που δεν θέλεις να λάβουν email) — και το χωρίζει σε ξεχωριστά αρχεία Excel — ένα ανά '
                   'σχολείο — μέσα σε φάκελο «split» δίπλα στο αρχείο.\n'
                   'Εξαιρούνται τα σχολεία χωρίς καμία απόκλιση (Διαφορά Τμήματα = 0 '
                   'ΚΑΙ Διαφορά Μαθητές = 0) — δημιουργείται αρχείο μόνο για τα '
@@ -1184,19 +1185,50 @@ def build_split_tab(parent, config):
                          justify='left', wraplength=560)
     info_lbl.pack(fill='x', padx=14, pady=(0, 4))
 
+    # state['file'] = None → αυτόματα το πιο πρόσφατο αρχείο αποτελεσμάτων·
+    # αλλιώς το αρχείο που υπέδειξε ο χρήστης με «📂 Επιλογή αρχείου»
+    # (π.χ. αφού αφαίρεσε σχολεία που δεν θέλει να λάβουν email).
     state = {'file': None}
 
-    def _detect():
-        f = _find_latest_output()
-        state['file'] = f
-        if f:
-            info_lbl.config(text=f'✓ {os.path.basename(f)}', fg='#2E7D32')
+    def _canonical_output():
+        if _LAST_RESULT and _LAST_RESULT.get('out_path') \
+                and os.path.isfile(_LAST_RESULT['out_path']):
+            return _LAST_RESULT['out_path']
+        return _find_latest_output()
+
+    def _current_file():
+        return state['file'] or _canonical_output()
+
+    def _refresh_label():
+        f = _current_file()
+        if f and os.path.isfile(f):
+            tag = '   (επιλεγμένο από τον χρήστη)' if state['file'] else ''
+            info_lbl.config(text=f'✓ {os.path.basename(f)}{tag}\n   {os.path.dirname(f)}',
+                            fg='#2E7D32')
         else:
             info_lbl.config(
                 text='Δεν βρέθηκε αρχείο αποτελεσμάτων — τρέξε πρώτα την «▶ Εκτέλεση».',
                 fg='#B00020')
 
-    _detect()
+    def _choose():
+        from tkinter import filedialog
+        cur = _current_file()
+        init_dir = os.path.dirname(cur) if cur else os.path.join(
+            os.path.expanduser('~'), 'Documents', 'MySchoolChecks')
+        if not os.path.isdir(init_dir):
+            init_dir = os.path.expanduser('~')
+        p = filedialog.askopenfilename(
+            parent=parent,
+            title='Επίλεξε το Excel που θα διαχωριστεί ανά σχολείο',
+            initialdir=init_dir,
+            initialfile=os.path.basename(cur) if cur else '',
+            filetypes=[('Excel', '*.xlsx *.xlsm'), ('Όλα τα αρχεία', '*.*')])
+        if not p:
+            return
+        state['file'] = os.path.normpath(p)
+        _refresh_label()
+
+    _refresh_label()
 
     log_w = scrolledtext.ScrolledText(parent, height=10, font=('Courier', 8),
                                        wrap='word', relief='solid', bd=1,
@@ -1222,14 +1254,13 @@ def build_split_tab(parent, config):
                            padx=14, pady=5, cursor='hand2')
     split_btn.pack(side='left', padx=(0, 8))
 
-    tk.Button(btn_f, text='Ανίχνευση αρχείου', bg=C['bg2'], fg=C['desc'],
+    tk.Button(btn_f, text='📂  Επιλογή αρχείου', bg=C['bg2'], fg=C['desc'],
               font=('Arial', 9), relief='flat', padx=10, pady=5, cursor='hand2',
-              command=_detect).pack(side='left')
+              command=_choose).pack(side='left')
 
     def _start():
-        if not state['file']:
-            _detect()
-        if not state['file']:
+        f = _current_file()
+        if not f or not os.path.isfile(f):
             import tkinter.messagebox as _mb
             _mb.showwarning(
                 'Προσοχή',
@@ -1238,11 +1269,24 @@ def build_split_tab(parent, config):
             return
 
         split_btn.config(state='disabled')
-        f = state['file']
-        out_dir = os.path.join(os.path.dirname(f), 'split')
+        # Ο φάκελος «split» είναι ΠΑΝΤΑ αυτός δίπλα στο αρχείο της Εκτέλεσης
+        # (από εκεί διαβάζει το tab «✉ Αποστολή»), όπου κι αν βρίσκεται το
+        # αρχείο που επέλεξε ο χρήστης.
+        canon = _canonical_output() or f
+        out_dir = os.path.join(os.path.dirname(canon), 'split')
 
         def _worker():
             try:
+                _log(f'Αρχείο προς διαχωρισμό: {f}')
+                # Καθαρισμός παλιών αρχείων — αλλιώς σχολείο που αφαιρέθηκε
+                # από το Excel θα λάμβανε email από προηγούμενο διαχωρισμό.
+                if os.path.isdir(out_dir):
+                    for _fn in os.listdir(out_dir):
+                        if _fn.lower().endswith('.xlsx') and not _fn.startswith('~$'):
+                            try:
+                                os.remove(os.path.join(out_dir, _fn))
+                            except OSError as _e:
+                                _log(f'  ⚠ Δεν διαγράφηκε το παλιό {_fn}: {_e}')
                 split_tmimata_workbook(f, out_dir, log=_log)
             except Exception as e:
                 _log(f'✗ Σφάλμα: {e}')

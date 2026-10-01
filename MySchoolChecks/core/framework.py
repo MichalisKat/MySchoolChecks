@@ -1355,7 +1355,94 @@ def execute_check(check_module, config):
     }
 
 
-def split_exec_result(exec_result, log=print):
+def _norm_key(v):
+    """Κανονικοποίηση τιμής σχολείου για σύγκριση (str, χωρίς '.0'/κενά)."""
+    s = '' if v is None else str(v).strip()
+    if s.lower() in ('nan', 'none'):
+        return ''
+    if s.endswith('.0') and s[:-2].isdigit():
+        s = s[:-2]
+    return s
+
+
+def load_split_source(exec_result, path, log=print):
+    """
+    Διαβάζει το (πιθανώς επεξεργασμένο από τον χρήστη) Excel αποτελεσμάτων που
+    επέλεξε στο tab «✂ Διαχωρισμός» και επιστρέφει DataFrame με τις ίδιες
+    στήλες-κλειδιά με το exec_result['df_out'], ώστε ο διαχωρισμός και η
+    αποστολή να γίνουν ΜΟΝΟ με τις εγγραφές που έμειναν στο αρχείο.
+
+    Το αρχείο έχει τη μορφή του save_workbook(): γραμμή 1 τίτλος, γραμμή 2
+    σύνολο, γραμμή 3 επικεφαλίδες (οι επικεφαλίδες μπορεί να είναι alias —
+    αντιστοιχίζονται πίσω στο όνομα στήλης μέσω exec_result['cols']).
+    """
+    import pandas as pd
+
+    cols   = exec_result.get('cols') or []
+    scol   = exec_result['scol']
+    label_to_name = {}
+    for c in cols:
+        name  = c[0]
+        label = c[2] if len(c) > 2 and c[2] else c[0]
+        label_to_name[str(label).strip()] = name
+        label_to_name[str(name).strip()]  = name
+    scol_keys = {k for k, v in label_to_name.items() if v == scol} | {scol}
+
+    xl = pd.ExcelFile(path)
+    sheet = 'Αποτελέσματα' if 'Αποτελέσματα' in xl.sheet_names else xl.sheet_names[0]
+
+    df = None
+    for hdr_row in (2, 0, 1, 3, 4):
+        try:
+            d = pd.read_excel(path, sheet_name=sheet, header=hdr_row, dtype=object)
+        except Exception:
+            continue
+        d.columns = [str(c).strip() for c in d.columns]
+        if any(c in scol_keys for c in d.columns):
+            df = d
+            break
+    if df is None:
+        raise RuntimeError(
+            f'Το αρχείο «{os.path.basename(path)}» δεν έχει στήλη «{scol}» — '
+            'επίλεξε το αρχείο αποτελεσμάτων αυτού του ελέγχου.')
+
+    df = df.rename(columns={c: label_to_name.get(c, c) for c in df.columns})
+    df = df.loc[:, ~df.columns.duplicated()]
+    df = df.dropna(how='all')
+    df = df[df[scol].map(_norm_key) != ''].copy()
+    df = df.where(pd.notna(df), '')
+    return df.reset_index(drop=True)
+
+
+def _fill_missing_from_original(df_new, exec_result, log=print):
+    """
+    Συμπληρώνει στο νέο DataFrame στήλες που υπάρχουν στο αρχικό df_out αλλά
+    όχι στο αρχείο Excel (π.χ. Email Σχολείου που δεν εμφανίζεται στο Excel),
+    με αντιστοίχιση ανά σχολείο (scol). Έτσι η αποστολή βρίσκει το email.
+    """
+    df_orig = exec_result.get('df_out')
+    scol    = exec_result['scol']
+    ecol    = exec_result.get('ecol')
+    if df_orig is None or scol not in df_orig.columns:
+        return df_new
+
+    keys_new = df_new[scol].map(_norm_key)
+    first    = df_orig.assign(_k=df_orig[scol].map(_norm_key)).drop_duplicates('_k').set_index('_k')
+
+    # Στήλες που λείπουν εντελώς
+    for col in df_orig.columns:
+        if col not in df_new.columns:
+            df_new[col] = keys_new.map(first[col]).fillna('') if col in first.columns else ''
+
+    # Email κενό στο αρχείο → από το αρχικό αποτέλεσμα
+    if ecol and ecol in df_new.columns and ecol in first.columns:
+        blank = df_new[ecol].map(_norm_key) == ''
+        if blank.any():
+            df_new.loc[blank, ecol] = keys_new[blank].map(first[ecol]).fillna('')
+    return df_new
+
+
+def split_exec_result(exec_result, log=print, source_path=None):
     """
     Χωρίζει το συνολικό αρχείο αποτελεσμάτων (path_all) σε ένα Excel ανά
     σχολείο, μέσα σε υποφάκελο «split» του out_dir — ώστε ο χρήστης να δει
@@ -1401,14 +1488,38 @@ def split_exec_result(exec_result, log=print):
     scol2   = exec_result['scol2']
     out_dir = exec_result['out_dir']
 
-    if callable(custom_source):
-        df_out = custom_source(exec_result, log)
+    # Το αρχικό αποτέλεσμα της Εκτέλεσης κρατιέται ξεχωριστά, ώστε κάθε νέος
+    # διαχωρισμός (π.χ. με άλλο αρχείο) να ξεκινά από τα πλήρη δεδομένα.
+    if 'df_out_orig' not in exec_result:
+        exec_result['df_out_orig']  = exec_result['df_out']
+        exec_result['schools_orig'] = exec_result['schools']
+    base = dict(exec_result, df_out=exec_result['df_out_orig'])
+
+    df_out = None
+    if source_path:
+        log(f'  Αρχείο προς διαχωρισμό: {os.path.basename(source_path)}')
+        if callable(custom_source):
+            try:
+                df_out = custom_source(base, log, path=source_path)
+            except TypeError:
+                df_out = custom_source(base, log)
+        else:
+            df_out = load_split_source(base, source_path, log)
+    elif callable(custom_source):
+        df_out = custom_source(base, log)
+
+    if df_out is not None or source_path or callable(custom_source):
         if df_out is None or df_out.empty:
             log('  ✗ Ο διαχωρισμός ακυρώθηκε ή δεν βρέθηκαν εγγραφές.')
             return 0
         if scol not in df_out.columns:
             raise RuntimeError(f'Το επιλεγμένο αρχείο δεν έχει στήλη «{scol}».')
+        df_out  = _fill_missing_from_original(df_out, base, log)
         schools = sorted(df_out[scol].dropna().unique())
+        n_orig_rows = len(base['df_out'])
+        n_orig_sch  = len(exec_result['schools_orig'])
+        log(f'  Εγγραφές: {len(df_out)} (αρχικά {n_orig_rows})  |  '
+            f'Σχολεία: {len(schools)} (αρχικά {n_orig_sch})')
         exec_result['df_out']  = df_out
         exec_result['schools'] = schools
     else:
@@ -1417,6 +1528,14 @@ def split_exec_result(exec_result, log=print):
 
     split_dir = os.path.join(out_dir, 'split')
     os.makedirs(split_dir, exist_ok=True)
+    # Καθαρισμός παλιών ατομικών αρχείων — αλλιώς σχολείο που αφαιρέθηκε θα
+    # είχε ακόμη αρχείο από προηγούμενο διαχωρισμό.
+    for fn in os.listdir(split_dir):
+        if fn.lower().endswith('.xlsx') and not fn.startswith('~$'):
+            try:
+                os.remove(os.path.join(split_dir, fn))
+            except OSError as e:
+                log(f'  ⚠ Δεν διαγράφηκε το παλιό {fn}: {e}')
 
     school_files = {}
     log(f'  Διαχωρισμός {len(schools)} σχολείων...')

@@ -717,13 +717,15 @@ class CheckRunDialog(tk.Toplevel):
         """
         C = self._C
         tk.Label(body,
-                 text='Χωρίζει το συνολικό αρχείο αποτελεσμάτων σε ένα Excel ανά '
-                      'σχολείο (φάκελος «split»), ώστε να δεις τι αρχείο θα '
-                      'σταλεί σε κάθε σχολείο πριν την αποστολή. Στο tab '
-                      '«✉ Αποστολή» θα σταλούν emails μόνο σε σχολεία που έχουν '
-                      'ατομικό αρχείο εδώ.',
+                 text='Χωρίζει το αρχείο αποτελεσμάτων σε ένα Excel ανά σχολείο '
+                      '(φάκελος «split»). Μπορείς πρώτα να ανοίξεις το Excel της '
+                      'Εκτέλεσης, να διαγράψεις εγγραφές που δεν θέλεις να σταλούν, '
+                      'να το αποθηκεύσεις και να το επιλέξεις με «📂 Επιλογή αρχείου». '
+                      'Στο tab «✉ Αποστολή» θα σταλούν emails μόνο σε σχολεία που '
+                      'έχουν ατομικό αρχείο εδώ.',
                  bg=C['bg'], fg=C['desc'], font=('Arial', 8),
                  wraplength=560, justify='left', anchor='w').pack(fill='x', pady=(0, 8))
+        self._split_source_path = None
 
         self._split_hint = tk.Label(
             body,
@@ -749,36 +751,75 @@ class CheckRunDialog(tk.Toplevel):
         self._split_btn = self._run_btn(br, '✂  Διαχωρισμός ανά Σχολείο',
                                          self._start_generic_split)
         self._split_btn.configure(state='disabled', bg=C['btn_dis'])
-        tk.Button(br, text='Ανίχνευση αρχείου', bg=C['bg2'], fg=C['desc'],
+        tk.Button(br, text='📂  Επιλογή αρχείου', bg=C['bg2'], fg=C['desc'],
                   font=('Arial', 9), relief='flat', padx=10, pady=5,
                   cursor='hand2',
-                  command=self._detect_split_file).pack(side='left', padx=(8, 0))
+                  command=self._choose_split_file).pack(side='left', padx=(8, 0))
 
         self._detect_split_file()
 
     def _detect_split_file(self):
         """
-        Ενημερώνει το `self._split_info_lbl` με το αρχείο που θα χωριστεί —
-        το συγκεντρωτικό αρχείο αποτελεσμάτων (`path_all`) της τελευταίας
-        επιτυχούς Εκτέλεσης σε αυτή τη σύνοδο. Καλείται στο χτίσιμο του tab,
-        μετά από κάθε Εκτέλεση, και όταν πατηθεί το κουμπί «Ανίχνευση
-        αρχείου».
+        Ορίζει ως προεπιλογή το συγκεντρωτικό αρχείο αποτελεσμάτων (`path_all`)
+        της τελευταίας επιτυχούς Εκτέλεσης. Καλείται στο χτίσιμο του tab και
+        μετά από κάθε Εκτέλεση (νέα Εκτέλεση → ακυρώνει προηγούμενη επιλογή).
         """
         path_all = None
         if self._exec_result and self._exec_result.get('status') == 'ok':
             path_all = self._exec_result.get('path_all')
         if path_all and os.path.isfile(path_all):
+            self._split_source_path = path_all
+        else:
+            self._split_source_path = None
+        self._update_split_label()
+
+    def _update_split_label(self):
+        p = self._split_source_path
+        path_all = (self._exec_result or {}).get('path_all')
+        if p and os.path.isfile(p):
+            tag = '' if p == path_all else '   (επιλεγμένο από τον χρήστη)'
             self._split_info_lbl.configure(
-                text=f'✓ {os.path.basename(path_all)}', fg='#2E7D32')
+                text=f'✓ {os.path.basename(p)}{tag}\n   {os.path.dirname(p)}',
+                fg='#2E7D32')
         else:
             self._split_info_lbl.configure(
                 text='Δεν βρέθηκε αρχείο αποτελεσμάτων — τρέξε πρώτα την «▶ Εκτέλεση».',
                 fg='#B00020')
 
+    def _choose_split_file(self):
+        """
+        Κουμπί «📂 Επιλογή αρχείου»: ανοίγει τον Explorer για να υποδείξει ο
+        χρήστης το Excel που θα χωριστεί ανά σχολείο (π.χ. το αρχείο της
+        Εκτέλεσης αφού αφαίρεσε εγγραφές που δεν πρέπει να σταλούν).
+        """
+        from tkinter import filedialog
+        cur = self._split_source_path or (self._exec_result or {}).get('path_all')
+        init_dir = os.path.dirname(cur) if cur else os.path.join(self._base or '', '')
+        if not init_dir or not os.path.isdir(init_dir):
+            init_dir = os.path.expanduser('~')
+        path = filedialog.askopenfilename(
+            parent=self,
+            title='Επίλεξε το Excel που θα διαχωριστεί ανά σχολείο',
+            initialdir=init_dir,
+            initialfile=os.path.basename(cur) if cur else '',
+            filetypes=[('Excel', '*.xlsx *.xlsm *.xls'), ('Όλα τα αρχεία', '*.*')])
+        if not path:
+            return
+        self._split_source_path = os.path.normpath(path)
+        self._update_split_label()
+        self._log_append(self._split_log,
+                         f'Επιλέχθηκε: {self._split_source_path}')
+
     def _start_generic_split(self):
         C = self._C
         if not self._exec_result or self._exec_result.get('status') != 'ok':
             messagebox.showwarning('Προσοχή', 'Τρέξε πρώτα την Εκτέλεση.', parent=self)
+            return
+        source_path = self._split_source_path or self._exec_result.get('path_all')
+        if not source_path or not os.path.isfile(source_path):
+            messagebox.showwarning('Προσοχή',
+                                   'Δεν βρέθηκε το αρχείο προς διαχωρισμό — '
+                                   'επίλεξέ το με «📂 Επιλογή αρχείου».', parent=self)
             return
 
         self._split_btn.configure(state='disabled', bg=C['btn_dis'], text='Διαχωρισμός...')
@@ -798,7 +839,8 @@ class CheckRunDialog(tk.Toplevel):
             install_redirect()
             try:
                 from core.framework import split_exec_result
-                n = split_exec_result(self._exec_result, log=on_log)
+                n = split_exec_result(self._exec_result, log=on_log,
+                                      source_path=source_path)
                 self.after(0, lambda: [
                     self._split_btn.configure(
                         state='normal', bg=C['btn_bg'],

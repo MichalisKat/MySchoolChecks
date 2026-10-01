@@ -96,6 +96,153 @@ CARD_DATE_TO_ID   = 'ctl00_ContentData_dtDutyStopDate_I'
 GRID_ID = 'ctl00_ContentData_gridEmplDet'
 
 
+# ── Σήμανση προόδου στο Excel ────────────────────────────────────────────────
+# Μετά από ΚΑΘΕ άτομο γράφεται στο ίδιο το excel που φορτώθηκε (στήλη ανά
+# λειτουργία) «OK» ή ο λόγος αποτυχίας, και το αρχείο αποθηκεύεται αμέσως —
+# ώστε αν σταματήσει απότομα η διεργασία να φαίνεται τι έγινε και τι όχι.
+# Σε νέα εκτέλεση με το ίδιο αρχείο, όσα έχουν ήδη «OK» στη στήλη της
+# λειτουργίας ΠΑΡΑΛΕΙΠΟΝΤΑΙ (δεν ξαναγίνονται). Για επανάληψη από την αρχή:
+# σβήσε τη στήλη (ή τα «OK») από το excel.
+STATUS_COLUMNS = {
+    'add':      'Κατάσταση Καταχώρησης',
+    'delete':   'Κατάσταση Λήξης',
+    'decision': 'Κατάσταση Απόφασης',
+}
+STATUS_LABELS = {
+    'ok':        'OK',
+    'notfound':  'ΔΕΝ ΒΡΕΘΗΚΕ',
+    'ambiguous': 'ΔΙΦΟΡΟΥΜΕΝΟ',
+    'error':     'ΣΦΑΛΜΑ',
+    'skip':      'ΠΑΡΑΛΕΙΨΗ',
+}
+
+
+def _is_done(person, mode):
+    v = (person.get('_status') or {}).get(mode, '').strip().upper()
+    return v.startswith('OK') or v.startswith('ΟΚ')   # λατινικά ή ελληνικά
+
+
+class ProgressMarker:
+    """Γράφει την κατάσταση κάθε ατόμου στο excel αμέσως μετά την επεξεργασία."""
+
+    def __init__(self, file_path, mode, log=print):
+        self.log    = log
+        self.mode   = mode
+        self.header = STATUS_COLUMNS[mode]
+        self.src    = file_path
+        self.target = file_path
+        self.wb = self.ws = None
+        self.col = None
+        self._warned = False
+        ext = os.path.splitext(file_path)[1].lower()
+        try:
+            import openpyxl
+            if ext not in ('.xlsx', '.xlsm'):
+                # .xls/.csv δεν γράφονται από openpyxl → αντίγραφο .xlsx
+                base = os.path.splitext(file_path)[0]
+                self.target = base + '_ΚΑΤΑΣΤΑΣΗ.xlsx'
+                if os.path.exists(self.target):
+                    self.wb = openpyxl.load_workbook(self.target)
+                else:
+                    df = pd.read_excel(file_path, dtype=str)
+                    df.to_excel(self.target, index=False)
+                    self.wb = openpyxl.load_workbook(self.target)
+                log(f'  ℹ Η σήμανση προόδου γράφεται στο αντίγραφο: {os.path.basename(self.target)}')
+            else:
+                self.wb = openpyxl.load_workbook(file_path,
+                                                 keep_vba=(ext == '.xlsm'))
+            self.ws = self.wb.worksheets[0]
+            self._ensure_column()
+            self._save()   # έλεγχος από την αρχή ότι το αρχείο γράφεται
+        except Exception as e:
+            log(f'  ⚠ Δεν είναι δυνατή η σήμανση προόδου στο excel: {e}')
+            self.wb = None
+
+    def _ensure_column(self):
+        from openpyxl.styles import Font, PatternFill
+        last = 0
+        for c in range(1, self.ws.max_column + 1):
+            v = self.ws.cell(row=1, column=c).value
+            if v is not None and str(v).strip() != '':
+                last = c
+                if str(v).strip() == self.header:
+                    self.col = c
+                    return
+        self.col = last + 1
+        cell = self.ws.cell(row=1, column=self.col, value=self.header)
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill('solid', start_color='D9D9D9')
+        try:
+            from openpyxl.utils import get_column_letter
+            self.ws.column_dimensions[get_column_letter(self.col)].width = 26
+        except Exception:
+            pass
+
+    def _save(self):
+        try:
+            self.wb.save(self.target)
+            return True
+        except PermissionError:
+            # Το αρχείο είναι ανοιχτό στο Excel → γράφουμε σε αντίγραφο
+            base, ext = os.path.splitext(self.src)
+            alt = base + '_ΚΑΤΑΣΤΑΣΗ' + (ext if ext.lower() in ('.xlsx', '.xlsm') else '.xlsx')
+            if self.target != alt:
+                self.target = alt
+                self.log(f'  ⚠ Το excel είναι ανοιχτό (κλείδωμα) — η σήμανση προόδου '
+                         f'γράφεται στο: {os.path.basename(alt)}')
+                return self._save()
+            if not self._warned:
+                self._warned = True
+                self.log(f'  ⚠ Αδυναμία αποθήκευσης σήμανσης στο {os.path.basename(alt)} '
+                         '(ανοιχτό κι αυτό;)')
+            return False
+        except Exception as e:
+            if not self._warned:
+                self._warned = True
+                self.log(f'  ⚠ Αδυναμία αποθήκευσης σήμανσης προόδου: {e}')
+            return False
+
+    def prefill(self, people):
+        """Γράφει στο αρχείο τυχόν «OK» που διαβάστηκαν από αντίγραφο _ΚΑΤΑΣΤΑΣΗ."""
+        if self.wb is None:
+            return
+        from openpyxl.styles import Font, PatternFill
+        changed = False
+        for p in people:
+            txt = (p.get('_status') or {}).get(self.mode, '')
+            row = p.get('_xl_row')
+            if txt and row and not self.ws.cell(row=row, column=self.col).value:
+                cell = self.ws.cell(row=row, column=self.col, value=txt)
+                if _is_done(p, self.mode):
+                    cell.fill = PatternFill('solid', start_color='C6EFCE')
+                    cell.font = Font(bold=True, color='006100')
+                changed = True
+        if changed:
+            self._save()
+
+    def mark(self, person, status, note=''):
+        if self.wb is None or not status:
+            return
+        from datetime import datetime
+        from openpyxl.styles import Font, PatternFill
+        row = person.get('_xl_row')
+        if not row:
+            return
+        label = STATUS_LABELS.get(status, str(status))
+        text  = f'{label}  {datetime.now():%d/%m %H:%M}'
+        if note:
+            text += f'  — {note}'
+        cell = self.ws.cell(row=row, column=self.col, value=text)
+        if status == 'ok':
+            cell.fill = PatternFill('solid', start_color='C6EFCE')
+            cell.font = Font(bold=True, color='006100')
+        else:
+            cell.fill = PatternFill('solid', start_color='FFC7CE')
+            cell.font = Font(bold=True, color='9C0006')
+        person.setdefault('_status', {})[self.mode] = text
+        self._save()
+
+
 # ── Ανάγνωση Excel ───────────────────────────────────────────────────────────
 def _clean_cell(v):
     v = str(v if v is not None else '').strip()
@@ -136,7 +283,7 @@ def load_people(file_path, log=print):
 
     people = []
     skipped_no_id = 0
-    for _, row in df.iterrows():
+    for df_idx, row in df.iterrows():
         afm_raw = str(row.get(afm_col, '')).strip() if afm_col else ''
         am_raw  = str(row.get(am_col, '')).strip() if am_col else ''
         afm = afm_raw.zfill(9) if afm_raw and afm_raw.lower() not in ('nan', 'none') else ''
@@ -160,7 +307,29 @@ def load_people(file_path, log=print):
             'school_name': school_name,
             'school_code': school_code,
             'apofasi':     _clean_cell(row.get(apof_col, '')) if apof_col else '',
+            # Γραμμή Excel (1 = επικεφαλίδες) — για τη σήμανση προόδου
+            '_xl_row':     int(df_idx) + 2,
+            # Τρέχουσες τιμές των στηλών κατάστασης (για συνέχιση μετά από διακοπή)
+            '_status':     {k: _clean_cell(row.get(c, '')) for k, c in STATUS_COLUMNS.items()},
         })
+
+    # Αν υπάρχει αντίγραφο «_ΚΑΤΑΣΤΑΣΗ» (η σήμανση γράφτηκε εκεί επειδή το
+    # αρχείο ήταν ανοιχτό ή ήταν .xls), συμπληρώνουμε από εκεί όσα «OK» λείπουν.
+    side = os.path.splitext(file_path)[0] + '_ΚΑΤΑΣΤΑΣΗ.xlsx'
+    if os.path.exists(side):
+        try:
+            sdf = pd.read_excel(side, dtype=str)
+            sdf.columns = [str(c).strip() for c in sdf.columns]
+            for p in people:
+                i = p['_xl_row'] - 2
+                if i >= len(sdf):
+                    continue
+                for k, c in STATUS_COLUMNS.items():
+                    if c in sdf.columns and not p['_status'].get(k):
+                        p['_status'][k] = _clean_cell(sdf.iloc[i][c])
+            log(f'  ℹ Διαβάστηκε και η κατάσταση από: {os.path.basename(side)}')
+        except Exception as e:
+            log(f'  ⚠ Αδυναμία ανάγνωσης {os.path.basename(side)}: {e}')
 
     log(f'  ✓ Διαβάστηκαν {len(people)} εγγραφές από το excel.')
     if skipped_no_id:
@@ -737,14 +906,30 @@ def run(ctx, driver, callback=None):
         f'Έως: {fixed_date_to or "(ανά άτομο, από την καρτέλα)"}')
 
     results = {'ok': [], 'notfound': [], 'ambiguous': [], 'error': []}
+    marker = ProgressMarker(file_path, 'add', log)
+    marker.prefill(people)
+    n_done = sum(1 for p in people if _is_done(p, 'add'))
+    if n_done:
+        log(f'  ℹ {n_done} έχουν ήδη «OK» στη στήλη «{STATUS_COLUMNS["add"]}» — '
+            'παραλείπονται (συνέχεια από προηγούμενη διακοπή)')
 
     try:
         for idx, person in enumerate(people, 1):
             ident = person['afm'] or person['am']
+            if _is_done(person, 'add'):
+                log(f'\n[{idx}/{total}] {ident} — ήδη OK, παράλειψη')
+                continue
             log(f'\n[{idx}/{total}] {ident}  {person["eponymo"]} {person["onoma"]}  '
                 f'—  {person["school_name"] or person["school_code"]}')
-            status = process_person(driver, person, description_text,
-                                     fixed_date_from, fixed_date_to, log)
+            try:
+                status = process_person(driver, person, description_text,
+                                         fixed_date_from, fixed_date_to, log)
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                marker.mark(person, 'error', f'διακοπή: {str(e)[:80]}')
+                raise
+            marker.mark(person, status)
             results[status].append(ident)
             time.sleep(0.5)
     except KeyboardInterrupt:
@@ -836,123 +1021,141 @@ def run_delete(ctx, driver, callback=None):
     log(f'\n  {total} εγγραφές προς ΔΙΑΓΡΑΦΗ (Λήξη — πρώτη/πιο πρόσφατη εγγραφή ανά άτομο)')
 
     ok = fail = 0
+    marker = ProgressMarker(file_path, 'delete', log)
+    marker.prefill(people)
+    n_done = sum(1 for p in people if _is_done(p, 'delete'))
+    if n_done:
+        log(f'  ℹ {n_done} έχουν ήδη «OK» στη στήλη «{STATUS_COLUMNS["delete"]}» — παραλείπονται')
 
     try:
         for idx, person in enumerate(people, 1):
             ident = person['afm'] or person['am']
-            log(f'\n[{idx}/{total}] {ident}  {person["eponymo"]} {person["onoma"]}  '
-                f'—  {person["school_name"] or person["school_code"]}')
-
+            if _is_done(person, 'delete'):
+                log(f'\n[{idx}/{total}] {ident} — ήδη OK, παράλειψη')
+                continue
+            # Σήμανση στο excel στο τέλος κάθε ατόμου (και στα «continue»):
+            # προεπιλογή «ΣΦΑΛΜΑ — δεν έγινε διαγραφή», γίνεται «OK» μόνο μετά την Αποθήκευση.
+            _st = {'v': 'error', 'note': 'δεν έγινε διαγραφή'}
             try:
-                edit_links = _search_person(driver, person, log)
-            except Exception as e:
-                log(f'  ✗ Αναζήτηση απέτυχε: {e}')
-                fail += 1
-                continue
+                log(f'\n[{idx}/{total}] {ident}  {person["eponymo"]} {person["onoma"]}  '
+                    f'—  {person["school_name"] or person["school_code"]}')
 
-            if not edit_links:
-                log('  ✗ Κανένα αποτέλεσμα αναζήτησης')
-                fail += 1
-                continue
-
-            school_name_norm = _normalize_school_name(person['school_name']) if person['school_name'] else ''
-            link, reason = _pick_matching_row(driver, edit_links, school_name_norm,
-                                               person['school_code'], log)
-            if reason != 'ok':
-                if reason == 'notfound':
-                    log(f'  ⚠ Δεν βρέθηκε γραμμή με σχολείο «{person["school_name"] or person["school_code"]}» '
-                        f'({len(edit_links)} αποτέλεσμα(-τα) συνολικά) — παράλειψη')
-                else:
-                    log('  ⚠ Πάνω από μία γραμμές ταιριάζουν — παράλειψη (χειροκίνητος έλεγχος)')
-                fail += 1
-                continue
-
-            try:
-                driver.execute_script('arguments[0].click();', link)
-                time.sleep(3)
-                log('  Καρτέλα ανοιχτή')
-            except Exception as e:
-                log(f'  ✗ Καρτέλα: {e}')
-                fail += 1
-                continue
-
-            # ── Κουμπί Διαγραφή — ΜΟΝΟ αν η γραμμή είναι όντως
-            # «Γραμματειακή Υποστήριξη» ────────────────────────────────────
-            # Οι γραμμές του πίνακα «Λεπτομέρειες ωραρίου εργασίας» δεν
-            # στοιχίζονται πάντα με προβλέψιμη σειρά (μπορεί να υπάρχει
-            # ΚΑΙ άλλη, παλαιότερη εγγραφή) — άρα ΔΕΝ παίρνουμε πλέον
-            # τυφλά το πρώτο εικονίδιο «Διαγραφή» στη σειρά DOM. Μαζεύουμε
-            # ΟΛΑ τα εικονίδια «Διαγραφή» της gridEmplDet, διαβάζουμε το
-            # κείμενο της γραμμής (ancestor <tr>) του καθενός, και
-            # προχωράμε ΜΟΝΟ αν ΑΚΡΙΒΩΣ ΜΙΑ γραμμή περιέχει «Γραμματειακή» —
-            # 0 ή >1 ταιριάσματα → παράλειψη με καθαρό log (δεν μαντεύουμε).
-            try:
-                del_links = driver.find_elements(
-                    By.XPATH, '//img[@alt="Διαγραφή" and contains(@onclick,"gridEmplDet")]')
-            except Exception as e:
-                log(f'  ✗ Διαγραφή: {e}')
-                fail += 1
-                continue
-
-            if not del_links:
-                log('  ✗ Καμία εγγραφή στις «Λεπτομέρειες ωραρίου» προς διαγραφή')
-                fail += 1
-                continue
-
-            gram_candidates = []
-            for dl in del_links:
                 try:
-                    row = dl.find_element(By.XPATH, './ancestor::tr[1]')
-                    if 'ΓΡΑΜΜΑΤΕΙΑΚΗ' in _normalize_combo_text(row.text):
-                        gram_candidates.append(dl)
-                except Exception:
+                    edit_links = _search_person(driver, person, log)
+                except Exception as e:
+                    log(f'  ✗ Αναζήτηση απέτυχε: {e}')
+                    fail += 1
                     continue
 
-            if len(gram_candidates) == 1:
-                del_btn = gram_candidates[0]
-            elif len(gram_candidates) == 0:
-                log(f'  ✗ Δεν βρέθηκε γραμμή «Γραμματειακή Υποστήριξη» προς διαγραφή '
-                    f'({len(del_links)} εγγραφή(-ές) συνολικά στον πίνακα) — παράλειψη '
-                    '(δεν διαγράφουμε άλλη/λάθος εγγραφή)')
-                fail += 1
-                continue
-            else:
-                log(f'  ⚠ Βρέθηκαν {len(gram_candidates)} γραμμές «Γραμματειακή Υποστήριξη» — '
-                    'παράλειψη (χειροκίνητος έλεγχος, δεν μαντεύουμε ποια)')
-                fail += 1
-                continue
+                if not edit_links:
+                    log('  ✗ Κανένα αποτέλεσμα αναζήτησης')
+                    fail += 1
+                    continue
 
-            try:
-                driver.execute_script('arguments[0].scrollIntoView({block:"center"});', del_btn)
-                time.sleep(0.5)
-                driver.execute_script('arguments[0].click();', del_btn)
-                time.sleep(1)
-                log('  Διαγραφή κλικ (επιβεβαιωμένη γραμμή «Γραμματειακή»)')
-            except Exception as e:
-                log(f'  ✗ Διαγραφή: {e}')
-                fail += 1
-                continue
+                school_name_norm = _normalize_school_name(person['school_name']) if person['school_name'] else ''
+                link, reason = _pick_matching_row(driver, edit_links, school_name_norm,
+                                                   person['school_code'], log)
+                if reason != 'ok':
+                    if reason == 'notfound':
+                        log(f'  ⚠ Δεν βρέθηκε γραμμή με σχολείο «{person["school_name"] or person["school_code"]}» '
+                            f'({len(edit_links)} αποτέλεσμα(-τα) συνολικά) — παράλειψη')
+                    else:
+                        log('  ⚠ Πάνω από μία γραμμές ταιριάζουν — παράλειψη (χειροκίνητος έλεγχος)')
+                    fail += 1
+                    continue
 
-            # ── Επιβεβαίωση (OK στο confirm dialog) ─────────────────────────
-            try:
-                WebDriverWait(driver, 5).until(EC.alert_is_present())
-                driver.switch_to.alert.accept()
-                time.sleep(2)
-                log('  ✓ Επιβεβαίωση ΟΚ')
-            except Exception:
-                log('  ⚠ Alert δεν εμφανίστηκε')
+                try:
+                    driver.execute_script('arguments[0].click();', link)
+                    time.sleep(3)
+                    log('  Καρτέλα ανοιχτή')
+                except Exception as e:
+                    log(f'  ✗ Καρτέλα: {e}')
+                    fail += 1
+                    continue
 
-            # ── Αποθήκευση ───────────────────────────────────────────────────
-            try:
-                save_btn = WebDriverWait(driver, TIME_TO_WAIT).until(
-                    EC.element_to_be_clickable((By.ID, 'ctl00_ContentData_btnSave')))
-                driver.execute_script('arguments[0].click();', save_btn)
-                time.sleep(3)
-                log('  ✓ Αποθήκευση')
-                ok += 1
-            except Exception as e:
-                log(f'  ✗ Αποθήκευση: {e}')
-                fail += 1
+                # ── Κουμπί Διαγραφή — ΜΟΝΟ αν η γραμμή είναι όντως
+                # «Γραμματειακή Υποστήριξη» ────────────────────────────────────
+                # Οι γραμμές του πίνακα «Λεπτομέρειες ωραρίου εργασίας» δεν
+                # στοιχίζονται πάντα με προβλέψιμη σειρά (μπορεί να υπάρχει
+                # ΚΑΙ άλλη, παλαιότερη εγγραφή) — άρα ΔΕΝ παίρνουμε πλέον
+                # τυφλά το πρώτο εικονίδιο «Διαγραφή» στη σειρά DOM. Μαζεύουμε
+                # ΟΛΑ τα εικονίδια «Διαγραφή» της gridEmplDet, διαβάζουμε το
+                # κείμενο της γραμμής (ancestor <tr>) του καθενός, και
+                # προχωράμε ΜΟΝΟ αν ΑΚΡΙΒΩΣ ΜΙΑ γραμμή περιέχει «Γραμματειακή» —
+                # 0 ή >1 ταιριάσματα → παράλειψη με καθαρό log (δεν μαντεύουμε).
+                try:
+                    del_links = driver.find_elements(
+                        By.XPATH, '//img[@alt="Διαγραφή" and contains(@onclick,"gridEmplDet")]')
+                except Exception as e:
+                    log(f'  ✗ Διαγραφή: {e}')
+                    fail += 1
+                    continue
+
+                if not del_links:
+                    log('  ✗ Καμία εγγραφή στις «Λεπτομέρειες ωραρίου» προς διαγραφή')
+                    fail += 1
+                    continue
+
+                gram_candidates = []
+                for dl in del_links:
+                    try:
+                        row = dl.find_element(By.XPATH, './ancestor::tr[1]')
+                        if 'ΓΡΑΜΜΑΤΕΙΑΚΗ' in _normalize_combo_text(row.text):
+                            gram_candidates.append(dl)
+                    except Exception:
+                        continue
+
+                if len(gram_candidates) == 1:
+                    del_btn = gram_candidates[0]
+                elif len(gram_candidates) == 0:
+                    log(f'  ✗ Δεν βρέθηκε γραμμή «Γραμματειακή Υποστήριξη» προς διαγραφή '
+                        f'({len(del_links)} εγγραφή(-ές) συνολικά στον πίνακα) — παράλειψη '
+                        '(δεν διαγράφουμε άλλη/λάθος εγγραφή)')
+                    fail += 1
+                    continue
+                else:
+                    log(f'  ⚠ Βρέθηκαν {len(gram_candidates)} γραμμές «Γραμματειακή Υποστήριξη» — '
+                        'παράλειψη (χειροκίνητος έλεγχος, δεν μαντεύουμε ποια)')
+                    fail += 1
+                    continue
+
+                try:
+                    driver.execute_script('arguments[0].scrollIntoView({block:"center"});', del_btn)
+                    time.sleep(0.5)
+                    driver.execute_script('arguments[0].click();', del_btn)
+                    time.sleep(1)
+                    log('  Διαγραφή κλικ (επιβεβαιωμένη γραμμή «Γραμματειακή»)')
+                except Exception as e:
+                    log(f'  ✗ Διαγραφή: {e}')
+                    fail += 1
+                    continue
+
+                # ── Επιβεβαίωση (OK στο confirm dialog) ─────────────────────────
+                try:
+                    WebDriverWait(driver, 5).until(EC.alert_is_present())
+                    driver.switch_to.alert.accept()
+                    time.sleep(2)
+                    log('  ✓ Επιβεβαίωση ΟΚ')
+                except Exception:
+                    log('  ⚠ Alert δεν εμφανίστηκε')
+
+                # ── Αποθήκευση ───────────────────────────────────────────────────
+                try:
+                    save_btn = WebDriverWait(driver, TIME_TO_WAIT).until(
+                        EC.element_to_be_clickable((By.ID, 'ctl00_ContentData_btnSave')))
+                    driver.execute_script('arguments[0].click();', save_btn)
+                    time.sleep(3)
+                    log('  ✓ Αποθήκευση')
+                    ok += 1
+                    _st['v'], _st['note'] = 'ok', ''
+                except Exception as e:
+                    log(f'  ✗ Αποθήκευση: {e}')
+                    fail += 1
+            except KeyboardInterrupt:
+                _st['v'] = None          # άγνωστη κατάσταση — δεν σημειώνεται
+                raise
+            finally:
+                marker.mark(person, _st['v'], _st['note'])
     except KeyboardInterrupt:
         log('\n\n⚠ Διακόπηκε από τον χρήστη.')
 
@@ -1225,17 +1428,33 @@ def run_decision(ctx, driver, callback=None):
     log(f'  Backup παλιών τιμών: {backup_path}')
 
     results = {'ok': [], 'notfound': [], 'ambiguous': [], 'error': []}
+    marker = ProgressMarker(file_path, 'decision', log)
+    marker.prefill(people)
+    n_done = sum(1 for p in people if _is_done(p, 'decision'))
+    if n_done:
+        log(f'  ℹ {n_done} έχουν ήδη «OK» στη στήλη «{STATUS_COLUMNS["decision"]}» — παραλείπονται')
     try:
         for idx, person in enumerate(people, 1):
             ident = person['afm'] or person['am']
+            if _is_done(person, 'decision'):
+                log(f'\n[{idx}/{total}] {ident} — ήδη OK, παράλειψη')
+                continue
             log(f'\n[{idx}/{total}] {ident}  {person["eponymo"]} {person["onoma"]}  '
                 f'—  {person["school_name"] or person["school_code"]}')
             text = person.get('apofasi') or default_text
             if not text:
                 log('  ✗ Κενό κείμενο απόφασης (ούτε στο παράθυρο ούτε στη στήλη «Απόφαση») — παράλειψη')
+                marker.mark(person, 'skip', 'κενό κείμενο απόφασης')
                 results['error'].append(ident)
                 continue
-            status = process_person_decision(driver, person, text, backup_path, log)
+            try:
+                status = process_person_decision(driver, person, text, backup_path, log)
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                marker.mark(person, 'error', f'διακοπή: {str(e)[:80]}')
+                raise
+            marker.mark(person, status)
             results[status].append(ident)
             time.sleep(0.5)
     except KeyboardInterrupt:
