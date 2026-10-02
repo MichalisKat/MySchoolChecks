@@ -63,6 +63,7 @@ COLOR_HEAD2P  = 'C8E6C9'
 COLOR_HL_HEADER = 'F4B942'
 COLOR_HL_EVEN   = 'FFF3CD'
 COLOR_HL_ODD    = 'FFF8E1'
+COLOR_EL        = '8E3B46'   # κεφαλίδες στηλών ΕΛ στην pivot
 
 COLUMNS = [
     ('Κωδικός Σχολείου',                                          14, None),
@@ -200,6 +201,48 @@ def load_adynatoyntes(path):
     return df
 
 
+def _norm_am(x):
+    """ΑΜ σε καθαρό string ('220764', 572010 → '572010')."""
+    if x is None:
+        return ''
+    s = str(x).replace('="', '').replace('"', '').strip()
+    if not s or s.lower() == 'nan':
+        return ''
+    try:
+        return str(int(float(s)))
+    except (ValueError, TypeError):
+        return s
+
+
+def load_el(path):
+    """Αρχείο «ΦΙΛΤΡΑΡΙΣΜΕΝΟΙ ΕΛ» (xlsx/csv): στήλες ΑΜΥ + ΚΛΑΔΟΣ.
+    Επιστρέφει DataFrame με στήλες ['AM', 'KLADOS'] — μοναδικά ΑΜ.
+    Οι κεφαλίδες ταιριάζουν χωρίς κενά (π.χ. 'ΑΜΥ ' → 'ΑΜΥ')."""
+    if path.lower().endswith('.csv'):
+        df = _read_csv(path)
+    else:
+        import openpyxl
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        ws = wb['ΦΙΛΤΡΑΡΙΣΜΕΝΟΙ ΕΛ'] if 'ΦΙΛΤΡΑΡΙΣΜΕΝΟΙ ΕΛ' in wb.sheetnames else wb.active
+        data = list(ws.iter_rows(values_only=True))
+        wb.close()
+        if not data:
+            return pd.DataFrame(columns=['AM', 'KLADOS'])
+        hdr = [str(h).strip() if h is not None else f'_c{i}' for i, h in enumerate(data[0])]
+        df = pd.DataFrame([r for r in data[1:] if any(v is not None for v in r)], columns=hdr)
+    df.columns = [str(c).strip() for c in df.columns]
+    col_am = next((c for c in df.columns if c in ('ΑΜΥ', 'ΑΜ', 'Α.Μ.')), None)
+    col_kl = next((c for c in df.columns if c in ('ΚΛΑΔΟΣ', 'Κωδικός Κύριας Ειδικότητας')), None)
+    if col_am is None:
+        raise ValueError('Το αρχείο ΕΛ δεν έχει στήλη «ΑΜΥ».')
+    out = pd.DataFrame({
+        'AM':     df[col_am].apply(_norm_am),
+        'KLADOS': df[col_kl].astype(str).str.strip() if col_kl else '',
+    })
+    out = out[out['AM'] != ''].drop_duplicates('AM').reset_index(drop=True)
+    return out
+
+
 # ═══════════════════════════════════════════════════════════════════
 # ΕΠΕΞΕΡΓΑΣΙΑ
 # ═══════════════════════════════════════════════════════════════════
@@ -263,7 +306,9 @@ def _brdH():
     m = Side(style='medium', color='F4B942')
     return Border(left=m, right=m, top=t, bottom=t)
 
-def save_pivot_workbook(df, today, output_path):
+def save_pivot_workbook(df, today, output_path, df_el=None, spec_map=None):
+    """df_el: DataFrame από load_el() (ή None → χωρίς στήλες ΕΛ).
+    spec_map: {ΑΜ: (κωδικός ειδικότητας, ονομασία)} από ΟΛΟ το 4.8."""
     df2    = df.copy()
     df2['_yp'] = df2[COL_YPOLOIPO].apply(_to_int)
     df_nz  = df2[df2['_yp'] > 0].copy()
@@ -333,34 +378,94 @@ def save_pivot_workbook(df, today, output_path):
     # Φύλλο 1: Ανά Ειδικότητα
     grp_eid = (df_nz.groupby(['Κωδικός Κύριας Ειδικότητας', 'Κύρια Ειδικότητα'])
                .agg(Πλήθος=('Α.Μ.', 'count'), Υπόλοιπο=('_yp', 'sum'))
-               .reset_index().sort_values('Υπόλοιπο', ascending=False))
+               .reset_index())
+
+    # ── Φιλτραρισμένοι ΕΛ (προαιρετικό αρχείο) ─────────────────────────
+    # Πλήθος ΕΛ          = πόσοι ΕΛ υπάρχουν ανά ειδικότητα (όλοι του αρχείου)
+    # Σύνολο Υπολοίπου ΕΛ = άθροισμα (θετικού) υπολοίπου των ΕΛ από το 4.8
+    # Καθαρό Σύνολο       = Σύνολο Υπολοίπου − Σύνολο Υπολοίπου ΕΛ
+    # Η ειδικότητα κάθε ΕΛ παίρνεται από το 4.8 (μέσω ΑΜ) ώστε να ταιριάζει
+    # με τις γραμμές της pivot (π.χ. ΠΕ91 στο αρχείο → ΠΕ91.01 στο 4.8)·
+    # αν ο ΑΜ δεν βρεθεί στο 4.8 χρησιμοποιείται ο ΚΛΑΔΟΣ του αρχείου.
+    has_el = df_el is not None
+    el_note = ''
+    if has_el:
+        spec_map = spec_map or {}
+        el = df_el.copy()
+        el['spec'] = [spec_map.get(am, (kl,))[0] or kl
+                      for am, kl in zip(el['AM'], el['KLADOS'])]
+        cnt_el = el.groupby('spec').size()
+        df_nz_el = df_nz[df_nz['Α.Μ.'].astype(str).str.strip().isin(set(el['AM']))]
+        hrs_el = df_nz_el.groupby('Κωδικός Κύριας Ειδικότητας')['_yp'].sum()
+        # Ειδικότητες που έχουν ΕΛ αλλά καμία εγγραφή με υπόλοιπο > 0
+        names = {code: name for code, name in spec_map.values()}
+        missing = [s for s in cnt_el.index if s not in set(grp_eid['Κωδικός Κύριας Ειδικότητας'])]
+        if missing:
+            grp_eid = pd.concat([grp_eid, pd.DataFrame({
+                'Κωδικός Κύριας Ειδικότητας': missing,
+                'Κύρια Ειδικότητα': [names.get(s, '') for s in missing],
+                'Πλήθος': 0, 'Υπόλοιπο': 0})], ignore_index=True)
+        codes = grp_eid['Κωδικός Κύριας Ειδικότητας']
+        grp_eid['Πλήθος ΕΛ']   = codes.map(cnt_el).fillna(0).astype(int)
+        grp_eid['Υπόλοιπο ΕΛ'] = codes.map(hrs_el).fillna(0).astype(int)
+        grp_eid['Καθαρό']      = grp_eid['Υπόλοιπο'] - grp_eid['Υπόλοιπο ΕΛ']
+        n_unmatched = int((~el['AM'].isin(spec_map.keys())).sum())
+        el_note = (f'  •  ΕΛ: {len(el)} εκπαιδευτικοί'
+                   + (f' ({n_unmatched} χωρίς αντιστοίχιση στο 4.8)' if n_unmatched else ''))
+    grp_eid = grp_eid.sort_values('Υπόλοιπο', ascending=False)
+
+    if has_el:
+        cols1 = [('Κωδικός', 14, 'Κωδικός Κύριας Ειδικότητας'),
+                 ('Ειδικότητα', 34, 'Κύρια Ειδικότητα'),
+                 ('Πλήθος', 10, 'Πλήθος'),
+                 ('Πλήθος ΕΛ', 10, 'Πλήθος ΕΛ'),
+                 ('Σύνολο Υπολοίπου', 16, 'Υπόλοιπο'),
+                 ('Σύνολο Υπολοίπου ΕΛ', 16, 'Υπόλοιπο ΕΛ'),
+                 ('Καθαρό Σύνολο Υπολοίπου', 18, 'Καθαρό')]
+        hl_keys = {'Υπόλοιπο', 'Καθαρό'}
+        el_keys = {'Πλήθος ΕΛ', 'Υπόλοιπο ΕΛ'}
+    else:
+        cols1 = [('Κωδικός', 14, 'Κωδικός Κύριας Ειδικότητας'),
+                 ('Ειδικότητα', 34, 'Κύρια Ειδικότητα'),
+                 ('Πλήθος', 10, 'Πλήθος'),
+                 ('Σύνολο Υπολοίπου', 16, 'Υπόλοιπο')]
+        hl_keys = {'Υπόλοιπο'}
+        el_keys = set()
+    nc1 = len(cols1)
+
     ws1 = wb.active
     ws1.title = 'ΥΠΟΛΟΙΠΑ ΑΝΑ ΕΙΔΙΚΟΤΗΤΑ'
-    _hdr(ws1, 'Υπόλοιπα ανά Ειδικότητα', 4, COLOR_PIVOT)
-    _sub(ws1, f'Σύνολο ειδικοτήτων: {len(grp_eid)}', 4, COLOR_HEAD2P)
-    for ci, (lbl, w) in enumerate([('Κωδικός', 14), ('Ειδικότητα', 34),
-                                    ('Πλήθος', 10), ('Σύνολο Υπολοίπου', 16)], 1):
-        is_hl = (lbl == 'Σύνολο Υπολοίπου')
+    _hdr(ws1, 'Υπόλοιπα ανά Ειδικότητα', nc1, COLOR_PIVOT)
+    _sub(ws1, f'Σύνολο ειδικοτήτων: {len(grp_eid)}{el_note}', nc1, COLOR_HEAD2P)
+    for ci, (lbl, w, key) in enumerate(cols1, 1):
+        is_hl = key in hl_keys
         c = ws1.cell(row=3, column=ci, value=lbl)
         c.font   = Font(name='Arial', bold=True, color='1F4E79' if is_hl else 'FFFFFF', size=10)
-        c.fill   = PatternFill('solid', start_color=COLOR_HL_HEADER if is_hl else COLOR_PIVOT)
+        c.fill   = PatternFill('solid', start_color=(COLOR_HL_HEADER if is_hl
+                                                     else COLOR_EL if key in el_keys
+                                                     else COLOR_PIVOT))
         c.alignment = ctr; c.border = brdh if is_hl else brd
         ws1.column_dimensions[get_column_letter(ci)].width = w
     ws1.row_dimensions[3].height = 28
     for ri, (_, row) in enumerate(grp_eid.iterrows(), 4):
         fill = alt_p if ri % 2 == 0 else PatternFill()
-        vals = [row['Κωδικός Κύριας Ειδικότητας'], row['Κύρια Ειδικότητα'],
-                row['Πλήθος'], row['Υπόλοιπο']]
-        for ci, val in enumerate(vals, 1):
-            is_hl = (ci == 4)
+        for ci, (_, _, key) in enumerate(cols1, 1):
+            is_hl = key in hl_keys
+            val = row[key]
+            if key not in ('Κωδικός Κύριας Ειδικότητας', 'Κύρια Ειδικότητα'):
+                val = int(val)
             c = ws1.cell(row=ri, column=ci, value=val)
             c.font   = Font(name='Arial', bold=is_hl, size=9, color='1F4E79' if is_hl else '000000')
             c.fill   = PatternFill('solid', start_color=COLOR_HL_EVEN if ri%2==0 else COLOR_HL_ODD) if is_hl else fill
             c.border = brdh if is_hl else brd
             c.alignment = lft if ci == 2 else ctr
         ws1.row_dimensions[ri].height = 16
-    _total_row(ws1, len(grp_eid) + 4,
-               [' ', 'ΣΥΝΟΛΟ', grp_eid['Πλήθος'].sum(), grp_eid['Υπόλοιπο'].sum()], hl_ci=4)
+    tot_vals = [' ', 'ΣΥΝΟΛΟ'] + [int(grp_eid[key].sum()) for _, _, key in cols1[2:]]
+    _total_row(ws1, len(grp_eid) + 4, tot_vals, hl_ci=None)
+    for ci, (_, _, key) in enumerate(cols1, 1):
+        if key in hl_keys:
+            c = ws1.cell(row=len(grp_eid) + 4, column=ci)
+            c.fill = PatternFill('solid', start_color=COLOR_HL_HEADER); c.border = brdh
     ws1.freeze_panes = 'A4'
 
     # Φύλλο 2: Cross-table ανά Σχολείο
@@ -529,6 +634,11 @@ def ask_inputs():
     ady_file  = get_ady_xoris_egkrisi('Αρχείο Αδυνατούντων (υπό έγκριση) [csv / xlsx]:')
     today     = ask_date_yyyymmdd()
     threshold = _ask_threshold()
+    # Προαιρετικό: αρχείο «ΦΙΛΤΡΑΡΙΣΜΕΝΟΙ ΕΛ» για τις επιπλέον στήλες της
+    # pivot (Πλήθος ΕΛ / Σύνολο Υπολοίπου ΕΛ / Καθαρό Σύνολο). Άκυρο = παράλειψη.
+    # Το κλειδί ΔΕΝ ονομάζεται *_path/path_* → παραμένει προαιρετικό.
+    el_file = ask_file('Αρχείο Φιλτραρισμένων ΕΛ [xlsx] — προαιρετικό (Άκυρο = παράλειψη):',
+                       required=False)
 
     global _last_threshold
     _last_threshold = threshold
@@ -547,10 +657,19 @@ def ask_inputs():
     print(f'  ✓ 4.8          : {len(df48)} εγγραφές')
     print(f'  ✓ 4.12         : {len(lookup_412)} εκπαιδευτικοί')
     print(f'  ✓ 4.11         : {len(lookup_411)} εκπαιδευτικοί')
+    df_el = None
+    if el_file:
+        try:
+            df_el = load_el(el_file)
+            print(f'  ✓ ΕΛ           : {len(df_el)} εκπαιδευτικοί')
+        except Exception as e:
+            print(f'  ⚠ ΕΛ           : σφάλμα ανάγνωσης ({e}) — αγνοείται')
+    else:
+        print(f'  ℹ ΕΛ           : δεν επιλέχθηκε — η pivot χωρίς στήλες ΕΛ')
 
     return {
         'today': today, 'threshold': threshold,
-        'df48': df48, 'df_ady': df_ady,
+        'df48': df48, 'df_ady': df_ady, 'df_el': df_el,
         'lookup_412': lookup_412, 'lookup_411': lookup_411,
     }
 
@@ -593,6 +712,17 @@ def SAVE_EXTRA(ctx, df_out, out_dir, today):
     df_all = process_data(ctx['df48'], ctx['df_ady'], 0,
                            ctx['lookup_412'], ctx['lookup_411'])
     path_pivot = os.path.join(out_dir, f'{today.strftime("%Y%m%d")}_ΑΝΑΦΟΡΑ_PIVOT.xlsx')
-    save_pivot_workbook(df_all, today, path_pivot)
+    df_el = ctx.get('df_el')
+    spec_map = None
+    if df_el is not None:
+        d48 = ctx['df48']
+        spec_map = {
+            str(am).strip(): (str(code).strip(), str(name).strip())
+            for am, code, name in zip(d48[JOIN_KEY_48],
+                                      d48['Κωδικός Κύριας Ειδικότητας'],
+                                      d48['Κύρια Ειδικότητα'])
+            if str(am).strip()
+        }
+    save_pivot_workbook(df_all, today, path_pivot, df_el=df_el, spec_map=spec_map)
     print(f'  ✓ Pivot αναφορά : {os.path.basename(path_pivot)}')
     return [('Pivot Αναφοράς', path_pivot)]

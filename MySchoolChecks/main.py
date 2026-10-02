@@ -3660,7 +3660,7 @@ class MonadaDialog(tk.Toplevel):
             # Το col55 περιέχει το Ονοματεπώνυμο (χρησιμοποιείται ήδη ως c_dir_name).
             c_dir_afm = csv_df.columns[54] if len(csv_df.columns) > 54 else None
 
-            # Αναπληρωτής Διευθυντής — fallback όταν δεν υπάρχει Διευθυντής.
+            # Αναπληρωτής Διευθυντής — ξεχωριστές στήλες στο τέλος του excel.
             # Ίδιο 1-column shift (data = header index − 1):
             #   col62 = ΑΦΜ Αναπλ. | col63 = Ονομ/μο Αναπλ. | col66 = Κινητό Αναπλ.
             #   col67 = Email Αναπλ. | col68 = Email ΠΣΔ Αναπλ.
@@ -3701,21 +3701,8 @@ class MonadaDialog(tk.Toplevel):
                                .replace('Ενιαίου Τύπου Ολοήμερο ', '')
                                .replace('Ολοήμερο ', '')
                                .strip())
-                dir_name = self._s(row[c_dir_name])
-                if dir_name:
-                    d_name = dir_name
-                    d_afm  = _v(row, c_dir_afm)
-                    d_mob  = self._s(row[c_dir_mob])
-                    d_mail = self._s(row[c_dir_mail])
-                    d_psd  = self._s(row[c_dir_psd])
-                else:
-                    # Δεν υπάρχει Διευθυντής → στοιχεία Αναπληρωτή Διευθυντή
-                    an_name = _v(row, c_an_name)
-                    d_name  = f'{an_name} (Αναπλ. Δ/ντής)' if an_name else ''
-                    d_afm   = _v(row, c_an_afm)
-                    d_mob   = _v(row, c_an_mob)
-                    d_mail  = _v(row, c_an_mail)
-                    d_psd   = _v(row, c_an_psd)
+                # Διευθυντής και Αναπληρωτής Διευθυντής σε ΞΕΧΩΡΙΣΤΕΣ στήλες
+                # (v4.3.0 — καταργήθηκε το fallback Αναπληρωτή στις στήλες Διευθυντή).
                 csv_lookup[code] = {
                     'eidos':    eidos_short,
                     'is_dim':   is_dim,
@@ -3723,11 +3710,16 @@ class MonadaDialog(tk.Toplevel):
                     'phone':    self._s(row[c_phone]),
                     'email':    self._s(row[c_email]),
                     'address':  self._s(row[c_address]),
-                    'dir_name': d_name,
-                    'dir_afm':  d_afm,
-                    'dir_mob':  d_mob,
-                    'dir_mail': d_mail,
-                    'dir_psd':  d_psd,
+                    'dir_name': self._s(row[c_dir_name]),
+                    'dir_afm':  _v(row, c_dir_afm),
+                    'dir_mob':  self._s(row[c_dir_mob]),
+                    'dir_mail': self._s(row[c_dir_mail]),
+                    'dir_psd':  self._s(row[c_dir_psd]),
+                    'an_name':  _v(row, c_an_name),
+                    'an_afm':   _v(row, c_an_afm),
+                    'an_mob':   _v(row, c_an_mob),
+                    'an_mail':  _v(row, c_an_mail),
+                    'an_psd':   _v(row, c_an_psd),
                 }
 
             # ── 2. stat3_1 — ΚΥΡΙΑ πηγή (κατανομή ανά τάξη & φύλο) ──────────
@@ -3809,6 +3801,10 @@ class MonadaDialog(tk.Toplevel):
                 if _show_afm:
                     all_cols.append('ΑΦΜ Διευθυντή')
                 all_cols += ['Κινητό Διευθυντή', 'Email Διευθυντή', 'Email ΠΣΔ Διευθυντή']
+                all_cols += ['Ονομ/μο Αναπληρωτή']
+                if _show_afm:
+                    all_cols.append('ΑΦΜ Αναπληρωτή')
+                all_cols += ['Κινητό Αναπληρωτή', 'Email Αναπληρωτή', 'Email ΠΣΔ Αναπληρωτή']
 
                 for ci, col in enumerate(all_cols, 1):
                     _hdr_cell(ws, 1, ci, col)
@@ -3856,6 +3852,14 @@ class MonadaDialog(tk.Toplevel):
                             info.get('dir_mob',  '') if first else '',
                             info.get('dir_mail', '') if first else '',
                             info.get('dir_psd',  '') if first else '',
+                            info.get('an_name',  '') if first else '',
+                        ]
+                        if _show_afm:
+                            vals.append(info.get('an_afm', '') if first else '')
+                        vals += [
+                            info.get('an_mob',   '') if first else '',
+                            info.get('an_mail',  '') if first else '',
+                            info.get('an_psd',   '') if first else '',
                         ]
 
                         row_fill = alt_fill if row_i % 2 == 1 else None
@@ -3901,6 +3905,8 @@ class MonadaDialog(tk.Toplevel):
                     'Τηλέφωνο': 16, 'e-mail σχολείου': 30,
                     'Ονομ/μο Διευθυντή': 28, 'ΑΦΜ Διευθυντή': 14,
                     'Κινητό Διευθυντή': 18, 'Email Διευθυντή': 32, 'Email ΠΣΔ Διευθυντή': 26,
+                    'Ονομ/μο Αναπληρωτή': 28, 'ΑΦΜ Αναπληρωτή': 14,
+                    'Κινητό Αναπληρωτή': 18, 'Email Αναπληρωτή': 32, 'Email ΠΣΔ Αναπληρωτή': 26,
                 }
                 for ci, col in enumerate(all_cols, 1):
                     ws.column_dimensions[get_column_letter(ci)].width = _cw.get(col, 15)
@@ -3917,6 +3923,10 @@ class MonadaDialog(tk.Toplevel):
                 if _show_afm:
                     all_cols.append('ΑΦΜ Διευθυντή')
                 all_cols += ['Κινητό Διευθυντή', 'Email Διευθυντή', 'Email ΠΣΔ Διευθυντή']
+                all_cols += ['Ονομ/μο Αναπληρωτή']
+                if _show_afm:
+                    all_cols.append('ΑΦΜ Αναπληρωτή')
+                all_cols += ['Κινητό Αναπληρωτή', 'Email Αναπληρωτή', 'Email ΠΣΔ Αναπληρωτή']
 
                 for ci, col in enumerate(all_cols, 1):
                     _hdr_cell(ws, 1, ci, col)
@@ -3948,6 +3958,14 @@ class MonadaDialog(tk.Toplevel):
                         info.get('dir_mob',  ''),
                         info.get('dir_mail', ''),
                         info.get('dir_psd',  ''),
+                        info.get('an_name',  ''),
+                    ]
+                    if _show_afm:
+                        vals.append(info.get('an_afm', ''))
+                    vals += [
+                        info.get('an_mob',   ''),
+                        info.get('an_mail',  ''),
+                        info.get('an_psd',   ''),
                     ]
 
                     fill = alt_fill if ri % 2 == 1 else None
@@ -3979,6 +3997,8 @@ class MonadaDialog(tk.Toplevel):
                     'Τηλέφωνο': 16, 'e-mail σχολείου': 30, 'Ταχ. Διεύθυνση': 30,
                     'Ονομ/μο Διευθυντή': 28, 'ΑΦΜ Διευθυντή': 14,
                     'Κινητό Διευθυντή': 18, 'Email Διευθυντή': 32, 'Email ΠΣΔ Διευθυντή': 26,
+                    'Ονομ/μο Αναπληρωτή': 28, 'ΑΦΜ Αναπληρωτή': 14,
+                    'Κινητό Αναπληρωτή': 18, 'Email Αναπληρωτή': 32, 'Email ΠΣΔ Αναπληρωτή': 26,
                 }
                 for ci, col in enumerate(all_cols, 1):
                     ws.column_dimensions[get_column_letter(ci)].width = _cw.get(col, 15)
