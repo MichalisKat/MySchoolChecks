@@ -38,6 +38,8 @@ REPORTS = [
     ('topoth', 'Τοποθετήσεις εκπαιδευτικών',    '/Worker.list.myEmplUnit.aspx',                                               'Topothetiseis',       30, 90, False, 'a.hint_search', '#ctl00_ContentData_gridResults_StatusBar_btnExport'),
     ('2.1',    'Κατάλογος σχολείων',             '/Statistics/Management.stat.infoUnits.aspx?parentId=3',                     'gridResults',         30, 60, False),
     ('2.2',    'Εκτεταμένα Στοιχεία Σχολ. Μον.', '/Statistics/Management.stat.infoAdvUnits.aspx?parentId=3',                  'stat2_2',             30, 90, False),
+    ('2.4',    'Χώροι σχολικών μονάδων',         '/Statistics/Management.stat.UnitRooms.aspx?parentId=3',                     'stat2_4',             60, 120, False),
+    ('2.5',    'Κτιριακά στοιχεία',              '/Statistics/Management.stat.UnitBuildings.aspx?parentId=3',                 'stat2_5',             60, 120, False),
     # 3.1: Πριν την αναζήτηση πρέπει να τσεκαριστούν τα checkboxes ομαδοποίησης
     ('3.1',  'Κατανομή μαθητών ανά τάξη',      '/Statistics/Management.stat.sumStudGroupGP.aspx?parentId=4',                 'stat3_1',             60, 120, False, None, None,
              ['Είδος σχολείου', 'Τύπος σχολείου', 'Σχολική Μονάδα', 'Τάξη']),
@@ -63,6 +65,8 @@ FILE_PREFIX_MAP = {
     'topoth': 'Topothetiseis',
     '2.1'  : 'gridResults',
     '2.2'  : 'stat2_2',
+    '2.4'  : 'stat2_4',
+    '2.5'  : 'stat2_5',
     '3.1'  : 'stat3_1',
     '4.1'  : 'stat4_1',
     '4.2'  : 'stat4_2',
@@ -85,6 +89,9 @@ FILE_PREFIX_MAP = {
 # Το find_latest_downloads / downloads_info ψάχνει και αυτά τα prefixes.
 FILE_PREFIX_ALIASES = {
     '2.1': ['2_1'],
+    '2.2': ['2_2'],
+    '2.4': ['2_4'],
+    '2.5': ['2_5'],
     '4.1': ['4_1'],
     '4.2': ['4_2'],
 }

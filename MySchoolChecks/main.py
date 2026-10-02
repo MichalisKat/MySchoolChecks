@@ -149,7 +149,7 @@ CHECK_ORDER = [
 SMEAE_MARKER = '__SMEAE__'
 
 # Checks που εξαιρούνται από το κεντρικό μενού (π.χ. έχουν μεταφερθεί αλλού)
-CHECKS_EXCLUDED = {'orario_pe60'}
+CHECKS_EXCLUDED = {'orario_pe60', 'anoixta_dedomena'}
 
 def load_checks():
     base = os.path.dirname(os.path.abspath(__file__))
@@ -1183,6 +1183,10 @@ class LauncherApp:
              'desc': 'Εξαγωγή εκπαιδευτικών φιλτραρισμένων ανά ειδικότητα και θέση Συμβούλου Εκπ/σης.',
              'cmd': lambda: SymbouloiDialog(self.root),
              'locked': True},
+            {'title': 'Ανοιχτά Δεδομένα',
+             'desc': 'Στοιχεία δημόσιων σχολικών μονάδων ανά Δήμο — μαθητικό δυναμικό, '
+                     'αίθουσες διδασκαλίας, κτιριακά (2.2 + 2.4 + 2.5).',
+             'cmd': lambda: AnoixtaDialog(self.root)},
         ]
         for idx, item in enumerate(items, start=1):
             item['title'] = f"Β{idx}. {item['title']}"
@@ -4052,6 +4056,282 @@ class MonadaDialog(tk.Toplevel):
         τα αρχεία και ξαναχτίζει το tab «▶ Εκτέλεση» με τα φρέσκα αρχεία."""
         self._csv_path    = self._auto_find_zip('CSV_', 'stat2_2', 'gridResults')
         self._stat31_path = self._auto_find_zip('stat3_1')
+        self._build_form()
+
+
+_ANOIXTA_RIDS = ['2.2', '2.4', '2.5']
+_ANOIXTA_REQUIRED = [
+    '2.2 — Εκτεταμένα Στοιχεία Σχολικών Μονάδων',
+    '2.4 — Χώροι σχολικών μονάδων',
+    '2.5 — Κτιριακά στοιχεία',
+]
+_ANOIXTA_ALL = '— Όλοι οι Δήμοι —'
+
+
+class AnoixtaDialog(tk.Toplevel):
+    """Β5. Ανοιχτά Δεδομένα — πίνακας στοιχείων σχολικών μονάδων ανά Δήμο
+    (μαθητικό δυναμικό, αίθουσες διδασκαλίας, κτιριακά — μία γραμμή ανά
+    κτίριο). Ίδια λογική με το Β2 MonadaDialog: Λήψη 2.2/2.4/2.5 → επιλογή
+    Δήμου → Excel + προαιρετικό email στον Δήμο.
+    Η επεξεργασία/μορφοποίηση βρίσκεται στο checks/anoixta_dedomena.py."""
+
+    _SETTINGS_KEY    = 'anoixta_tool'
+    _DEFAULT_BODY    = (
+        'Αποτύπωση Myschool {date}.\n\n'
+        'Καλημέρα σας,\n\n'
+        'Επισυνάπτεται πίνακας excel με τα στοιχεία (μαθητικό δυναμικό, αίθουσες '
+        'διδασκαλίας, κτιριακά) των δημόσιων σχολικών μονάδων Π/θμιας Εκπ/σης '
+        'Δήμου {dimos} σύμφωνα με τα καταχωρημένα στοιχεία στο myschool.\n\n\n'
+        'Στη διάθεσή σας για οποιαδήποτε πληροφορία'
+    )
+    _DEFAULT_SUBJECT = 'Στοιχεία σχολικών μονάδων (ανοιχτά δεδομένα) Δήμου {dimos}'
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title('Ανοιχτά Δεδομένα — Σχολικές Μονάδες')
+        self.configure(bg=C['bg'])
+        self.resizable(False, False)
+        self.grab_set()
+        self.transient(parent)
+        self._parent = parent
+
+        s = _load_local_settings().get(self._SETTINGS_KEY, {})
+        self._saved_subject = s.get('subject',     self._DEFAULT_SUBJECT)
+        self._saved_body    = s.get('body',        self._DEFAULT_BODY)
+        self._saved_email   = s.get('dimos_email', '')
+        self._df = None          # αποτέλεσμα process() (cache)
+        self._warnings = []
+        self._find_files()
+
+        from tkinter import ttk as _ttk
+        nb = _ttk.Notebook(self)
+        nb.pack(fill='both', expand=True)
+        tab_dl   = tk.Frame(nb, bg=C['bg'])
+        tab_exec = tk.Frame(nb, bg=C['bg'])
+        nb.add(tab_dl,   text='  ⬇ Λήψη  ')
+        nb.add(tab_exec, text='  ▶ Εκτέλεση  ')
+        self._exec_body = tab_exec
+
+        _build_report_download_tab(self, tab_dl, _ANOIXTA_RIDS, _ANOIXTA_REQUIRED,
+                                    on_done=self._on_download_done)
+        self._build_form()
+        self.update_idletasks()
+        w, h = 630, 560
+        x = parent.winfo_x() + (parent.winfo_width()  - w) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - h) // 2
+        self.geometry(f'{w}x{h}+{x}+{y}')
+
+    # ── Αρχεία ───────────────────────────────────────────────────────────────
+
+    def _find_files(self):
+        f = MonadaDialog._auto_find_zip
+        self._p22 = f('stat2_2', '2_2', 'CSV_')
+        self._p24 = f('stat2_4', '2_4')
+        self._p25 = f('stat2_5', '2_5')
+        self._df = None
+
+    def _browse(self, which):
+        from tkinter import filedialog
+        p = filedialog.askopenfilename(
+            parent=self, title=f'Αρχείο {which}',
+            filetypes=[('CSV / Excel / zip', '*.csv *.xlsx *.xls *.zip'), ('Όλα', '*.*')])
+        if p:
+            setattr(self, {'2.2': '_p22', '2.4': '_p24', '2.5': '_p25'}[which], p)
+            self._df = None
+            self._build_form()
+
+    # ── Φόρμα ────────────────────────────────────────────────────────────────
+
+    def _build_form(self):
+        for w in self._exec_body.winfo_children():
+            w.destroy()
+
+        hdr = tk.Frame(self._exec_body, bg='#0F6E56', pady=10)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='📊  Ανοιχτά Δεδομένα — Σχολικές Μονάδες',
+                 bg='#0F6E56', fg='white', font=('Arial', 12, 'bold')).pack()
+        tk.Label(hdr, text='μαθητικό δυναμικό, αίθουσες, κτιριακά ανά Δήμο  '
+                           '(Απαιτούνται: 2.2, 2.4, 2.5)',
+                 bg='#0F6E56', fg='#A8D8C8', font=('Arial', 8, 'italic')).pack()
+
+        # Αρχεία (με δυνατότητα χειροκίνητης επιλογής)
+        ff = tk.Frame(self._exec_body, bg=C['bg'])
+        ff.pack(fill='x', padx=18, pady=(8, 4))
+        for i, (rid, path) in enumerate([('2.2', self._p22), ('2.4', self._p24),
+                                         ('2.5', self._p25)]):
+            ok = bool(path)
+            tk.Label(ff, text=f'{"✓" if ok else "✗"} {rid}:', bg=C['bg'],
+                     fg='#2E7D32' if ok else '#C62828',
+                     font=('Arial', 8, 'bold'), width=6, anchor='w').grid(row=i, column=0, sticky='w')
+            tk.Label(ff, text=os.path.basename(path) if ok else 'δεν βρέθηκε — κάνε Λήψη ή επίλεξε αρχείο',
+                     bg=C['bg'], fg=C['desc'], font=('Arial', 8), anchor='w',
+                     width=58).grid(row=i, column=1, sticky='w')
+            tk.Button(ff, text='📂', bg=C['bg'], relief='flat', cursor='hand2',
+                      font=('Arial', 9),
+                      command=lambda r=rid: self._browse(r)).grid(row=i, column=2, padx=(4, 0))
+
+        # Δήμος
+        tk.Label(self._exec_body, text='Δήμος:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(6, 0))
+        dimos_row = tk.Frame(self._exec_body, bg=C['bg'])
+        dimos_row.pack(fill='x', padx=18, pady=(2, 6))
+        self._dimos_var = tk.StringVar()
+        from tkinter import ttk as _ttk
+        self._dimos_combo = _ttk.Combobox(dimos_row, textvariable=self._dimos_var,
+                                           width=40, state='readonly')
+        self._dimos_combo.pack(side='left')
+        self._dimos_lbl = tk.Label(dimos_row, text='Φόρτωση…',
+                                    bg=C['bg'], fg=C['desc'], font=('Arial', 8))
+        self._dimos_lbl.pack(side='left', padx=(10, 0))
+
+        # Email
+        pad = dict(padx=18, pady=2)
+        self._to_txt = _build_recipients_box(
+            self._exec_body, 'Προς (email δήμου):', self._saved_email)
+        tk.Label(self._exec_body, text='Θέμα:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **pad)
+        self._subj_var = tk.StringVar(value=self._saved_subject)
+        tk.Entry(self._exec_body, textvariable=self._subj_var,
+                 font=('Arial', 9)).pack(fill='x', padx=18, pady=(0, 6))
+        tk.Label(self._exec_body, text='Κείμενο email:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **pad)
+        self._body_txt = tk.Text(self._exec_body, font=('Arial', 9), height=5,
+                                  wrap='word', relief='solid', bd=1)
+        self._body_txt.pack(fill='x', padx=18, pady=(0, 6))
+
+        btn_row = tk.Frame(self._exec_body, bg=C['bg'])
+        btn_row.pack(side='bottom', pady=10)
+        tk.Button(btn_row, text='Μόνο Excel (χωρίς email)',
+                  bg=C['bg2'], fg=C['hdr_bg'], relief='flat',
+                  font=('Arial', 9), padx=10, pady=5, cursor='hand2',
+                  command=lambda: self._execute(send=False)).pack(side='left', padx=4)
+        tk.Button(btn_row, text='▶  Δημιουργία & Αποστολή',
+                  bg=C['btn_bg'], fg=C['btn_fg'], relief='flat',
+                  font=('Arial', 9, 'bold'), padx=14, pady=5, cursor='hand2',
+                  command=lambda: self._execute(send=True)).pack(side='left', padx=4)
+
+        self._dimos_var.trace_add('write', self._on_dimos_change)
+        self._on_dimos_change()
+        self.after(100, self._load_dimos)
+
+    def _fill_text(self, txt, dimos):
+        from datetime import datetime as _dt
+        _DAYS_GR = ['Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο', 'Κυριακή']
+        return (txt.replace('{date}', _dt.today().strftime('%d/%m/%Y'))
+                   .replace('{day}', _DAYS_GR[_dt.today().weekday()])
+                   .replace('{dimos}', dimos))
+
+    def _on_dimos_change(self, *_):
+        dimos = self._dimos_var.get()
+        if dimos == _ANOIXTA_ALL:
+            dimos = ''
+        self._subj_var.set(self._fill_text(self._saved_subject, dimos))
+        self._body_txt.delete('1.0', 'end')
+        self._body_txt.insert('1.0', self._fill_text(self._saved_body, dimos))
+
+    def _ensure_processed(self):
+        """Τρέχει το process() μία φορά (cache) — None αν λείπουν αρχεία."""
+        if self._df is not None:
+            return self._df
+        if not (self._p22 and self._p24 and self._p25):
+            return None
+        from checks import anoixta_dedomena as _ad
+        self._df, self._warnings = _ad.process(self._p22, self._p24, self._p25)
+        return self._df
+
+    def _load_dimos(self):
+        if not self._p22:
+            self._dimos_lbl.config(text='Δεν βρέθηκε 2.2.', fg='#CC0000')
+            return
+        try:
+            df = self._ensure_processed()
+            if df is None:
+                # Χωρίς 2.4/2.5: φόρτωσε μόνο τους Δήμους από το 2.2
+                from checks import anoixta_dedomena as _ad
+                dimoi = sorted(_ad.load_22(self._p22)['dimos'].dropna().unique())
+            else:
+                from checks import anoixta_dedomena as _ad
+                dimoi = _ad.list_dimoi(df)
+            self._dimos_combo.config(values=dimoi + [_ANOIXTA_ALL])
+            if dimoi and not self._dimos_var.get():
+                self._dimos_var.set(dimoi[0])
+            self._dimos_lbl.config(text=f'{len(dimoi)} δήμοι', fg=C['desc'])
+        except Exception as e:
+            self._dimos_lbl.config(text=f'Σφάλμα: {e}', fg='#CC0000')
+
+    # ── Εκτέλεση ─────────────────────────────────────────────────────────────
+
+    def _execute(self, send=True):
+        import json
+        from datetime import datetime
+        from checks import anoixta_dedomena as _ad
+
+        dimos     = self._dimos_var.get().strip()
+        to_emails = _parse_recipients(self._to_txt)
+        subject   = self._subj_var.get().strip()
+        body_text = self._body_txt.get('1.0', 'end-1c')
+        full_body = body_text + '\n\n' + config.email_signature()
+
+        if not dimos:
+            messagebox.showwarning('Δήμος', 'Επίλεξε Δήμο.', parent=self)
+            return
+        if send and not to_emails:
+            messagebox.showwarning('Email', 'Εισάγετε email παραλήπτη.', parent=self)
+            return
+        if not (self._p22 and self._p24 and self._p25):
+            from core.framework import _missing_file_dialog
+            _missing_file_dialog('Ανοιχτά Δεδομένα', _ANOIXTA_REQUIRED)
+            return
+
+        try:
+            df = self._ensure_processed()
+            today     = datetime.today()
+            today_str = today.strftime('%Y%m%d')
+            out_dir   = os.path.join(_docs_base(), f'results_{today_str}')
+            os.makedirs(out_dir, exist_ok=True)
+            is_all    = (dimos == _ANOIXTA_ALL)
+            safe      = 'ΟΛΟΙ_ΟΙ_ΔΗΜΟΙ' if is_all else dimos.replace('/', '_').replace('\\', '_')
+            out_path  = os.path.join(out_dir, f'Ανοιχτά_Δεδομένα_{safe}_{today_str}.xlsx')
+            n_sc, n_bld = _ad.build_for_dimos(df, None if is_all else dimos, out_path, today)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            messagebox.showerror('Σφάλμα', str(e), parent=self)
+            return
+
+        # Αποθήκευση ρυθμίσεων (πρότυπα θέματος/κειμένου + email)
+        s = _load_local_settings()
+        s[self._SETTINGS_KEY] = {
+            'subject':     self._saved_subject,
+            'body':        self._saved_body,
+            'dimos_email': '\n'.join(to_emails),
+        }
+        path_s = _get_local_settings_path()
+        os.makedirs(os.path.dirname(path_s), exist_ok=True)
+        with open(path_s, 'w', encoding='utf-8') as f:
+            json.dump(s, f, ensure_ascii=False, indent=2)
+
+        info = f'Σχολεία: {n_sc}  •  Κτίρια: {n_bld}'
+        if self._warnings:
+            info += '\n\n⚠ ' + '\n⚠ '.join(self._warnings) + '\n(βλ. φύλλο «ΕΛΛΕΙΨΕΙΣ»)'
+        from core.framework import _show_results_popup
+        if not send:
+            _show_results_popup('Ανοιχτά Δεδομένα', f'Αρχείο αποθηκεύτηκε.\n\n{info}',
+                                result_type='warn', excel_path=out_path)
+            self.destroy()
+            return
+        try:
+            from core.framework import send_email
+            send_email(config, to_emails, subject, full_body, out_path)
+            _show_results_popup('Ανοιχτά Δεδομένα',
+                                f'Email στάλθηκε: {", ".join(to_emails)}\n\n{info}',
+                                result_type='ok', excel_path=out_path)
+            self.destroy()
+        except Exception as e:
+            messagebox.showerror('Σφάλμα αποστολής', str(e), parent=self)
+
+    def _on_download_done(self):
+        """Μετά τη Λήψη: ξανα-ανιχνεύει τα αρχεία και ξαναχτίζει την Εκτέλεση."""
+        self._find_files()
         self._build_form()
 
 
