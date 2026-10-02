@@ -28,7 +28,7 @@ checks/anoixta_dedomena.py
     Οι αίθουσες του 2.4 μοιράζονται στα κτίρια με βάση τη στήλη «Κτίριο»
     (= «Ονομασία Κτιρίου» του 2.5). Αίθουσες με κτίριο που δεν βρίσκεται
     στο 2.5 → στο 1ο κτίριο του σχολείου (+ σημείωση στο φύλλο ΕΛΛΕΙΨΕΙΣ).
-  • ΣΥΝΟΛΑ: μαθητές/αίθουσες = άθροισμα· κτιριακά = πλήθος ΚΤΙΡΙΩΝ με «Ναι».
+  • ΣΥΝΟΛΑ: μόνο μαθητές/αίθουσες (άθροισμα)· στα κτιριακά δεν μπαίνει σύνολο.
   • Σχολείο που λείπει από το 2.4 / 2.5 → κενά κελιά στις αντίστοιχες στήλες.
 """
 
@@ -547,15 +547,10 @@ def _write_sheet(ws, df_s, title):
             cell.fill = fill_out[cl]
         if len(df_s) == 0 or ci <= _ci(BLD_COL):
             continue
-        rng = f'{cl}{first}:{cl}{last}'
+        # ΣΥΝΟΛΑ μόνο σε ΜΑΘ. ΔΥΝΑΜΙΚΟ + ΑΙΘΟΥΣΕΣ· στα ΚΤΙΡΙΑΚΑ κενά
+        # (άθροισμα/μέσος όρος δεν έχει νόημα — απόφαση χρήστη v4.5.0)
         if ci <= k_i:
-            cell.value = f'=SUM({rng})'
-        elif ci == l_i:
-            cell.value = f'=IFERROR(AVERAGE({rng}),"")'
-            cell.number_format = '0'
-        else:
-            cell.value = f'=COUNTIF({rng},"{YES}")'
-            cell.alignment = Alignment(horizontal='center')
+            cell.value = f'=SUM({cl}{first}:{cl}{last})'
     ws[f'A{tr}'].alignment = Alignment(horizontal='right', vertical='center')
     ws.row_dimensions[tr].height = 18.75
 
